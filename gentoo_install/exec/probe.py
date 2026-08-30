@@ -590,6 +590,11 @@ BOOTED_BY_SYSTEMD_BOOT: Final[re.Pattern[str]] = re.compile(
 )
 
 
+#: What `exec/runner.py` answers for a command it could not run, which is how
+#: "this medium has no `zpool`" is told from "`zpool` ran and failed".
+ABSENT_COMMAND: Final[int] = 127
+
+
 @dataclass
 class Probe:
     """Resolves ids to paths and answers questions about the machine.
@@ -1505,11 +1510,18 @@ class Probe:
         the operator was installing onto.
         """
         listed = self.runner.run(["zpool", "list", "-v", "-H", "-P"], check=False)
-        if listed.returncode != 0:
-            # No pools and no `zpool` are the same answer here: nothing this
-            # command can tell us. `zpool` missing is the common case on a
-            # medium without ZFS, and it is not evidence that a disk is busy.
+        if listed.returncode == ABSENT_COMMAND:
+            # A medium without ZFS has no `zpool`, and that is not evidence
+            # that a disk is busy. The runner answers 127 for a command it
+            # could not run, which is the target's answer rather than this
+            # machine's.
             return False
+        if listed.returncode != 0:
+            # `zpool` present and failing says nothing either way, and this
+            # answered `False` for that too: an imported pool's vdev could
+            # then be repartitioned. `lsblk` and `swapon` in `mounted` both
+            # answer `True` when their command fails, and so does this one.
+            return True
         whole = str(Path(disk).resolve())
         ours = False
         for line in listed.stdout.splitlines():
