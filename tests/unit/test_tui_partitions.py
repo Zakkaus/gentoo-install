@@ -1836,3 +1836,29 @@ def test_reopening_swap_resizes_the_slice_it_already_added() -> None:
     sizes = [entry.size for entry in at.layout.slices if entry.role is PartitionRole.SWAP]
     assert sizes == [Size.parse("8GiB")], sizes
     assert len(answer.unwrap().disk.graph.of_type(Swap)) == 1
+
+
+def test_a_mountpoint_that_cannot_be_a_dataset_name_is_refused() -> None:
+    """A zfs row's mount point becomes the dataset name, and OpenZFS's
+    `valid_char` takes only alphanumerics, `-`, `_`, `.`, `:` and a space —
+    `@` is the snapshot separator, so `/srv/@cache` asks `zfs create` for a
+    snapshot. And `/` and `/ROOT/gentoo` both spell `ROOT/gentoo`, which
+    `DeviceGraph.build` cannot see because it only rejects duplicate ids."""
+    def zfs_row(index: int, mountpoint: str) -> manual.Slice:
+        return manual.Slice(
+            index=index, role=PartitionRole.ZFS, size=None, mountpoint=mountpoint
+        )
+
+    bad_character = one_disk(slices=[zfs_row(1, "/srv/@cache")])
+    with pytest.raises(InvalidLayout, match="cannot"):
+        manual.build(bad_character)
+
+    same_name = one_disk(slices=[zfs_row(1, "/"), zfs_row(2, "/ROOT/gentoo")])
+    with pytest.raises(InvalidLayout, match="both name the dataset"):
+        manual.build(same_name)
+
+    # An ordinary pair still builds.
+    fine = one_disk(slices=[zfs_row(1, "/"), zfs_row(2, "/srv")])
+    graph, root = manual.build(fine)
+    assert root
+    assert {one.name for one in graph.of_type(ZfsDataset)} == {"ROOT/gentoo", "srv"}

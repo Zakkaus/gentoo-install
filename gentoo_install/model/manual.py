@@ -334,6 +334,30 @@ def dataset_for(mountpoint: str) -> str:
     return ROOT_DATASET if mountpoint == "/" else mountpoint.strip("/").replace("//", "/")
 
 
+#: What a dataset name component may hold, from OpenZFS's own
+#: `zfs_namecheck.c`: `valid_char` takes the alphanumerics plus `-`, `_`, `.`,
+#: `:` and a space, and everything else is `NAME_ERR_INVALCHAR`. `@` is the
+#: snapshot separator, so a mount point holding one names a snapshot to
+#: `zfs create`.
+DATASET_CHARACTERS: Final[frozenset[str]] = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.: "
+)
+
+
+def dataset_name_refused(mountpoint: str) -> str:
+    """Why `zfs create` would refuse the dataset for this mount point."""
+    name = dataset_for(mountpoint)
+    if not name:
+        return ""
+    for component in name.split("/"):
+        if not component:
+            return f"{name} has an empty component"
+        refused = next((one for one in component if one not in DATASET_CHARACTERS), "")
+        if refused:
+            return f"{name} holds {refused!r}, which a dataset name cannot"
+    return ""
+
+
 def _index_of(entry: Slice) -> int:
     """The number the partition has in the table on the disk.
 
@@ -535,11 +559,23 @@ def build(layout: Layout) -> tuple[DeviceGraph, DeviceId]:
                 passphrase_file=layout.passphrase_file,
             )
         )
+        # Names, not ids: `DeviceGraph.build` rejects a duplicate id, and `/`
+        # and `/ROOT/gentoo` both spell `ROOT/gentoo`, so the second
+        # `zfs create` failed on a dataset that already exists.
+        taken: dict[str, str] = {}
         for prefix, entry in datasets:
+            name = dataset_for(entry.mountpoint)
+            if refused := dataset_name_refused(entry.mountpoint):
+                raise InvalidLayout(f"{entry.mountpoint} names a dataset {refused}")
+            if name in taken:
+                raise InvalidLayout(
+                    f"{entry.mountpoint} and {taken[name]} both name the dataset {name}"
+                )
+            taken[name] = entry.mountpoint
             dataset = DeviceId(f"{prefix}-ds{entry.index}")
             mount = DeviceId(f"{prefix}-mnt{entry.index}")
             nodes += [
-                ZfsDataset(id=dataset, pool=DeviceId("pool"), name=dataset_for(entry.mountpoint)),
+                ZfsDataset(id=dataset, pool=DeviceId("pool"), name=name),
                 Mountpoint(id=mount, source=dataset, path=PurePosixPath(entry.mountpoint)),
             ]
             if entry.mountpoint == "/":

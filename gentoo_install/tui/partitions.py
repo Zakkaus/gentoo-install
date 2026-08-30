@@ -865,10 +865,17 @@ class _SliceRule:
 
 
 def _mountpoint_refused(entry: manual.Slice) -> bool:
-    # The two conditions `validate` reads off the built graph, where the
-    # message names a node rather than the field the operator typed into.
-    return bool(entry.mountpoint) and (
-        not entry.mountpoint.startswith("/") or ".." in entry.mountpoint.split("/")
+    # The conditions `validate` reads off the built graph, where the message
+    # names a node rather than the field the operator typed into. A zfs row
+    # carries a third: the mount point becomes the dataset name, and `zfs
+    # create` takes a narrower character set than a path does.
+    if not entry.mountpoint:
+        return False
+    if not entry.mountpoint.startswith("/") or ".." in entry.mountpoint.split("/"):
+        return True
+    return bool(
+        entry.role is PartitionRole.ZFS
+        and manual.dataset_name_refused(entry.mountpoint)
     )
 
 
