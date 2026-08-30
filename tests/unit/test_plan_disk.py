@@ -620,6 +620,52 @@ def test_release_retries_a_busy_container_until_it_closes() -> None:
     assert ("sleep", "5") in recorder.commands
 
 
+def test_a_findmnt_that_failed_is_not_read_as_unmounted() -> None:
+    """`findmnt` answers 1 when the path is not a mountpoint and every other
+    non-zero code when the probe itself failed. `MountFilesystem` writes that
+    rule out and allows `(0, 1)`; both cleanup readers had `returncode == 0`,
+    so a failed probe read as `unmounted`, the lazy unmount was skipped and
+    the wipe ran against a target that was still mounted."""
+
+    class Broken(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            if argv[0] == "findmnt":
+                self.commands.append(tuple(argv))
+                return CommandOutput("findmnt: bad usage", 2)
+            if argv[0] == "umount":
+                self.commands.append(tuple(argv))
+                return CommandOutput("", 0)
+            return super().run(argv, check=check, input_text=input_text)
+
+    with pytest.raises(CommandFailed, match="could not be read"):
+        disk.ReleaseTarget(steps=()).apply(Broken())
+
+    with pytest.raises(CommandFailed, match="could not be read"):
+        disk.UnmountTarget(pools=()).apply(Broken())
+
+
+def test_a_findmnt_that_says_not_a_mountpoint_is_still_read_as_unmounted() -> None:
+    """Negative control for the above: exit 1 is `findmnt` answering, not
+    failing, and a run that unmounted everything must not raise on it."""
+
+    class Clean(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            if argv[0] == "findmnt":
+                self.commands.append(tuple(argv))
+                return CommandOutput("", 1)
+            if argv[0] == "umount":
+                self.commands.append(tuple(argv))
+                return CommandOutput("", 0)
+            return super().run(argv, check=check, input_text=input_text)
+
+    disk.ReleaseTarget(steps=()).apply(Clean())
+    disk.UnmountTarget(pools=()).apply(Clean())
+
+
 def test_release_accepts_a_missing_container_after_close_fails() -> None:
     class MissingLuks(Recorder):
         def run(

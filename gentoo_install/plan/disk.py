@@ -160,6 +160,13 @@ class ReleaseTarget(Operation):
         found = context.run(["findmnt", "--mountpoint", str(path)], check=False)
         if not isinstance(found, CommandOutput):
             raise CommandFailed(f"cannot determine whether {path} is mounted")
+        # 1 is `findmnt` saying the path is not a mountpoint; anything else is
+        # the probe failing, and reading that as unmounted skipped the lazy
+        # unmount and let the wipe run against a target still mounted.
+        if found.returncode not in _FINDMNT_ANSWERED:
+            raise CommandFailed(
+                f"whether {path} is mounted could not be read: {str(found).strip()[:200]}"
+            )
         return found.returncode == 0
 
     def _close(self, context: Context, argv: tuple[str, ...]) -> None:
@@ -1093,7 +1100,16 @@ class UnmountTarget(Operation):
         found = context.run(
             ["findmnt", "--mountpoint", str(context.target)], check=False
         )
-        return isinstance(found, CommandOutput) and found.returncode == 0
+        if not isinstance(found, CommandOutput):
+            raise CommandFailed(
+                f"whether {context.target} is mounted could not be read"
+            )
+        if found.returncode not in _FINDMNT_ANSWERED:
+            raise CommandFailed(
+                f"whether {context.target} is mounted could not be read: "
+                f"{str(found).strip()[:200]}"
+            )
+        return found.returncode == 0
 
     def _unmount_datasets(self, context: Context, pool: str) -> None:
         """Unmount the pool's own datasets, deepest first.
@@ -1587,6 +1603,13 @@ def _expect(graph: DeviceGraph, device: DeviceId, kind: type[T]) -> T:
             f"{device!r} is a {type(node).__name__.lower()} where a {kind.__name__.lower()} is required"
         )
     return node
+
+
+#: `findmnt` answers 0 when the path is a mountpoint and 1 when it is not.
+#: Every other code is the probe failing, which is a different answer: the
+#: rule is written out at `MountFilesystem`, and the two cleanup readers had
+#: it as `returncode == 0`.
+_FINDMNT_ANSWERED: Final[tuple[int, ...]] = (0, 1)
 
 
 def _under(target: PurePosixPath, path: PurePosixPath) -> PurePosixPath:
