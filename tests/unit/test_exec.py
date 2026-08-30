@@ -1762,6 +1762,41 @@ def test_a_disk_holding_an_imported_pool_is_in_use(tmp_path: Path) -> None:
     assert not probe._in_an_imported_pool(f"{tmp_path}/disk2")
 
 
+def test_a_version_key_orders_a_revision_above_the_version_it_revises() -> None:
+    """`2.4.3`, `2.4.3-r1` and `2.4.3_rc1` all answered `(2, 4, 3)`, and the
+    sort is stable, so which one the ZFS ceiling reader took was whatever
+    packages.gentoo.org returned first: a release candidate could be chosen as
+    the kernel ceiling and a revision was indistinguishable from its base.
+
+    Gentoo's own order: `_alpha < _beta < _pre < _rc < the bare version < _p`,
+    and `-rN` after all of them.
+    """
+    from gentoo_install.exec.fetch import _version_key
+
+    ordered = [
+        "2.3.9",
+        "2.4.3_alpha1",
+        "2.4.3_beta1",
+        "2.4.3_pre1",
+        "2.4.3_rc1",
+        "2.4.3_rc2",
+        "2.4.3",
+        "2.4.3-r1",
+        "2.4.3-r2",
+        "2.4.3_p1",
+        "2.4.4",
+        "6.6.148",
+        "6.18.43",
+    ]
+    assert sorted(ordered, key=_version_key) == ordered, sorted(
+        ordered, key=_version_key
+    )
+    # And no two of them share a key, which is what left the order to the
+    # server.
+    keys = [_version_key(one) for one in ordered]
+    assert len(set(keys)) == len(keys), keys
+
+
 def test_an_absent_zpool_and_a_failing_zpool_answer_differently(tmp_path: Path) -> None:
     """`mounted` has three readers and two of them answer `True` when their
     command fails. This one answered `False` for both "no `zpool` here" and
