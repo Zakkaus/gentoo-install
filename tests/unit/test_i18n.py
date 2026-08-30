@@ -66,6 +66,12 @@ def test_a_broken_catalog_is_named_rather_than_ignored(tmp_path: Path) -> None:
         Catalog("xx", tmp_path)("Disks")
 
 
+def test_a_catalog_value_with_a_control_character_names_its_key(tmp_path: Path) -> None:
+    (tmp_path / "xx.toml").write_text('[strings]\nDisks = "broken\\nline"\n')
+    with pytest.raises(ConfigError, match="Disks.*control character"):
+        Catalog("xx", tmp_path)("Disks")
+
+
 def test_every_shipped_catalog_translates_the_same_keys() -> None:
     """A key in one catalog and not the other is a screen that changes language
     halfway down."""

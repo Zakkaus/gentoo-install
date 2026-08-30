@@ -15,6 +15,7 @@ from typing import Any, Final, Mapping, Sequence, TypeVar
 from decimal import Decimal
 
 from ..errors import ConfigError, InvalidSize
+from . import compat
 from . import config as model_config
 from . import sshkey
 from . import templates
@@ -121,8 +122,9 @@ def _proxy(raw: Mapping[str, Any], at: str) -> ProxyConfig:
     port = _int(raw, "port", at, default.port)
     username = _str(raw, "username", at, default.username)
     password = _str(raw, "password", at, default.password)
-    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in password):
-        raise ConfigError(f"{_at('password', at)} contains control characters")
+    for field, value in (("username", username), ("password", password)):
+        if refused := compat.curl_config_character_problem(value):
+            raise ConfigError(f"{_at(field, at)} contains {refused}")
     if host and any(char.isspace() for char in host):
         raise ConfigError(f"{_at('host', at)} must not contain spaces")
     if port < 0 or port > 65535:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 import tomllib
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path, PurePosixPath
@@ -239,6 +240,36 @@ def test_a_broken_proxy_is_refused_in_dd_mode_too() -> None:
         proxy=ProxyConfig(kind=ProxyKind.HTTP, host="proxy.example", port=3128),
     )
     validate(working)
+
+
+@pytest.mark.parametrize(
+    ("username", "password", "field", "character"),
+    (
+        ('operator"quote', "", "username", "double quote"),
+        (r"operator\slash", "", "username", "backslash"),
+        ("operator\ncontrol", "", "username", "control character U+000A"),
+        ("", 'p"q', "password", "double quote"),
+        ("", r"password\slash", "password", "backslash"),
+        ("", "password\ncontrol", "password", "control character U+000A"),
+    ),
+)
+def test_proxy_credentials_reject_curl_config_characters(
+    username: str, password: str, field: str, character: str
+) -> None:
+    from gentoo_install.model.config import ProxyConfig, ProxyKind
+
+    broken = replace(
+        config(),
+        proxy=ProxyConfig(
+            kind=ProxyKind.HTTP,
+            host="proxy.example",
+            port=3128,
+            username=username,
+            password=password,
+        ),
+    )
+    with pytest.raises(ValidationFailed, match=rf"{field}.*{re.escape(character)}"):
+        validate(broken)
 
 
 def test_the_profile_probe_reads_current_amd64_paths(tmp_path: Path) -> None:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import tomllib
+import re
 from pathlib import Path
 from typing import Any
 
@@ -172,10 +173,28 @@ def test_proxy_kind_rejects_unsupported_values(scheme: str) -> None:
         parse(raw)
 
 
-def test_proxy_password_rejects_control_characters() -> None:
+@pytest.mark.parametrize(
+    ("field", "value", "character"),
+    (
+        ("username", 'operator"quote', "double quote"),
+        ("username", r"operator\slash", "backslash"),
+        ("username", "operator\ncontrol", "control character U+000A"),
+        ("password", 'p"q', "double quote"),
+        ("password", r"password\slash", "backslash"),
+        ("password", "password\ncontrol", "control character U+000A"),
+    ),
+)
+def test_proxy_credentials_reject_curl_config_characters(
+    field: str, value: str, character: str
+) -> None:
     raw = fixture()
-    raw["proxy"] = {"kind": "http", "host": "proxy.example", "port": 8080, "password": "bad\npass"}
-    with pytest.raises(ConfigError, match="password.*control"):
+    raw["proxy"] = {
+        "kind": "http",
+        "host": "proxy.example",
+        "port": 8080,
+        field: value,
+    }
+    with pytest.raises(ConfigError, match=rf"{field}.*{re.escape(character)}"):
         parse(raw)
 
 
