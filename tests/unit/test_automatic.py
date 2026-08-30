@@ -917,6 +917,31 @@ def test_answering_the_region_row_with_the_same_region_keeps_the_site() -> None:
     assert moved.portage.mirrors.site == ""
 
 
+def test_choosing_a_chinese_interface_installs_no_package_group() -> None:
+    """Read off `tui1`, whose spec said no desktop environment. The interface
+    language seeded `fcitx5`, `rime` and `noto-cjk`, so the install emerged
+    `app-i18n/fcitx{,-gtk,-qt}`, rime and `media-fonts/noto-cjk` onto a machine
+    with no X and no Wayland: the fcitx5 group alone ran from 0:33:01 to
+    1:39:38 of a 1:43:48 install. The language decides the locale, the
+    timezone, the console and the mirror region; package groups are the
+    desktop row's business."""
+    from gentoo_install.tui import screens as tui_screens
+
+    for tag in ("zh-CN", "zh-TW"):
+        started = config(ext4_on_gpt())
+        seeded = tui_screens.with_language(started, tag)
+        assert seeded.packages.applications == started.packages.applications, (
+            tag,
+            seeded.packages.applications,
+        )
+        assert seeded.packages.desktop == "", (tag, seeded.packages.desktop)
+        # The language itself still arrives, and the CJK console with it:
+        # that comes from the cjktty kernel, not from a font package.
+        assert seeded.system.locale.startswith("zh_"), seeded.system.locale
+        assert seeded.system.console_cjk
+        assert seeded.system.timezone.startswith("Asia/"), seeded.system.timezone
+
+
 def test_turning_gentoo_zh_off_and_on_keeps_the_channel_that_was_chosen() -> None:
     """`with_gentoo_zh` turns the community host on at `stable`, so an operator
     who had chosen `unstable` was moved to the other channel by turning the
