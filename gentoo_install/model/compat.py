@@ -820,10 +820,28 @@ _MODULAR_CRYPT = re.compile(
 )
 _DES_CRYPT = re.compile(r"^[./0-9A-Za-z]{13}$")
 
+#: How long the digest field is for each scheme whose length is fixed,
+#: measured with `openssl passwd` on one salt. `$6$salt$x` has the shape of a
+#: SHA-512 hash and one character where eighty-six belong, and `crypt(3)`
+#: never produces it: a configuration whose only login carried a truncated
+#: hash passed validation and installed a machine nothing could log in to,
+#: which is what `ROOT_LOCKED` exists to prevent.
+#:
+#: bcrypt, yescrypt and scrypt are absent on purpose. Their digest length is
+#: not a single fixed number, so those three keep the shape check alone rather
+#: than a length guessed at.
+_CRYPT_DIGEST_LENGTH: Final[dict[str, int]] = {"1": 22, "5": 43, "6": 86}
+
 
 def _password_can_authenticate(password_hash: str) -> bool:
-    """Whether the value has a supported crypt(3) hash shape."""
-    return bool(_MODULAR_CRYPT.fullmatch(password_hash) or _DES_CRYPT.fullmatch(password_hash))
+    """Whether the value is a crypt(3) hash something could authenticate against."""
+    if _DES_CRYPT.fullmatch(password_hash):
+        return True
+    if not _MODULAR_CRYPT.fullmatch(password_hash):
+        return False
+    scheme = password_hash.split("$")[1]
+    wanted = _CRYPT_DIGEST_LENGTH.get(scheme)
+    return wanted is None or len(password_hash.rsplit("$", 1)[-1]) == wanted
 
 
 #: The traits `traits_of` reads out of the device graph. An in-place

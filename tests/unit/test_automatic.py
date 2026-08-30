@@ -531,7 +531,7 @@ def test_the_account_is_one_form_and_a_wrong_answer_keeps_the_others() -> None:
     assert user.name == "zakk"
     assert user.sudo is True
     assert user.groups == ("plugdev", "kvm")
-    assert user.password_hash == "$6$test$4"
+    assert user.password_hash == "$6$test$" + "4".ljust(86, "a")
 
 
 def test_a_name_useradd_would_refuse_is_refused_on_the_form() -> None:
@@ -584,7 +584,7 @@ def test_the_erase_row_is_not_reported_as_a_field_to_fill_in() -> None:
     at.visited.update(one.key for group in settings.SETTINGS for one in (group, *group.rows))
     ready = replace(
         config(ext4_on_gpt()),
-        system=replace(config().system, root_password_hash="$6$t$x"),
+        system=replace(config().system, root_password_hash="$6$t$" + "x" * 86),
         portage=replace(
             config().portage, mirrors=replace(config().portage.mirrors, site="tuna")
         ),

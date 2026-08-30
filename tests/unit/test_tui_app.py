@@ -83,7 +83,7 @@ def context() -> tui_context.Context:
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
-        hash_password=lambda password: f"$6$test${len(password)}",
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
         stage_passphrase=staged,
         timezones=("UTC", "Asia/Shanghai", "Asia/Taipei", "Europe/London"),
         # The rows that offer a share of memory have nothing to offer at zero,
@@ -260,7 +260,7 @@ def test_install_hands_back_the_configuration() -> None:
     )
     ready = replace(
         config(),
-        system=replace(config().system, root_password_hash="$6$test$x"),
+        system=replace(config().system, root_password_hash="$6$test$" + "x" * 86),
         portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="osuosl")),
     )
     # The Install row opens the overview: enter leaves the operation list, and
@@ -291,7 +291,7 @@ def test_the_install_row_shows_every_operation_before_it_starts() -> None:
     )
     ready = replace(
         config(),
-        system=replace(config().system, root_password_hash="$6$test$x"),
+        system=replace(config().system, root_password_hash="$6$test$" + "x" * 86),
         portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="osuosl")),
     )
     # Enter leaves the overview, then No, which returns to the menu.
@@ -2400,7 +2400,7 @@ def test_a_password_is_typed_twice_before_it_is_hashed() -> None:
         "KEY_DOWN", *"first", "\n", "\n",
     ]
     answer = screens.root_password_screen(FakeScreen(keys=keys, lines=24), config(), at)
-    assert answer.unwrap().system.root_password_hash == "$6$test$5"
+    assert answer.unwrap().system.root_password_hash == "$6$test$" + "5".ljust(86, "a")
 
     # One form: the two passwords differ, so it redraws with a message and the
     # name is still there. Down to the second field, fix it, then Done.
@@ -2410,7 +2410,7 @@ def test_a_password_is_typed_twice_before_it_is_hashed() -> None:
     ]
     made = screens.user_screen(FakeScreen(keys=account, lines=24, columns=100), config(), at)
     user = made.unwrap().system.users[0]
-    assert user.name == "zakk" and user.password_hash == "$6$test$4"
+    assert user.name == "zakk" and user.password_hash == "$6$test$" + "4".ljust(86, "a")
 
 
 def test_the_keyboard_layout_is_picked_from_what_the_machine_ships() -> None:
@@ -2563,7 +2563,7 @@ def test_a_detected_row_has_to_be_opened_and_not_only_filled_in() -> None:
     at.confirmed = {one.selector for one in compat.destroyed(config().disk.graph)}
     ready = replace(
         config(),
-        system=replace(config().system, root_password_hash="$6$test$x"),
+        system=replace(config().system, root_password_hash="$6$test$" + "x" * 86),
         portage=replace(config().portage, mirrors=replace(config().portage.mirrors, site="osuosl")),
     )
     # The group itself counts when nothing behind it is required: `Compiler`
@@ -3804,7 +3804,7 @@ def test_the_password_fields_are_one_form_the_arrows_move_between() -> None:
         "KEY_DOWN", "\n", "\n",
     ]
     answer = screens.root_password_screen(FakeScreen(keys=keys, lines=24), config(), at)
-    assert answer.unwrap().system.root_password_hash == "$6$test$5"
+    assert answer.unwrap().system.root_password_hash == "$6$test$" + "5".ljust(86, "a")
 
     # Nothing typed leaves the row alone rather than asking for ever.
     away = screens.root_password_screen(
@@ -3865,7 +3865,7 @@ def test_the_conversion_is_not_offered_when_the_machine_refuses_it() -> None:
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
-        hash_password=lambda password: f"$6$test${len(password)}",
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
         conversion_refused=Refusal("this is a live medium (gentoo.iso), so there is no system to replace"),
         running_system="",
     ))
@@ -3881,7 +3881,7 @@ def test_the_conversion_is_not_offered_when_the_machine_refuses_it() -> None:
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
-        hash_password=lambda password: f"$6$test${len(password)}",
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
         conversion_refused=Refusal(""),
         running_system="/dev/vda2 on ext4",
     ))
@@ -3897,7 +3897,7 @@ def test_the_conversion_is_not_offered_when_the_machine_refuses_it() -> None:
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
-        hash_password=lambda password: f"$6$test${len(password)}",
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
     )
     assert blank.conversion_refused, "an unread machine is not a convertible one"
 
@@ -3915,7 +3915,7 @@ def test_choosing_the_conversion_drops_the_device_graph() -> None:
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
-        hash_password=lambda password: f"$6$test${len(password)}",
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
         conversion_refused=Refusal(""),
         running_system="/dev/vda2 on ext4",
     ))
@@ -3959,7 +3959,7 @@ def test_the_swap_screen_names_the_word_it_asks_for() -> None:
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
-        hash_password=lambda password: f"$6$test${len(password)}",
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
         conversion_refused=Refusal(""),
         running_system="/dev/vda2 on ext4",
     ))
@@ -3976,7 +3976,7 @@ def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
             translate=Catalog("en"),
             disks=DISKS,
             groups=load_catalog(),
-            hash_password=lambda password: f"$6$test${len(password)}",
+            hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
             conversion_refused=Refusal("the running system was not read"),
         )
     )
@@ -3989,7 +3989,7 @@ def test_dd_mode_is_offered_only_from_a_live_or_memory_environment() -> None:
             translate=Catalog("en"),
             disks=DISKS,
             groups=load_catalog(),
-            hash_password=lambda password: f"$6$test${len(password)}",
+            hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
             conversion_refused=Refusal("the running system was not read"),
             image_write_refused=Refusal(""),
         )
@@ -4463,7 +4463,7 @@ def test_every_row_answers_after_the_conversion_is_confirmed() -> None:
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
-        hash_password=lambda password: f"$6$test${len(password)}",
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
         conversion_refused=Refusal(""),
         running_system="/dev/vda2 on btrfs",
     )
@@ -4502,7 +4502,7 @@ def test_a_conversion_can_reach_its_install_row() -> None:
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
-        hash_password=lambda password: f"$6$test${len(password)}",
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
         conversion_refused=Refusal(""),
         running_system="/dev/vda2 on btrfs",
     ))
@@ -4537,7 +4537,7 @@ def test_a_refused_row_is_not_drawn_as_an_answer_somebody_owes() -> None:
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
-        hash_password=lambda password: f"$6$test${len(password)}",
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
         conversion_refused=Refusal(""),
         running_system="/dev/vda2 on btrfs",
     ))
@@ -4582,7 +4582,7 @@ def test_the_install_row_derives_a_conversion_from_the_machine(
         translate=Catalog("en"),
         disks=DISKS,
         groups=load_catalog(),
-        hash_password=lambda password: f"$6$test${len(password)}",
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
         conversion_refused=Refusal(""),
         running_system="/dev/vda2 on xfs",
         running_layout=reading,
@@ -4599,7 +4599,7 @@ def test_the_install_row_derives_a_conversion_from_the_machine(
     # and never reaches the plan.
     converted = replace(
         converted,
-        system=replace(converted.system, root_password_hash="$6$test$x"),
+        system=replace(converted.system, root_password_hash="$6$test$" + "x" * 86),
         # A mirror chosen rather than detected, the way `Mirrors` is answered.
         portage=replace(
             converted.portage, mirrors=replace(converted.portage.mirrors, site="tuna")

@@ -350,7 +350,7 @@ def test_declining_sudo_in_the_menu_keeps_the_account_out_of_wheel() -> None:
         translate=Catalog("en"),
         disks=[("/dev/disk/by-id/virtio-target0", "20 GiB")],
         groups=load_catalog(),
-        hash_password=lambda password: "$6$t$x",
+        hash_password=lambda password: "$6$t$" + "x" * 86,
     )
     # One form: name, the password twice, sudo left unticked, then Done.
     keys = [
