@@ -12,7 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "packaging" / "launcher" / "gentoo-install"
 ENTRY = ROOT / "packaging" / "launcher" / "gentoo-install.desktop"
-EBUILD = ROOT / "packaging" / "gig" / "app-admin" / "gentoo-install" / "gentoo-install-9999.ebuild"
+PACKAGE = ROOT / "packaging" / "gig" / "app-admin" / "gentoo-install"
+EBUILD = PACKAGE / "gentoo-install-9999.ebuild"
 
 
 def test_the_command_the_banner_names_is_the_command_the_medium_has() -> None:
@@ -115,3 +116,45 @@ def test_the_desktop_entry_says_it_is_the_text_installer() -> None:
     # that does not say which installer it is.
     for tag in ("zh_CN", "zh_TW", "ja", "ko"):
         assert f"Name[{tag}]" in section, tag
+
+
+def released_ebuild() -> Path:
+    """The one ebuild that names a tag rather than the branch."""
+    found = [
+        one
+        for one in sorted(PACKAGE.glob("gentoo-install-*.ebuild"))
+        if one != EBUILD
+    ]
+    assert len(found) == 1, [one.name for one in found]
+    return found[0]
+
+
+def test_the_released_ebuild_carries_the_version_pyproject_declares() -> None:
+    """Two files name the version and an operator merges the ebuild, so a bump
+    that moves one of them installs a tree that says it is something else."""
+    import tomllib
+
+    declared = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    assert released_ebuild().name == f"gentoo-install-{declared}.ebuild"
+    assert f"/tags/v${{PV}}.tar.gz" in released_ebuild().read_text()
+
+
+def test_both_ebuilds_install_the_same_tree() -> None:
+    """The live ebuild is what the ISO builds from and the released one is what
+    an operator merges. A file added to one and not the other ships a medium
+    whose installer is not the installer that was released."""
+    def installed(path: Path) -> str:
+        text = path.read_text()
+        return text[text.index("src_install() {") :]
+
+    assert installed(released_ebuild()) == installed(EBUILD)
+
+
+def test_only_the_released_ebuild_is_keyworded() -> None:
+    """`git-r3` follows the branch, so a keyword on the live ebuild would offer
+    an operator whatever `master` held that minute. The released one is
+    `~amd64` and not stable, because `TESTED.md` records the boundary and
+    nothing in it covers a second architecture."""
+    assert 'KEYWORDS=""' in EBUILD.read_text()
+    assert 'KEYWORDS="~amd64"' in released_ebuild().read_text()
+    assert "git-r3" not in released_ebuild().read_text()
