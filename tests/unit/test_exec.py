@@ -2820,7 +2820,7 @@ def test_a_configuration_can_be_read_from_a_url(monkeypatch: pytest.MonkeyPatch)
     body = Path("tests/fixtures/vm-binpkg.toml").read_text(encoding="utf-8")
     asked: list[str] = []
 
-    def answer(url: str, *, ceiling: int) -> str:
+    def answer(url: str, *, ceiling: int, password: str = "") -> str:
         asked.append(url)
         assert ceiling == loader.URL_CEILING
         return body
@@ -2837,7 +2837,7 @@ def test_a_configuration_can_be_read_from_a_url(monkeypatch: pytest.MonkeyPatch)
 
     # Negative control two: a body that is not TOML names the URL rather than
     # a temporary file nobody can look at.
-    monkeypatch.setattr(fetch, "read_text", lambda url, *, ceiling: "<html>404</html>")
+    monkeypatch.setattr(fetch, "read_text", lambda url, *, ceiling, password="": "<html>404</html>")
     with pytest.raises(ConfigError, match="example.invalid/machine.toml"):
         loader.load_source("https://example.invalid/machine.toml")
 

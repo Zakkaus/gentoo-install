@@ -232,3 +232,67 @@ def test_swapping_an_authorized_key_changes_the_dry_run() -> None:
         WriteAuthorizedKeys(keys=(one,), accounts=accounts).describe() for one in (first, second)
     ]
     assert said[0] != said[1], said
+
+
+def test_a_paste_with_a_password_is_encrypted_and_read_back_with_it() -> None:
+    """wastebin encrypts an entry that carries a password — its README says
+    ChaCha20Poly1305 with an argon2 hashed password — so the host cannot read
+    it either. `payload` never sent the field, so the feature was unreachable.
+
+    Measured against `paste.gentoozh.org` on 2026-08-31: `GET /raw/:id` with
+    `wastebin-password` answers the text, and without it, or with the wrong
+    one, answers 200 and an HTML form. Nothing but the body says so.
+    """
+    import json
+
+    from gentoo_install.model import paste
+
+    export = paste.export_for("config")
+    without = json.loads(paste.payload("body", export))
+    assert "password" not in without
+
+    with_one = json.loads(paste.payload("body", export, password="testtest"))
+    assert with_one["password"] == "testtest"
+
+    assert paste.PASSWORD_HEADER == "wastebin-password"
+    assert paste.looks_like_the_password_form('<!DOCTYPE html>\n<html lang="en">')
+    assert not paste.looks_like_the_password_form("[disk]\nwipe = true\n")
+
+
+def test_a_configuration_url_that_needs_a_password_says_so_not_parses_html() -> None:
+    """A wrong password answers 200 and the form, so a reader that checks only
+    the status hands an HTML page to `tomllib` and reports a syntax error at
+    line 1 of a configuration the operator never wrote."""
+    import urllib.request
+    from io import BytesIO
+
+    import pytest
+
+    from gentoo_install.errors import ConfigError
+    from gentoo_install.exec import config as exec_config
+    from gentoo_install.exec import fetch
+
+    class Form:
+        def __enter__(self) -> "Form":
+            return self
+
+        def __exit__(self, *unused: object) -> None:
+            return None
+
+        def read(self, size: int = -1) -> bytes:
+            del size
+            return b'<!DOCTYPE html>\n<html lang="en"><body>password</body></html>'
+
+    def answered(
+        request: urllib.request.Request, proxy: object = None, timeout: float = 0.0
+    ) -> Form:
+        del request, proxy, timeout
+        return Form()
+
+    original = fetch._urlopen
+    fetch._urlopen = answered  # the one call this reader makes
+    try:
+        with pytest.raises(ConfigError, match="encrypted paste"):
+            exec_config.load_source("https://paste.gentoozh.org/raw/abc")
+    finally:
+        fetch._urlopen = original
