@@ -1825,24 +1825,47 @@ def test_only_the_cjk_medium_is_told_about_wifi_in_chinese() -> None:
     assert "nmcli" not in lowram, lowram
     assert "wifi is not available here" in lowram
 
-    # The traditional banner names the disk; the Alpine one is English only.
-    assert "\u78c1\u789f" in ram
+    # The traditional banner is drawn on the CJK medium; the Alpine one is
+    # English only, because that bundle has no font that can draw the rest.
+    assert "\u5b89\u88dd\u5668" in ram
     assert not [one for one in lowram if "\u4e00" <= one <= "\u9fff"], lowram
 
 
-def test_the_banner_states_the_disk_is_unwritten_rather_than_untouched() -> None:
-    """`\\u78c1\\u789f\\u9084\\u6c92\\u6709\\u88ab\\u52d5\\u904e` reads as a turn of phrase; the operator needs the
-    operation. Both Chinese lines say that nothing has been written to the
-    disk yet, which is the state the whole screen exists to establish."""
-    said = netboot.BANNER[MemoryMode.RAM]
+def test_the_banner_says_what_the_arming_already_wrote() -> None:
+    """The screen is reached by rebooting into what the arming installed.
 
-    # Nothing written to the disk yet, in both scripts.
-    unwritten = ("\u5c1a\u672a\u5beb\u5165\u78c1\u789f", "\u5c1a\u672a\u5199\u5165\u78c1\u76d8")
-    for wanted in unwritten:
-        assert any(wanted in one for one in said), (wanted, said)
-    # The turn of phrase it must not go back to: "has not been moved".
-    refused = ("\u88ab\u52d5\u904e", "\u88ab\u52a8\u8fc7")
-    assert not [one for one in said if any(bad in one for bad in refused)], said
+    `PlaceMemoryKernel` unpacked a kernel and an initramfs onto the boot
+    target and `WriteMemoryEntry` added an entry for them, so `the disk has
+    not been touched` was false on every machine that ever read it. What the
+    operator is about to decide is still true and is what it now says: no
+    partition table and no filesystem has been changed.
+    """
+    operations = [
+        type(one).__name__
+        for one in netboot.build(launch=_launch(), target=_target())
+    ]
+    assert "PlaceMemoryKernel" in operations, operations
+    assert "WriteMemoryEntry" in operations, operations
+
+    for mode, said in netboot.BANNER.items():
+        whole = " ".join(said)
+        assert "no partition table and no filesystem has been changed" in whole, mode
+        # The claim the operations refute, in each of the three scripts.
+        refused = (
+            "disk has not been touched",
+            "\u5c1a\u672a\u5beb\u5165\u78c1\u789f",
+            "\u5c1a\u672a\u5199\u5165\u78c1\u76d8",
+        )
+        for bad in refused:
+            assert bad not in whole, (mode, bad)
+
+    traditional = netboot.BANNER[MemoryMode.RAM][2:4]
+    simplified = netboot.BANNER[MemoryMode.RAM][4:6]
+    # Each script says the same two things the English lines say.
+    for one in (traditional, simplified):
+        joined = "".join(one)
+        assert "\u6838\u5fc3" in joined or "\u5185\u6838" in joined, joined
+        assert "\u5206\u5272\u8868" in joined or "\u5206\u533a\u8868" in joined, joined
 
 
 def test_the_question_the_profile_asks_is_the_one_the_harness_waits_for() -> None:
