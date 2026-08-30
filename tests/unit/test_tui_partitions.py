@@ -1801,3 +1801,38 @@ def test_a_kept_array_or_pool_member_is_refused_rather_than_overwritten(
     )
     graph, _ = manual.build(formatted)
     assert graph.nodes
+def test_reopening_swap_resizes_the_slice_it_already_added() -> None:
+    """The screen recorded the new size in `context.choice` and added a slice
+    only when there was none, so a second visit left the first visit's
+    partition and the machine got the size the operator had changed away from.
+    """
+    from gentoo_install.model.device import Swap
+
+    at = opened()
+    at.layout = one_disk(
+        slices=[
+            manual.Slice(
+                index=1,
+                role=PartitionRole.ESP,
+                size=Size.parse("512MiB"),
+                filesystem=FilesystemType.VFAT,
+                mountpoint="/efi",
+            ),
+            manual.Slice(
+                index=2,
+                role=PartitionRole.DATA,
+                size=None,
+                filesystem=FilesystemType.EXT4,
+                mountpoint="/",
+            ),
+        ]
+    )
+
+    screens.swap_screen(FakeScreen(keys=["KEY_DOWN", "\n"]), config(), at)
+    sizes = [entry.size for entry in at.layout.slices if entry.role is PartitionRole.SWAP]
+    assert sizes == [Size.parse("4GiB")], sizes
+
+    answer = screens.swap_screen(FakeScreen(keys=[*["KEY_DOWN"] * 2, "\n"]), config(), at)
+    sizes = [entry.size for entry in at.layout.slices if entry.role is PartitionRole.SWAP]
+    assert sizes == [Size.parse("8GiB")], sizes
+    assert len(answer.unwrap().disk.graph.of_type(Swap)) == 1

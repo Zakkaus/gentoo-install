@@ -102,6 +102,7 @@ from .widgets import (
     Outcome,
     Screen,
     TextField,
+    TextFieldRejected,
 )
 
 def _rebuild(config: InstallConfig, context: Context) -> InstallConfig:
@@ -946,16 +947,30 @@ def kernel_version_screen(
     ceiling = context.zfs_kernel_max if config.disk.graph.of_type(ZfsPool) else ""
     offered = _within(_while_reading(screen, context, package), ceiling)
     if not offered:
+        def within_the_ceiling(text: str) -> Answer[str] | TextFieldRejected:
+            # The same ceiling `_within` filters the read list by. A typed
+            # version bypassed it, and `sys-fs/zfs` has no module above it, so
+            # the run stopped in the kernel stage with the disks written.
+            literal = text.strip()
+            if not literal or not ceiling or _numeric(literal) <= _numeric(ceiling):
+                return Answer(Outcome.CHOSE, literal)
+            return TextFieldRejected(
+                translate("{value} is above the sys-fs/zfs ceiling {ceiling}").format(
+                    value=literal, ceiling=ceiling
+                ),
+                literal,
+            )
+
         typed = TextField(
             title=f"{package}  {translate('version')}",
             value=config.kernel.version,
             placeholder=translate("empty to leave the version to the keywords"),
             footer=footer(translate),
-        ).run(screen)
+        ).run_validated(screen, within_the_ceiling)
         if not typed.chosen:
             return Answer(typed.outcome)
         return Answer(
-            Outcome.CHOSE, replace(config, kernel=replace(config.kernel, version=typed.unwrap().strip()))
+            Outcome.CHOSE, replace(config, kernel=replace(config.kernel, version=typed.unwrap()))
         )
     # No unpinned row under a ceiling: `MODULES_KERNEL_MAX` only warns, so
     # nothing stops the resolver picking a kernel `sys-fs/zfs` will not build
@@ -1509,15 +1524,31 @@ def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
                 else entry
                 for entry in disk.slices
             ]
-        if chosen and not any(entry.role is PartitionRole.SWAP for entry in context.layout.slices):
-            disk = context.layout.disks[0]
-            disk.slices.append(
-                manual.Slice(
-                    index=disk.next_index(),
-                    role=PartitionRole.SWAP,
-                    size=Size.parse(chosen),
-                )
+        if chosen:
+            # Resized as well as added: the second visit set `choice.swap` and
+            # left the slice at the first visit's size, so the machine got the
+            # size the operator had changed away from.
+            wanted = Size.parse(chosen)
+            existing = any(
+                entry.role is PartitionRole.SWAP for entry in context.layout.slices
             )
+            if existing:
+                for disk in context.layout.disks:
+                    disk.slices[:] = [
+                        replace(entry, size=wanted)
+                        if entry.role is PartitionRole.SWAP
+                        else entry
+                        for entry in disk.slices
+                    ]
+            else:
+                disk = context.layout.disks[0]
+                disk.slices.append(
+                    manual.Slice(
+                        index=disk.next_index(),
+                        role=PartitionRole.SWAP,
+                        size=wanted,
+                    )
+                )
         return Answer(Outcome.CHOSE, _from_layout(config, context))
     return Answer(Outcome.CHOSE, _rebuild(config, context))
 
@@ -2636,9 +2667,7 @@ def authorized_keys_screen(
                 Outcome.CHOSE,
                 replace(config, system=replace(config.system, authorized_keys=changed_keys)),
             )
-        added = _ADD_A_KEY[chosen](screen, context)
-        if added:
-            keys.append(added)
+        keys.extend(_ADD_A_KEY[chosen](screen, context))
 
 
 def _key_summary(key: str) -> str:
@@ -2649,7 +2678,7 @@ def _key_summary(key: str) -> str:
     return f"{fields[0]} {comment}".strip()
 
 
-def _type_a_key(screen: Screen, context: Context) -> str:
+def _type_a_key(screen: Screen, context: Context) -> tuple[str, ...]:
     translate = context.translate
     typed = TextField(
         title=translate("Public key"),
@@ -2657,11 +2686,12 @@ def _type_a_key(screen: Screen, context: Context) -> str:
         footer=footer(translate),
     ).run(screen)
     if not typed.chosen:
-        return ""
-    return _checked_key(screen, context, typed.unwrap())
+        return ()
+    checked = _checked_key(screen, context, typed.unwrap())
+    return (checked,) if checked else ()
 
 
-def _paste_a_key(screen: Screen, context: Context) -> str:
+def _paste_a_key(screen: Screen, context: Context) -> tuple[str, ...]:
     """The identifier alone, because the whole address is tedious to copy onto
     a console by hand and the host part never changes."""
     translate = context.translate
@@ -2671,11 +2701,11 @@ def _paste_a_key(screen: Screen, context: Context) -> str:
         footer=footer(translate),
     ).run(screen)
     if not typed.chosen or not typed.unwrap().strip():
-        return ""
-    return _read_a_key(screen, context, paste.url_for(typed.unwrap()))
+        return ()
+    return _read_the_keys(screen, context, paste.url_for(typed.unwrap()))
 
 
-def _fetch_a_key(screen: Screen, context: Context) -> str:
+def _fetch_a_key(screen: Screen, context: Context) -> tuple[str, ...]:
     translate = context.translate
     typed = TextField(
         title=translate("URL of a public key"),
@@ -2683,28 +2713,33 @@ def _fetch_a_key(screen: Screen, context: Context) -> str:
         footer=footer(translate),
     ).run(screen)
     if not typed.chosen or not typed.unwrap().strip():
-        return ""
-    return _read_a_key(screen, context, typed.unwrap().strip())
+        return ()
+    return _read_the_keys(screen, context, typed.unwrap().strip())
 
 
-def _read_a_key(screen: Screen, context: Context, url: str) -> str:
+def _read_the_keys(screen: Screen, context: Context, url: str) -> tuple[str, ...]:
     translate = context.translate
     try:
         body = context.fetch_text(url)
     except GentooInstallError as error:
         say(screen, context, str(error))
-        return ""
+        return ()
     # A paste holding several keys is the normal case for one person's file,
-    # and taking the first line silently would drop the rest.
-    for line in body.splitlines():
-        if line.strip() and not line.lstrip().startswith("#"):
-            return _checked_key(screen, context, line)
-    say(screen, context, translate("that address returned no key"))
-    return ""
+    # and taking the first line silently dropped the rest.
+    found = tuple(
+        checked
+        for line in body.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+        for checked in (_checked_key(screen, context, line),)
+        if checked
+    )
+    if not found:
+        say(screen, context, translate("that address returned no key"))
+    return found
 
 
 #: The rows that add a key, in the order the menu lists them.
-_ADD_A_KEY: Final[tuple[Callable[[Screen, "Context"], str], ...]] = (
+_ADD_A_KEY: Final[tuple[Callable[[Screen, "Context"], tuple[str, ...]], ...]] = (
     lambda screen, context: _type_a_key(screen, context),
     lambda screen, context: _paste_a_key(screen, context),
     lambda screen, context: _fetch_a_key(screen, context),

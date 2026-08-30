@@ -4697,3 +4697,39 @@ def load_toml(text: str) -> InstallConfig:
     from gentoo_install.model.parse import parse
 
     return parse(tomllib.loads(text))
+
+
+def test_a_typed_kernel_version_is_held_to_the_same_zfs_ceiling_as_the_list() -> None:
+    """`_within` drops a version above `MODULES_KERNEL_MAX` from the list, and
+    the field that replaces the list on a medium with no repository stored
+    whatever was typed. The run then reached the kernel stage, with the disks
+    written, and stopped there."""
+    at = context()
+    at.kernel_versions = lambda atom: ()
+    at.zfs_kernel_max = "7.0"
+    on_zfs = config(zfs_root())
+
+    refused = FakeScreen(keys=[*"7.1.7", "\n", "\x1b"], lines=20, columns=100)
+    answer = screens.kernel_version_screen(refused, on_zfs, at)
+    assert not answer.chosen
+    assert any("7.0" in line for frame in refused.frames for line in frame)
+
+    accepted = FakeScreen(keys=[*"6.18.43", "\n"], lines=20, columns=100)
+    assert (
+        screens.kernel_version_screen(accepted, on_zfs, at).unwrap().kernel.version
+        == "6.18.43"
+    )
+
+
+def test_every_key_in_a_fetched_body_is_kept() -> None:
+    """The comment above the reader says a file holding several keys is the
+    normal case and that taking the first would drop the rest; it took the
+    first. One person's `authorized_keys` reached the target with one key."""
+    at = context()
+    second = GOOD_KEY.rsplit(" ", 1)[0] + " bob@host"
+
+    at.fetch_text = lambda url: f"# mine\n{GOOD_KEY}\n\n{second}\n"
+    keys = [*down(2), "\n", *"https://example.com/keys", "\n", *down(5), "\n"]
+    answer = screens.authorized_keys_screen(FakeScreen(keys=keys), config(), at)
+
+    assert answer.unwrap().system.authorized_keys == (GOOD_KEY, second)

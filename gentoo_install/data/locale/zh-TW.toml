@@ -184,6 +184,7 @@
 "Fetch from a URL" = "從 URL 取得"
 "URL of a public key" = "公鑰的 URL"
 "that address returned no key" = "該位址未回傳公鑰"
+"{value} is above the sys-fs/zfs ceiling {ceiling}" = "{value} 高於 sys-fs/zfs 的上限 {ceiling}"
 "ssh-ed25519 AAAA... name@host" = "ssh-ed25519 AAAA... name@host"
 "https://example.com/id_ed25519.pub" = "https://example.com/id_ed25519.pub"
 "SSH server" = "SSH 伺服器"
