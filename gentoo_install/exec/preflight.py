@@ -424,6 +424,21 @@ def _capacity_problems(config: InstallConfig, probe: Probe) -> list[str]:
                 f"{disk.selector} holds {Size(capacity)} and {table.id} claims "
                 f"{Size(claimed)} in fixed sizes, which does not fit"
             )
+    # Every reused device on the root path, not only the ones a partition
+    # table sits on: a root that is a whole device carries no table, so the
+    # loop above supplied nothing and the size check had nothing to check.
+    if config.disk.mode is not DiskMode.IMAGE:
+        for node in graph.of_type(Existing):
+            if node.id in supplied_root_sizes or graph.nodes.get(node.id) is None:
+                continue
+            if any(table.disk == node.id for table in graph.of_type(PartitionTable)):
+                continue
+            try:
+                measured = probe.disk_bytes(probe.resolve(node.id, node.selector))
+            except DeviceNotFound:
+                continue
+            if measured:
+                supplied_root_sizes[node.id] = Size(measured)
     problems += root_size_problems(config, supplied_root_sizes)
     return problems
 
