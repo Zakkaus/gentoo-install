@@ -1585,3 +1585,36 @@ def test_a_table_this_run_writes_needs_a_disk_this_run_wipes() -> None:
         if device.get("kind") == "table":
             device["create"] = False
     validate(parse(neither))
+
+
+@pytest.mark.parametrize(
+    "version, refused",
+    [
+        ("7.1.7", False),
+        ("7.1.7-r2", False),
+        ("6.12.47", False),
+        ("7.1.7-r2:0", True),
+        ("latest", True),
+        ("7.1.7::gentoo", True),
+    ],
+)
+def test_a_pinned_kernel_version_has_to_be_one_portage_can_be_given(
+    version: str, refused: bool
+) -> None:
+    """`plan/kernel.py` builds `={package}-{version}` and `plan/portage.py`
+    trims the version back off to name the package for `--usepkg-exclude`,
+    which takes package names and slot atoms only. Anything after the version
+    survives that trim and emerge answers `Invalid Atom(s)` at operation 20 of
+    60, with the disks already written.
+    """
+    from gentoo_install.model.config import KernelConfig, KernelSource
+
+    config = replace(
+        parse(tomllib.loads((FIXTURES / "ext4-bios.toml").read_text())),
+        kernel=KernelConfig(source=KernelSource.DIST_BIN, version=version),
+    )
+    if not refused:
+        validate(config)
+        return
+    with pytest.raises(ValidationFailed, match="is not a version portage"):
+        validate(config)

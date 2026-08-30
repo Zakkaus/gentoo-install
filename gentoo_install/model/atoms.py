@@ -37,6 +37,20 @@ def looks_like_an_atom(text: str) -> bool:
     return bool(_ATOM.match(text))
 
 
+_JUST_A_VERSION: Final[re.Pattern[str]] = re.compile(rf"^{_VERSION}$")
+
+
+def looks_like_a_version(text: str) -> bool:
+    """Whether this is a version and nothing else.
+
+    `plan/portage.py` builds `=package-version` and trims the version back off
+    to name the package in `--usepkg-exclude`, which takes package names and
+    slot atoms only. A version carrying a slot -- `7.1.7-r2:0` -- survives that
+    trim, so emerge answers `Invalid Atom(s)` after the disks are written.
+    """
+    return bool(_JUST_A_VERSION.match(text))
+
+
 def split(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """The atoms in `text`, and the words that are not atoms."""
     return _split(text, looks_like_an_atom)

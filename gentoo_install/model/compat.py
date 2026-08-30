@@ -17,6 +17,7 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import Callable, Final, Mapping
 
+from . import atoms
 from .architecture import (
     AMD64,
     ARCHITECTURES,
@@ -414,6 +415,25 @@ def binhost_subarch_problems(
             f"not: `ld.so --help` does not list {V3_SUBARCH} as supported",
         )
     return ()
+
+
+def kernel_version_problems(config: InstallConfig) -> tuple[str, ...]:
+    """Refuse a pinned kernel version that is not a version.
+
+    `plan/kernel.py` builds `={package}-{version}` and `plan/portage.py` trims
+    the version back off to name the package for `--usepkg-exclude`, which
+    takes package names and slot atoms only. Anything after the version --
+    `7.1.7-r2:0` -- survives that trim, and emerge answers `Invalid Atom(s)`
+    with the disks already written.
+    """
+    version = config.kernel.version
+    if not version or atoms.looks_like_a_version(version):
+        return ()
+    return (
+        f"kernel version {version!r} is not a version portage can be given: "
+        "digits, dots, an optional letter, an optional _alpha/_beta/_pre/_rc/_p "
+        "suffix and an optional -rN",
+    )
 
 
 def cjk_kernel_problems(
