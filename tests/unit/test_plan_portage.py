@@ -1090,10 +1090,12 @@ def test_a_failed_emerge_says_why_and_not_what_came_after() -> None:
 
     from gentoo_install.plan import portage as plan_portage
 
-    for source in (
-        inspect.getsource(plan_portage.Emerge.apply),
-        inspect.getsource(plan_portage.Emerge._from_source),
-    ):
+    # One raiser for both, so the source retry cannot answer differently from
+    # the first emerge: it raised the generic text where the first named the
+    # machine running out of memory.
+    for caller in (plan_portage.Emerge.apply, plan_portage.Emerge._from_source):
+        assert "_emerge_failed(" in inspect.getsource(caller), caller.__name__
+    for source in (inspect.getsource(plan_portage._emerge_failed),):
         raised = [one for one in source.split("CommandFailed(") if "ended with" in one]
         assert raised, source
         for block in raised:
@@ -3275,3 +3277,51 @@ def test_the_check_accepts_a_use_change_rather_than_stopping_the_install() -> No
     recorder.answering = keyworded
     with pytest.raises(ConfigError):
         check.apply(recorder)
+
+
+def test_a_retry_that_succeeded_still_records_an_unreadable_index() -> None:
+    """A zero exit does not mean the host answered. The first result was read
+    for that and the retry after a SIGPIPE was not, so a run went on saying it
+    fetches binary packages from a host whose index it had failed to read.
+    """
+    import signal
+
+    class Killed(Recorder):
+        runs: int = 0
+
+        def run_in_target(
+            self, argv: Sequence[str], *, check: bool = True
+        ) -> CommandOutput:
+            self.in_target.append(tuple(argv))
+            self.runs += 1
+            if self.runs == 1:
+                return CommandOutput("", -signal.SIGPIPE)
+            return CommandOutput(BINHOST_TIMED_OUT, 0)
+
+    recorder = Killed()
+    portage.Emerge(packages=("app-editors/vim",), summary="install vim").apply(recorder)
+
+    assert recorder.degraded(portage.BINARY_PACKAGES)
+
+
+def test_a_source_retry_killed_by_the_machine_says_so() -> None:
+    """`_from_source` raised the generic text for the one failure an operator
+    can act on, while the first emerge already named it."""
+    recorder = Recorder()
+
+    def answer(argv: Sequence[str]) -> CommandOutput | None:
+        if "--usepkg=n" in argv:
+            return CommandOutput(
+                "x86_64-pc-linux-gnu-g++: fatal error: Killed\ncompilation terminated.", 1
+            )
+        return CommandOutput(
+            ">>> Emerging binary (1 of 1) sys-libs/zlib-1.3.1::gentoo\n"
+            "Fetching Binary failed for sys-libs/zlib-1.3.1\n",
+            1,
+        )
+
+    recorder.answering = answer
+    with pytest.raises(CommandFailed, match="ran out of memory") as stopped:
+        portage.Emerge(packages=("sys-libs/zlib",), summary="install zlib").apply(recorder)
+    assert "source retry" in str(stopped.value), stopped.value
+    assert "MAKEOPTS" in str(stopped.value), stopped.value
