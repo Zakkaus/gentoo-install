@@ -125,6 +125,7 @@ def _rewrite(
     site: str = "",
     unlock_addresses: object = None,
     distfiles: str = "",
+    binhost: str = "",
 ) -> Path:
     return into
 
