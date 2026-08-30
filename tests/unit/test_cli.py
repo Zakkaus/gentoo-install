@@ -759,12 +759,17 @@ def test_a_conversion_is_offered_a_shell_in_the_root_it_converted(
 
     from gentoo_install.exec.apply import Machine
 
+    from gentoo_install.exec.runner import Result
+
     class Fake:
         def __init__(self) -> None:
             self.argv: list[list[str]] = []
 
-        def run(self, argv: list[str], check: bool = True) -> None:
+        # A `Result`, the way the real runner answers: a double returning None
+        # hid the caller that reads the exit code for itself.
+        def run(self, argv: list[str], check: bool = True) -> Result:
             self.argv.append(argv)
+            return Result(argv=tuple(argv), returncode=0, stdout="", stderr="", seconds=0.0)
 
     asked: list[str] = []
     # The two unattended guards have their own test above; this one is about
@@ -2822,3 +2827,74 @@ def test_no_mirror_of_the_region_answering_still_refuses(
 
     with pytest.raises(errors.PreflightFailed, match="nor any mirror"):
         cli._require_network()
+
+
+def test_a_shell_that_never_started_is_not_recorded_as_one_that_opened(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both lines were written around an unchecked `chroot`, so a target whose
+    `/bin/bash` is not there recorded a shell that opened and exited."""
+    import argparse
+    from types import SimpleNamespace
+
+    from gentoo_install.exec.apply import Machine
+    from gentoo_install.exec.runner import Result
+
+    interactive_stdin(monkeypatch)
+    monkeypatch.setattr(cli, "_asked", lambda question: True)
+
+    def run_a_shell(code: int) -> list[str]:
+        said: list[str] = []
+        runner = SimpleNamespace(
+            run=lambda argv, **kwargs: Result(
+                argv=tuple(argv), returncode=code, stdout="", stderr="", seconds=0.0
+            )
+        )
+        cli._offer_a_shell(
+            argparse.Namespace(no_shell=False, menu=False, target=Path("/mnt/gentoo"), lang=""),
+            cast(Machine, SimpleNamespace(runner=runner)),
+            said.append,
+            False,
+            Path("/mnt/gentoo"),
+            DiskMode.PARTITION,
+            Catalog("en"),
+        )
+        return said
+
+    refused = run_a_shell(127)
+    assert any("no root shell could be started" in one for one in refused), refused
+    assert not any("was opened" in one for one in refused), refused
+
+    # A shell the operator ended with a non-zero status still opened.
+    ordinary = run_a_shell(1)
+    assert any("was opened" in one for one in ordinary), ordinary
+    assert any("the shell exited" in one for one in ordinary), ordinary
+
+
+def test_a_system_clock_that_could_not_follow_the_rtc_is_reported(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `--set` failure is warned about because TLS then refuses every
+    mirror. `--hctosys` failing leaves exactly that state, and its result was
+    discarded."""
+    import time
+
+    from gentoo_install.exec.runner import Result, Runner
+
+    # A stamp two days out, so the correction runs at all.
+    monkeypatch.setattr(fetch, "network_time", lambda: time.time() + 172800)
+
+    def running(self: Runner, argv: Sequence[str], **kwargs: object) -> Result:
+        failed = "--hctosys" in argv
+        return Result(
+            argv=tuple(argv),
+            returncode=1 if failed else 0,
+            stdout="hwclock: cannot set the system clock" if failed else "",
+            stderr="",
+            seconds=0.0,
+        )
+
+    monkeypatch.setattr(Runner, "run", running)
+    cli._check_the_clock()
+    said = capsys.readouterr().err
+    assert "system clock could not be set from the corrected RTC" in said, said
