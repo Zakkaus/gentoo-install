@@ -166,14 +166,21 @@ def parser() -> argparse.ArgumentParser:
     parsed.add_argument(
         "--no-shell",
         action="store_true",
-        help="unmount and exit without offering a root shell in the new system, which is "
-        "what an unattended run wants",
+        # Not only the shell: `_unattended` reads this flag, so it also
+        # answers every closing question, and `mode = "in-place"` in a
+        # configuration file is the authorisation the conversion asks for.
+        help="answer no question and offer no root shell, which is what an unattended "
+        "run wants; --menu says a person is here after all",
     )
     parsed.add_argument(
         "--menu",
         action="store_true",
-        help="a person is driving this console, so open the interface even though "
-        "--no-shell is set; requires a terminal on stdin",
+        # The help said `open the interface`, and `_once` opens it only when
+        # there is no `--config` to apply. With one, this flag says who is at
+        # the keyboard and nothing more.
+        help="a person is driving this console, so keep the questions --no-shell "
+        "would suppress; without --config it also opens the interface. Requires a "
+        "terminal on stdin",
     )
     parsed.add_argument(
         "--skip-preflight",

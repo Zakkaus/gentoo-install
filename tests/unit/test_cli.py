@@ -3005,3 +3005,34 @@ def test_a_system_clock_that_could_not_follow_the_rtc_is_reported(
     cli._check_the_clock()
     said = capsys.readouterr().err
     assert "system clock could not be set from the corrected RTC" in said, said
+
+
+def test_the_flag_help_says_what_each_flag_actually_controls() -> None:
+    """`--no-shell` reads as the closing shell alone, and `_unattended` reads
+    it for every question; `--menu` said it opens the interface, and `_once`
+    opens it only when there is no `--config` to apply. An operator who reads
+    the help and passes `--config x --menu` gets no interface."""
+    import argparse
+    import inspect
+
+    parser = cli.parser()
+    help_for = {
+        action.option_strings[0]: (action.help or "")
+        for action in parser._actions
+        if action.option_strings
+    }
+
+    # `--no-shell` reaches `_unattended`, so it decides more than the shell.
+    assert "_unattended" in inspect.getsource(cli._confirmed_swap)
+    assert "no_shell" in inspect.getsource(cli._unattended)
+    assert "no question" in help_for["--no-shell"], help_for["--no-shell"]
+
+    # `--menu` opens the interface only without `--config`.
+    opening = inspect.getsource(cli._once)
+    assert "arguments.config is None" in opening
+    assert "without --config" in help_for["--menu"], help_for["--menu"]
+
+    quiet = argparse.Namespace(menu=False, no_shell=True)
+    driven = argparse.Namespace(menu=True, no_shell=True)
+    assert cli._unattended(quiet)
+    assert not cli._unattended(driven)
