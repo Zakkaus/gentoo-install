@@ -1647,3 +1647,37 @@ def test_a_link_listing_that_failed_says_so_before_matching_by_name() -> None:
     working = _linked()
     _wired().apply(working)
     assert not working.degraded(system.MAC_MATCH)
+
+
+def test_the_service_the_runner_checks_is_one_the_plan_enables() -> None:
+    """`tests/vm/installed.py` asks the installed machine whether that service
+    is enabled. The helper read `.services` while the plan reads
+    `services_for(static=...)`, so an openrc machine given a static address
+    enabled `net.<interface>` and the check asked about `dhcpcd`. No fixture
+    combines openrc with a static address, which is why it never failed.
+    """
+    from gentoo_install.model.config import InitSystem, Networking, SystemConfig
+    from gentoo_install.plan.system import _network_service
+
+    for init in (InitSystem.SYSTEMD, InitSystem.OPENRC):
+        for addresses in ((), ("192.0.2.10/24",)):
+            settings = SystemConfig(
+                init=init,
+                networking=Networking.BUILTIN,
+                interface="eth0",
+                addresses=addresses,
+                gateways=("192.0.2.1",) if addresses else (),
+                dns=("192.0.2.53",) if addresses else (),
+            )
+            named = _network_service(settings)
+            assert named, (init, addresses)
+
+            planned = system.build(replace(config(), system=settings))
+            enabled = {
+                one.service for one in planned if isinstance(one, system.EnableService)
+            } | {
+                system.netifrc_service(one.interface)
+                for one in planned
+                if isinstance(one, system.LinkNetifrcService)
+            }
+            assert named in enabled, (init, addresses, named, sorted(enabled))

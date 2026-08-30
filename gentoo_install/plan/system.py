@@ -834,7 +834,7 @@ class LinkNetifrcService(Operation):
         return "enable net.{} so netifrc applies the static address", (self.interface,)
 
     def apply(self, context: Context) -> None:
-        service = f"net.{self.interface}"
+        service = netifrc_service(self.interface)
         context.run_in_target(
             ["ln", "--symbolic", "--force", "net.lo", f"/etc/init.d/{service}"]
         )
@@ -1639,10 +1639,27 @@ def _logging(system: SystemConfig) -> list[Operation]:
     return operations
 
 
+def netifrc_service(interface: str) -> str:
+    """The service netifrc runs for one interface, as `LinkNetifrcService`
+    names it. One spelling, because the runner checks for what the plan
+    enabled."""
+    return f"net.{interface}"
+
+
 def _network_service(system: SystemConfig) -> str:
-    """The VM runner reports this name without building the whole plan."""
-    services = NETWORK_BACKENDS[system.networking].for_init(system.init).services
-    return services[0].value if services else ""
+    """The VM runner reports this name without building the whole plan.
+
+    Through `services_for`, not `.services`: an openrc machine with a static
+    address enables `net.<interface>` and this answered `dhcpcd`, so the check
+    asked about a service the plan never enables.
+    """
+    requirements = NETWORK_BACKENDS[system.networking].for_init(system.init)
+    services = requirements.services_for(static=bool(system.addresses))
+    if not services:
+        return ""
+    if services[0] is NetworkService.NETIFRC_INTERFACE:
+        return netifrc_service(system.interface) if system.interface else ""
+    return str(services[0].value)
 
 
 def _set_password(context: Context, user: str, password_hash: str) -> None:
