@@ -523,6 +523,8 @@
 "the patched kernel from gentoo-zh" = "gentoo-zh のパッチ適用カーネル"
 "unlocking the root over ssh" = "ssh によるルートの解錠"
 "no authorised ssh key" = "許可された ssh 鍵がない"
+"an esp whose mdraid metadata could not be read" = "mdraid metadata を読み取れなかった esp"
+"mdadm could not say whether the esp is on an array, and only metadata 0.90 and 1.0 leave a member the firmware can read as plain vfat" = "mdadm は esp がアレイ上にあるかどうかを判断できず、メンバーをファームウェアが通常の vfat として読めるのは metadata 0.90 と 1.0 だけです"
 "authorised ssh keys" = "設定済みの ssh 公開鍵"
 "no account sshd will accept a key for" = "sshd が鍵を受け付けるアカウントがありません"
 "every key is written to /root/.ssh/authorized_keys and sshd is given PermitRootLogin no, so none of them can log in: add a user with sudo, or allow root login" = "すべての鍵は /root/.ssh/authorized_keys に書かれ、sshd は PermitRootLogin no に設定されるため、どの鍵でもログインできません。sudo を持つユーザーを追加するか、root ログインを許可してください"

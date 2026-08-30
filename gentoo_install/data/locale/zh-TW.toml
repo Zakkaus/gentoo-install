@@ -524,6 +524,8 @@
 "the patched kernel from gentoo-zh" = "gentoo-zh 的補丁核心"
 "unlocking the root over ssh" = "透過 ssh 解鎖根檔案系統"
 "no authorised ssh key" = "沒有授權的 ssh 金鑰"
+"an esp whose mdraid metadata could not be read" = "mdraid metadata 無法讀取的 esp"
+"mdadm could not say whether the esp is on an array, and only metadata 0.90 and 1.0 leave a member the firmware can read as plain vfat" = "mdadm 無法判斷 esp 是否位於陣列上，而只有 metadata 0.90 與 1.0 會讓成員仍可被韌體當成一般 vfat 讀取"
 "authorised ssh keys" = "已設定的 ssh 公鑰"
 "no account sshd will accept a key for" = "沒有 sshd 會接受公鑰的帳戶"
 "every key is written to /root/.ssh/authorized_keys and sshd is given PermitRootLogin no, so none of them can log in: add a user with sudo, or allow root login" = "所有公鑰都寫進 /root/.ssh/authorized_keys，而 sshd 設為 PermitRootLogin no，因此沒有一把能用來登入：請新增一個有 sudo 的使用者，或允許 root 登入"

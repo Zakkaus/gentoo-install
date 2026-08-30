@@ -523,6 +523,8 @@
 "the patched kernel from gentoo-zh" = "gentoo-zh의 패치 적용 커널"
 "unlocking the root over ssh" = "ssh를 통한 루트 잠금 해제"
 "no authorised ssh key" = "승인된 ssh 키 없음"
+"an esp whose mdraid metadata could not be read" = "mdraid metadata를 읽지 못한 esp"
+"mdadm could not say whether the esp is on an array, and only metadata 0.90 and 1.0 leave a member the firmware can read as plain vfat" = "mdadm이 esp가 배열 위에 있는지 판단하지 못했으며, 펌웨어가 구성원을 일반 vfat으로 읽을 수 있는 것은 metadata 0.90과 1.0뿐입니다"
 "authorised ssh keys" = "설정된 ssh 공개 키"
 "no account sshd will accept a key for" = "sshd가 키를 받아들일 계정이 없음"
 "every key is written to /root/.ssh/authorized_keys and sshd is given PermitRootLogin no, so none of them can log in: add a user with sudo, or allow root login" = "모든 키는 /root/.ssh/authorized_keys에 기록되고 sshd는 PermitRootLogin no로 설정되므로 어떤 키로도 로그인할 수 없습니다. sudo 사용자를 추가하거나 root 로그인을 허용하십시오"
