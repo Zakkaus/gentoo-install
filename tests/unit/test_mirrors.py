@@ -155,3 +155,21 @@ def test_a_replaced_list_beats_the_chosen_site() -> None:
         ),
     )
     assert stage3_mirror(both) == "http://10.31.0.2/gentoo"
+
+
+def test_global_offers_australia_without_making_it_the_default() -> None:
+    """Measured from Sydney on 2026-08-31: AARNet 6.8 MB/s against 1.9 MB/s
+    from `distfiles.gentoo.org`, which is what `global` resolved to before this
+    site existed. It is offered, and it is not what an operator who did not ask
+    for it gets: the tree still syncs from the address the handbook gives.
+    """
+    region = MirrorRegion.GLOBAL
+    offered = [one.key for one in mirrors.gentoo_sites(region)]
+    assert "aarnet" in offered, offered
+    assert offered[0] == "gentoo", offered
+
+    chosen = mirrors.gentoo_distfiles(region, "aarnet")
+    assert chosen[0] == "https://mirror.aarnet.edu.au/pub/gentoo/", chosen
+    assert "https://distfiles.gentoo.org/" in chosen, chosen
+
+    assert mirrors.gentoo_rsync_uri(region) == "rsync://rsync.gentoo.org/gentoo-portage"

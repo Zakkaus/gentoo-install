@@ -25,7 +25,7 @@
   seed the target's resolv.conf from the install medium
 
 [portage]
-  write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, http_proxy, https_proxy, ftp_proxy, all_proxy, no_proxy, FETCHCOMMAND, RESUMECOMMAND, RSYNC_PROXY, FEATURES; 2 mirrors in the configured order, 5 appended
+  write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, http_proxy, https_proxy, ftp_proxy, all_proxy, no_proxy, FETCHCOMMAND, RESUMECOMMAND, RSYNC_PROXY, FEATURES; 3 mirrors in the configured order, 5 appended
   configure Portage, wget, curl, git and gpg for http://127.0.0.1:1 in /etc/wgetrc, /etc/gitconfig, curl-proxy.conf and proxy.toml
   create /etc/portage/package.use/zz-autounmask, /etc/portage/package.accept_keywords/zz-autounmask, /etc/portage/package.license/zz-autounmask, which emerge writes its decisions into
   disable inherited binary package host gentoo

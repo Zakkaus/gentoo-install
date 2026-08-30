@@ -144,6 +144,14 @@ GENTOO_SITES: Final[tuple[Site, ...]] = (
         "rsync://rsync.gentoo.org/gentoo-portage",
     ),
     Site("osuosl", "OSU Open Source Lab", "worldwide", "https://gentoo.osuosl.org"),
+    # The only site outside Asia and North America this table offers. Measured
+    # from Sydney on 2026-08-31: 6.8 MB/s against 1.9 MB/s from
+    # `distfiles.gentoo.org`, which is what `global` resolves to without it.
+    Site(
+        "aarnet", "AARNet", "Australia",
+        "https://mirror.aarnet.edu.au/pub/gentoo",
+        rsync="rsync://mirror.aarnet.edu.au/gentoo-portage",
+    ),
 )
 
 #: Which sites a region offers, in the order the menu lists them.
@@ -158,7 +166,10 @@ GENTOO_REGIONS: Final[dict[MirrorRegion, tuple[str, ...]]] = {
         "xtom-hk", "rackspace-hk", "aditsu-hk", "nchc-tw", "cicku-tw",
         "freedif-sg", "cicku-sg", "planetunix-sg",
     ),
-    MirrorRegion.GLOBAL: ("gentoo", "osuosl"),
+    # `gentoo` stays first: it is the address the handbook gives and the one
+    # `gentoo_rsync_uri` resolves to, and moving AARNet ahead of it would send
+    # every operator who did not ask for Australia to Australia.
+    MirrorRegion.GLOBAL: ("gentoo", "osuosl", "aarnet"),
 }
 
 _GENTOO: Final[dict[str, Site]] = {site.key: site for site in GENTOO_SITES}
