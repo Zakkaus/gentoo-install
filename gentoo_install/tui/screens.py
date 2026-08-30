@@ -189,6 +189,14 @@ def install_mode_screen(
     mode = answer.unwrap()
     if mode is config.disk.mode:
         return Answer(Outcome.CHOSE, config)
+    # The plan the operator confirmed erasing belongs to the mode they are
+    # leaving. `confirm_screen` skips a selector already in `confirmed`, so a
+    # confirmation given for a partition plan authorised the dd write to the
+    # same disk, which is the mistake the comment above that screen records
+    # for a second disk added in manual partitioning.
+    context.confirmed.clear()
+    context.layout = manual.Layout()
+    context.manual = False
     if mode is DiskMode.IN_PLACE:
         agreed = _confirm_the_swap(screen, context)
         if agreed is not None:

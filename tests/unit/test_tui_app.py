@@ -4733,3 +4733,27 @@ def test_every_key_in_a_fetched_body_is_kept() -> None:
     answer = screens.authorized_keys_screen(FakeScreen(keys=keys), config(), at)
 
     assert answer.unwrap().system.authorized_keys == (GOOD_KEY, second)
+
+
+def test_changing_the_install_mode_takes_back_the_erase_confirmation() -> None:
+    """`confirm_screen` skips a selector already in `context.confirmed`, and
+    the mode screen replaced the configuration without touching it. A
+    confirmation typed for a partition plan on /dev/vda therefore authorised
+    the dd write to /dev/vda, which is the mistake `confirm_screen`'s own
+    comment records for a second disk added in manual partitioning.
+    """
+    at = context()
+    at.image_write_refused = Refusal("")
+    at.conversion_refused = Refusal("the running system cannot be converted")
+    at.confirmed = {"/dev/vda"}
+    at.manual = True
+    at.layout = manual.Layout(disks=[manual.Disk(selector="/dev/vda")])
+
+    # Down to `Write a prepared image`, enter, then agree to discard.
+    screen = FakeScreen(keys=[*down(1), "\n", "KEY_DOWN", "\n"], lines=24, columns=110)
+    answer = screens.install_mode_screen(screen, config(), at)
+
+    assert answer.unwrap().disk.mode is DiskMode.DD
+    assert at.confirmed == set(), at.confirmed
+    assert not at.manual
+    assert not at.layout.disks
