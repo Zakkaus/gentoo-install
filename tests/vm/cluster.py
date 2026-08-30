@@ -1382,6 +1382,7 @@ def rewrite_fixtures(
     site: str = "",
     unlock_addresses: Mapping[str, str] | None = None,
     distfiles: str = "",
+    binhost: str = "",
 ) -> Path:
     """Write each fixture out again with its mirror region, site and sync.
 
@@ -1440,6 +1441,12 @@ def rewrite_fixtures(
                     # thirty rounds died of.
                     distfiles=(distfiles,) if distfiles else config.portage.mirrors.distfiles,
                 ),
+                # Beside `distfiles`, for the reason written there: an evening
+                # of `distfiles.gentoo.org` answering three different ways cost
+                # one run 481.5 minutes and degraded two more to source.
+                binhost=replace(config.portage.binhost, url=binhost)
+                if binhost
+                else config.portage.binhost,
                 overlays=tuple(
                     replace(overlay, sync_uri=where)
                     if overlay.name == "gentoo-zh"
@@ -2662,6 +2669,7 @@ def run(
     sync: Sync = Sync.RSYNC,
     site: str = "",
     distfiles: str = "",
+    binhost: str = "",
     skip_nodes: Sequence[str] = (),
     allow_nodes: Sequence[str] = (),
 ) -> list[Outcome]:
@@ -2693,7 +2701,15 @@ def run(
         for job in jobs
     }
     rewritten = rewrite_fixtures(
-        jobs, fixture_dir, region, sync, public_key, site, unlock_addresses, distfiles
+        jobs,
+        fixture_dir,
+        region,
+        sync,
+        public_key,
+        site,
+        unlock_addresses,
+        distfiles,
+        binhost,
     )
     # Rebuilt rather than mutated: `Job` is frozen so that a scheduler state
     # change is always a new object.
@@ -4931,6 +4947,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--binhost",
+        default="",
+        help=(
+            "replace the official binary host with this one address, so a round "
+            "measures the installer rather than what the upstream mirror did"
+        ),
+    )
+    parser.add_argument(
         "--region",
         choices=[one.value for one in MirrorRegion],
         default=MirrorRegion.GLOBAL.value,
@@ -4968,6 +4992,7 @@ def main(argv: list[str] | None = None) -> int:
         Sync(args.sync),
         args.site,
         args.distfiles,
+        args.binhost,
         args.skip_node,
         args.allow_node,
     )
