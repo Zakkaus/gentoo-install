@@ -96,6 +96,7 @@ FACT_UNITS = (
     "identity",
     "capability-summary",
     "verification-scope",
+    "verification-architecture",
     "requirements-runtime",
     "safety-destructive",
     "safety-review-backup",
@@ -188,6 +189,11 @@ def test_readme_facts_preserve_safety_configuration_and_verification_boundaries(
         assert "TESTED.md" in bodies["verification-scope"], name
         assert "tests/fixtures/" in bodies["verification-scope"], name
         assert "`0`" in bodies["verification-scope"], name
+        # An architecture row without a record is implemented, not verified,
+        # and belongs here rather than in the capability list.
+        architecture = bodies["verification-architecture"]
+        for named in ("amd64", "arm64", "x86", "TESTED.md", "tests/vm/"):
+            assert named in architecture, (name, named)
         assert "wipe = true" in bodies["safety-destructive"], name
         assert "dry-run" in bodies["safety-review-backup"], name
         assert "/dev/disk/by-id/" in bodies["safety-review-backup"], name

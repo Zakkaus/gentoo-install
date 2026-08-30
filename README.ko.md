@@ -29,6 +29,10 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 단위, 계획, fixture coverage는 구현 동작을 설명하지만 설치된 시스템의 부팅을 증명하지 않는다.[`tests/fixtures/`](tests/fixtures/)는 구성 모델을 검증하며 설치된 시스템이 아니다. 기록은 미검증 조합을 표시한다.
 
+<!-- fact: verification-architecture -->
+
+`gentoo_install/model/architecture.py`는 amd64, arm64, x86 행을 가지며 GRUB 대상, `CPU_FLAGS_*` 변수, 바이너리 호스트 하위 디렉터리, EFI 실행 파일 이름은 그 행에서 구성된다. 검증된 것은 amd64뿐이다. [`TESTED.md`](TESTED.md)에 arm64와 x86 기록은 없고 `tests/vm/`는 amd64만 실행한다.
+
 ## 요구 사항
 
 <!-- fact: requirements-runtime -->
