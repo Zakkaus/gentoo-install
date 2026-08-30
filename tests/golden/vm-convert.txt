@@ -55,7 +55,7 @@
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr, in /gentoo-install.new
-  write /etc/default/grub with cmdline console=ttyS0,115200, its menu on ttyS0, in /gentoo-install.new
+  write /etc/default/grub with GRUB_CMDLINE_LINUX_DEFAULT console=ttyS0,115200 and GRUB_CMDLINE_LINUX empty, its menu on ttyS0, in /gentoo-install.new
   atomically swap /bin, /sbin, /etc, /lib, /lib64, /usr, /var from /gentoo-install.new
   put the kernel from /gentoo-install.new/boot into /boot and drop the old images
   install GRUB for uefi on the esp at /efi

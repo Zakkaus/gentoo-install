@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Sequence, cast
 
 from gentoo_install.exec.config import load
+from gentoo_install.model.architecture import DEFAULT_ARCHITECTURE
 from gentoo_install.model.config import (
     Bootloader, BootloaderConfig, DiskMode, Firmware, InstallConfig, RemoteUnlock
 )
@@ -619,3 +620,117 @@ def test_the_zfsbootmenu_describe_changes_with_the_command_line_it_will_set() ->
 
     empty = replace(operation, kernel_params=())
     assert "empty" in empty.describe(), empty.describe()
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    ("tests/fixtures/vm-btrfs.toml", "tests/fixtures/zbm-unlock.toml"),
+)
+def test_serial_console_uses_kernel_default_or_rejects_garbage(fixture: str) -> None:
+    from gentoo_install.errors import ConfigError
+
+    installation = load(Path(fixture))
+    no_speed = replace(
+        installation,
+        bootloader=replace(installation.bootloader, kernel_params=("console=ttyS0",)),
+    )
+    operations = bootloader.build(no_speed)
+    serial = next(
+        operation.serial
+        for operation in operations
+        if isinstance(
+            operation, (bootloader.WriteGrubDefaults, bootloader.InstallZfsBootMenu)
+        )
+    )
+    assert serial == ("ttyS0", 9600)
+
+    malformed = replace(
+        no_speed,
+        bootloader=replace(no_speed.bootloader, kernel_params=("console=ttyS0,garbage",)),
+    )
+    with pytest.raises(ConfigError, match="decimal baud rate"):
+        bootloader.build(malformed)
+
+
+def test_systemd_boot_image_skips_nvram_and_firmware_failure_degrades() -> None:
+    installation = load(Path("tests/fixtures/vm-sdboot.toml"))
+    image = replace(
+        installation,
+        disk=replace(
+            installation.disk,
+            mode=DiskMode.IMAGE,
+            image="/var/tmp/target.raw",
+            size=Size.parse("20GiB"),
+        ),
+    )
+    image_operations = bootloader.build(image)
+    image_bootctl = next(
+        operation
+        for operation in image_operations
+        if isinstance(operation, bootloader.InstallSystemdBoot)
+    )
+    assert not image_bootctl.write_nvram
+    assert "without writing an efi boot entry" in image_bootctl.describe()
+
+    image_recorder = Recorder()
+    image_bootctl.apply(image_recorder)
+    assert "--no-variables" in image_recorder.only("bootctl")
+
+    bootctl = next(
+        operation
+        for operation in bootloader.build(installation)
+        if isinstance(operation, bootloader.InstallSystemdBoot)
+    )
+    assert bootctl.write_nvram
+    refused = Recorder(failures={"bootctl"})
+    bootctl.apply(refused)
+    assert refused.degraded(bootloader.NVRAM_ENTRY)
+
+
+def test_grub_description_names_context_resolved_luks_parameters() -> None:
+    installation = load(Path("tests/fixtures/vm-luks.toml"))
+    without_configured_params = replace(
+        installation,
+        bootloader=replace(installation.bootloader, kernel_params=()),
+    )
+    operations = bootloader.build(without_configured_params)
+    defaults = next(
+        operation
+        for operation in operations
+        if isinstance(operation, bootloader.WriteGrubDefaults)
+    )
+    said = defaults.describe()
+    assert "GRUB_CMDLINE_LINUX_DEFAULT empty" in said
+    assert "rd.luks.uuid" in said
+    assert "cryptroot" in said
+
+    recorder = Recorder()
+    defaults.apply(recorder)
+    written = recorder.files[PurePosixPath("/etc/default/grub")]
+    assert 'GRUB_CMDLINE_LINUX="rd.luks.uuid=uuid-of-cryptroot"' in written
+    assert "uuid-of-cryptroot" not in said
+
+
+def test_bios_grub_description_uses_disk_path_despite_mounted_esp() -> None:
+    installation = load(Path("tests/fixtures/vm-btrfs.toml"))
+    bios = replace(
+        installation,
+        bootloader=BootloaderConfig(kind=Bootloader.GRUB, firmware=Firmware.BIOS),
+    )
+    operations = bootloader.build(bios)
+    grub = next(
+        operation
+        for operation in operations
+        if isinstance(operation, bootloader.InstallGrub)
+    )
+    assert grub.esp == PurePosixPath("/efi")
+    said = grub.describe()
+    assert "/efi" not in said
+    assert "bios" in said
+    assert "disk" in said
+
+    recorder = Recorder(replies={"grep": "1"})
+    grub.apply(recorder)
+    assert recorder.argv_starting(
+        "grub-install", f"--target={DEFAULT_ARCHITECTURE.bios_target}"
+    ) == (("grub-install", "--target=i386-pc", "/dev/vda"),)

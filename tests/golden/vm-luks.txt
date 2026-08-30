@@ -76,7 +76,7 @@
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
-  write /etc/default/grub with cmdline console=ttyS0,115200, cryptodisk enabled and its menu on ttyS0
+  write /etc/default/grub with GRUB_CMDLINE_LINUX_DEFAULT console=ttyS0,115200 and GRUB_CMDLINE_LINUX rd.luks.uuid from LUKS containers cryptroot, cryptodisk enabled and its menu on ttyS0
   install GRUB for uefi on the esp at /efi
 
 [finish]

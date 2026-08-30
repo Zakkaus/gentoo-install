@@ -73,7 +73,7 @@
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub
-  write /etc/default/grub with cmdline console=ttyS0,115200, cryptodisk enabled and its menu on ttyS0
+  write /etc/default/grub with GRUB_CMDLINE_LINUX_DEFAULT console=ttyS0,115200 and GRUB_CMDLINE_LINUX rd.luks.uuid from LUKS containers rootpart, cryptodisk enabled and its menu on ttyS0
   install GRUB for bios on the disk under disk
 
 [finish]
