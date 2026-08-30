@@ -53,6 +53,10 @@ CONSOLE_FONTS: Final[dict[ConsoleFontSize, str]] = {
 #: Groups a desktop user needs. `wheel` is what sudo is granted through.
 USER_GROUPS: Final[tuple[str, ...]] = ("users", "wheel", "audio", "video", "render", "usb", "input")
 
+#: What is given up when the links cannot be read. The interface is matched
+#: by name instead, which the target kernel may spell differently.
+MAC_MATCH: Final[str] = "matching the network interface by its MAC"
+
 ROOT = PurePosixPath("/")
 
 
@@ -761,6 +765,14 @@ class WriteNetworkConfig(Operation):
             return ""
         said = context.run(["ip", "-o", "link", "show"], check=False)
         if isinstance(said, CommandOutput) and said.returncode != 0:
+            # Said rather than swallowed: a probe that could not run answers the
+            # same empty string as a MAC two links share, and the name match it
+            # falls back to is the one this docstring records as unreachable.
+            context.degrade(
+                MAC_MATCH,
+                f"the links of this machine could not be read, so {self.interface} is "
+                f"matched by name: {str(said).strip()[:120]}",
+            )
             return ""
         addresses: dict[str, str] = {}
         for line in said.splitlines():
