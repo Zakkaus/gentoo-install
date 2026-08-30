@@ -407,6 +407,11 @@ class Binhost:
     #: `x86-64` only, so this does not touch it.
     subarch: str = DEFAULT_ARCHITECTURE.binhost_subarch
     community: BinhostChannel = BinhostChannel.OFF
+    #: The official host's address, when the composed one is not wanted. Empty
+    #: means `mirrors.gentoo_binhost` composes it from the region and site, the
+    #: same shape `mirrors.distfiles` already has: a cache on the machine's own
+    #: segment is an address with no name to resolve.
+    url: str = ""
 
 
 #: The profile release every path in this installer is built against, and the

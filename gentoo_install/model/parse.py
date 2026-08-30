@@ -277,12 +277,13 @@ def _remote_unlock(raw: Mapping[str, Any], at: str) -> RemoteUnlock:
 
 
 def _binhost(raw: Mapping[str, Any], at: str) -> Binhost:
-    _reject_unknown(raw, at, {"official", "community", "subarch"})
+    _reject_unknown(raw, at, {"official", "community", "subarch", "url"})
     default = Binhost()
     return Binhost(
         official=_bool(raw, "official", at, default.official),
         community=_enum(raw, "community", at, BinhostChannel, default.community),
         subarch=_str(raw, "subarch", at, default.subarch),
+        url=_str(raw, "url", at, default.url),
     )
 
 

@@ -2137,6 +2137,40 @@ def test_a_binary_that_downloads_on_the_second_try_compiles_nothing() -> None:
     assert not recorder.degraded(portage.BINARY_PACKAGES)
 
 
+def test_an_overridden_binhost_address_is_the_one_configured() -> None:
+    """`mirrors.distfiles` already replaces the distfile address for a cache on
+    the machine's own segment; the binary host had no such field, so a round
+    measured whatever `distfiles.gentoo.org` did that evening -- one run lost
+    481.5 minutes to it and two more degraded to source."""
+    from dataclasses import replace
+
+    from gentoo_install.model.config import Binhost
+    from tests.unit.layouts import config, ext4_on_gpt
+
+    here = "http://10.31.0.2/gentoo/releases/amd64/binpackages/23.0/x86-64"
+    built = config(ext4_on_gpt())
+    composed = [
+        one
+        for one in portage.build(built, "https://distfiles.gentoo.org")
+        if isinstance(one, portage.ConfigureBinhost) and one.name == "gentoo"
+    ]
+    assert composed and composed[0].sync_uri.startswith("https://"), composed
+
+    overridden = replace(
+        built,
+        portage=replace(built.portage, binhost=replace(built.portage.binhost, url=here)),
+    )
+    named = [
+        one
+        for one in portage.build(overridden, "https://distfiles.gentoo.org")
+        if isinstance(one, portage.ConfigureBinhost) and one.name == "gentoo"
+    ]
+    assert named and named[0].sync_uri == here, named
+    # Still verified: the mirror carries the official packages, so the release
+    # key is the same one.
+    assert named[0].verify
+
+
 #: Verbatim from `vm-gnome-9301-69777bdafc.log`, which reached the run's 8h
 #: ceiling at 481.5 minutes with the console still printing.
 GNOME_TLS_DROPPED = """>>> Emerging binary (39 of 227) net-print/cups-pk-helper-0.2.7-r1::gentoo
