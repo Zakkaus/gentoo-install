@@ -536,6 +536,55 @@ def test_an_authorized_key_needs_a_daemon_and_an_account_that_can_use_it(
     }
 
 
+@pytest.mark.parametrize(
+    "password_hash",
+    [
+        # The shape of a hash and a digest field `crypt(3)` never produces:
+        # SHA-512 is 86 characters, SHA-256 is 43 and MD5 is 22, measured with
+        # `openssl passwd` on one salt. A configuration whose only login
+        # carried one of these installed a machine nothing could log in to.
+        "$6$salt$x",
+        "$6$salt$" + "a" * 85,
+        "$5$salt$" + "a" * 42,
+        "$1$salt$" + "a" * 21,
+    ],
+)
+def test_a_hash_shaped_value_that_crypt_cannot_produce_locks_the_account(
+    password_hash: str,
+) -> None:
+    installation = replace(
+        config(),
+        system=replace(config().system, root_password_hash=password_hash, users=()),
+    )
+    assert (Trait.ROOT_LOCKED, Trait.NO_OTHER_LOGIN) in {
+        (rule.when, rule.excludes) for rule in violations(installation)
+    }
+
+
+@pytest.mark.parametrize(
+    "password_hash",
+    [
+        # Produced by `openssl passwd` on this machine, so the lengths are the
+        # ones `crypt(3)` writes rather than the ones this test assumes.
+        "$6$abcdefgh$D7W7qyozKBT.t6FD3DVYHvADbIO0eSyI4.p20LaEUjro8PqTGYYo"
+        "/EQcuNjhFbzo9Yg5ir1KIEqFY/yJpgFph0",
+        "$5$abcdefgh$sI6g8tHKrJ6RX7w.YoN9B7a/5wK5jYEOMmMnt3tPl0/",
+        "$1$abcdefgh$znAnv9M.XU2pRYfmSs46h/",
+        # yescrypt has no single digest length, so it keeps the shape check
+        # alone rather than a length guessed at.
+        "$y$j9T$MnwtsK.oCEIMSXUvI08eF/$Y0Xn1KAWaEQNyEIQrICLKXpsLLBEGYq4M0EF2NTXVK5",
+    ],
+)
+def test_a_hash_crypt_really_produced_is_a_login(password_hash: str) -> None:
+    installation = replace(
+        config(),
+        system=replace(config().system, root_password_hash=password_hash, users=()),
+    )
+    assert (Trait.ROOT_LOCKED, Trait.NO_OTHER_LOGIN) not in {
+        (rule.when, rule.excludes) for rule in violations(installation)
+    }
+
+
 @pytest.mark.parametrize("password_hash", ["!", "*", "not-a-hash"])
 def test_a_nonempty_root_password_value_must_be_an_authenticating_hash(
     password_hash: str,

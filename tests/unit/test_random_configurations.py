@@ -134,8 +134,8 @@ def a_configuration() -> InstallConfig:
             console_cjk=cjk and random.random() < 0.7,
             zram=random.choice((None, Size.parse("4GiB"))),
             sshd=random.choice((True, False)),
-            users=random.choice(((), (User(name="zakk", sudo=True, password_hash="$6$t$x"),))),
-            root_password_hash="$6$t$x",
+            users=random.choice(((), (User(name="zakk", sudo=True, password_hash="$6$t$" + "x" * 86),))),
+            root_password_hash="$6$t$" + "x" * 86,
         ),
         portage=PortageConfig(
             profile="default/linux/amd64/23.0"

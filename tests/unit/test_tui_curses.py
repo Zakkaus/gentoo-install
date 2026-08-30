@@ -387,7 +387,7 @@ def main(window):
         translate=Catalog("en"),
         disks=[("/dev/disk/by-id/virtio-target0", "40 GiB")],
         groups=load_catalog(),
-        hash_password=lambda password: "$6$test$" + str(len(password)),
+        hash_password=lambda password: "$6$test$" + str(len(password)).ljust(86, "a"),
         timezones=("UTC",),
     ))
     # What an operator does by opening each row and typing the disk name. The
