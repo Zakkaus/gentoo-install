@@ -67,7 +67,7 @@
 
 [bootloader]
   install bootctl: emerge sys-apps/systemd
-  install systemd-boot on the esp at /boot
+  install systemd-boot on the esp at /boot and request an efi boot entry
   show the boot menu for 5s in /boot/loader/loader.conf
 
 [finish]

@@ -87,7 +87,7 @@
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
-  write /etc/default/grub with cmdline rd.neednet=1 ip=192.0.2.10::192.0.2.1:255.255.255.0::eth0:none console=ttyS0,115200, its menu on ttyS0
+  write /etc/default/grub with GRUB_CMDLINE_LINUX_DEFAULT rd.neednet=1 ip=192.0.2.10::192.0.2.1:255.255.255.0::eth0:none console=ttyS0,115200 and GRUB_CMDLINE_LINUX rd.luks.uuid from LUKS containers cryptroot, its menu on ttyS0
   install GRUB for uefi on the esp at /efi
 
 [finish]

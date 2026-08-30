@@ -162,7 +162,7 @@ class InstallGrub(Operation):
     write_nvram: bool = True
 
     def describe(self) -> str:
-        if self.esp is not None:
+        if self.firmware is Firmware.UEFI and self.esp is not None:
             return f"install GRUB for {self.firmware.value} on the esp at {self.esp}"
         # Every disk, not "the boot disk": the BIOS branch writes a boot sector
         # to the containing disk of each boot device, and a mirrored root has
@@ -253,13 +253,28 @@ class WriteGrubDefaults(Operation):
     keymap: str = ""
 
     def describe(self) -> str:
+        required: list[str] = []
+        if self.luks:
+            containers = ", ".join(str(device) for device in self.luks)
+            required.append(f"rd.luks.uuid from LUKS containers {containers}")
+        if self.arrays:
+            arrays = ", ".join(str(device) for device in self.arrays)
+            required.append(f"rd.md.uuid from arrays {arrays}")
+        if self.keymap:
+            required.append(f"rd.vconsole.keymap={self.keymap}")
         extra = []
         if self.cryptodisk:
             extra.append("cryptodisk enabled")
         if self.serial is not None:
             extra.append(f"its menu on {self.serial[0]}")
         listed = f", {' and '.join(extra)}" if extra else ""
-        return f"write /etc/default/grub with cmdline {' '.join(self.kernel_params) or 'empty'}{listed}"
+        default = " ".join(self.kernel_params) or "empty"
+        needed = " and ".join(required) or "empty"
+        return (
+            "write /etc/default/grub with "
+            f"GRUB_CMDLINE_LINUX_DEFAULT {default} and "
+            f"GRUB_CMDLINE_LINUX {needed}{listed}"
+        )
 
     def apply(self, context: Context) -> None:
         # `GRUB_CMDLINE_LINUX` reaches every entry and `_DEFAULT` only the
@@ -331,12 +346,22 @@ class RequestBootctl(Operation):
 class InstallSystemdBoot(Operation):
     stage: Stage = Stage.BOOTLOADER
     esp: PurePosixPath
+    write_nvram: bool = True
 
     def describe(self) -> str:
-        return f"install systemd-boot on the esp at {self.esp}"
+        entry = (
+            "and request an efi boot entry"
+            if self.write_nvram
+            else "without writing an efi boot entry"
+        )
+        return f"install systemd-boot on the esp at {self.esp} {entry}"
 
     def apply(self, context: Context) -> None:
-        context.run_in_target(["bootctl", f"--esp-path={self.esp}", "install"])
+        command = ["bootctl", f"--esp-path={self.esp}"]
+        if self.write_nvram:
+            _try_the_nvram_entry(context, [*command, "install"])
+        else:
+            context.run_in_target([*command, "--no-variables", "install"])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -633,7 +658,7 @@ def build(config: InstallConfig) -> list[Operation]:
                 summary="install bootctl",
                 mode=InstallMode.NOREPLACE,
             ),
-            InstallSystemdBoot(esp=esp),
+            InstallSystemdBoot(esp=esp, write_nvram=write_nvram),
             ShowTheBootMenu(esp=esp),
         ]
     elif kind is Bootloader.ZFSBOOTMENU and esp is not None and esp_device is not None:
@@ -833,11 +858,17 @@ def serial_console(config: InstallConfig) -> tuple[str, int] | None:
     for parameter in config.bootloader.kernel_params:
         if not parameter.startswith("console=ttyS"):
             continue
-        port, _, rest = parameter.split("=", 1)[1].partition(",")
+        port, separator, rest = parameter.split("=", 1)[1].partition(",")
+        # `serial8250_console_setup` starts at `int baud = 9600` and parses the
+        # options only when there are any, so a bare `console=ttyS0` is 9600n8.
+        if not separator:
+            return port, 9600
         # The leading run only: `115200n8` names the speed and then the frame
         # format, and taking every digit made that 1152008 baud.
         speed = re.match(r"\d+", rest)
-        return port, int(speed.group()) if speed else 115200
+        if speed is None:
+            raise ConfigError(f"{parameter!r} needs a decimal baud rate after the comma")
+        return port, int(speed.group())
     return None
 
 
