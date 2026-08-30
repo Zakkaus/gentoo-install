@@ -164,7 +164,7 @@ class _Nothing:
 _NOTHING: Final[_Nothing] = _Nothing()
 
 
-def _simple(choice: Choice) -> list[str]:
+def _simple(choice: Choice, *, publishing: bool = False) -> list[str]:
     """A whole-disk template, with every field the default already covers left
     out: an omitted key reads as `whatever this installer does by default`."""
     against = Choice(disk=choice.disk)
@@ -174,6 +174,9 @@ def _simple(choice: Choice) -> list[str]:
             continue
         held = getattr(choice, field.name)
         if held == getattr(against, field.name):
+            continue
+        if publishing and field.name in NOT_FOR_A_PASTE:
+            lines.append(f"{field.name} = {_value(REDACTED)}")
             continue
         lines.append(f"{field.name} = {_value(held)}")
     return lines
@@ -192,7 +195,12 @@ def _disk(config: InstallConfig, *, publishing: bool = False) -> list[str]:
     if disk.simple is not None:
         # `simple` reconstructs graph and root; writing both is a rejected duplicate.
         # Its eight fields replace the graph's sixty for a hand-edited file.
-        return [*lines, "", "[disk.simple]", *_simple(disk.simple)]
+        return [
+            *lines,
+            "",
+            "[disk.simple]",
+            *_simple(disk.simple, publishing=publishing),
+        ]
     if disk.root:
         lines.append(f"root = {_value(disk.root)}")
     for node in disk.graph.nodes.values():

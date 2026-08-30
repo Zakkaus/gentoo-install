@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import tomllib
-from typing import Iterator, cast
+from typing import Final, Iterator, cast
 from dataclasses import MISSING, fields, is_dataclass, replace
 from pathlib import Path
 
@@ -373,32 +373,60 @@ def test_every_node_field_the_writer_emits_is_a_key_its_parser_accepts() -> None
         assert spelled, (held.__name__, name)
 
 
-def test_a_published_configuration_redacts_the_key_file_path() -> None:
-    """`_disk` took no `publishing` flag, so the whole device section bypassed
-    the redaction that `_section` applies.
+SIMPLE_WITH_A_KEY_FILE: Final[str] = """
+[disk.simple]
+disk = "/dev/sda"
+layout = "whole-disk"
+passphrase_file = "/run/gentoo-install-keys/root.key"
+"""
 
-    The field holds a path rather than the key, which is why it looked
-    harmless — but it names where key material sits on the installing machine,
+
+def _every_configuration_that_names_a_key_file() -> list[tuple[str, InstallConfig]]:
+    """One per writer, found rather than listed.
+
+    `_simple` and the graph loop are two writers of the same field, and the
+    hand-written pair this test used to hold covered only the graph one, which
+    is how `[disk.simple]` published a real key file path for a year.
+    """
+    found = [("[disk.simple]", parse(tomllib.loads(SIMPLE_WITH_A_KEY_FILE)))]
+    for path in sorted(FIXTURES.glob("*.toml")):
+        config = parse(tomllib.loads(path.read_text()))
+        if "passphrase_file" in to_toml(config):
+            found.append((path.stem, config))
+    return found
+
+
+NAMES_A_KEY_FILE: Final[list[tuple[str, InstallConfig]]] = (
+    _every_configuration_that_names_a_key_file()
+)
+
+
+@pytest.mark.parametrize(
+    "name, config", NAMES_A_KEY_FILE, ids=[one for one, _ in NAMES_A_KEY_FILE]
+)
+def test_a_published_configuration_redacts_the_key_file_path(
+    name: str, config: InstallConfig
+) -> None:
+    """The field holds a path rather than the key, which is why it looked
+    harmless -- but it names where key material sits on the installing machine,
     and a hand-written configuration points it wherever the operator keeps
     keys. `publishing=True` has one caller, the pastebin upload in
     `exec/report.py`, so nothing that needs the real path ever sees this form.
     """
-    for name in ("vm-luks", "vm-zfs-encrypted"):
-        config = parse(tomllib.loads((FIXTURES / f"{name}.toml").read_text()))
-        saved = to_toml(config)
-        published = to_toml(config, publishing=True)
+    saved = to_toml(config)
+    published = to_toml(config, publishing=True)
 
-        held = [one for one in saved.splitlines() if "passphrase_file" in one]
-        assert held, f"{name} carries no key file to redact"
-        assert all("/run/" in one for one in held), held
+    held = [one for one in saved.splitlines() if "passphrase_file" in one]
+    assert held, f"{name} carries no key file to redact"
 
-        gone = [one for one in published.splitlines() if "passphrase_file" in one]
-        assert gone, f"{name} dropped the key rather than redacting it"
-        assert all(REDACTED in one for one in gone), gone
-        assert "/run/gentoo-install-keys" not in published, published
+    gone = [one for one in published.splitlines() if "passphrase_file" in one]
+    assert gone, f"{name} dropped the key rather than redacting it"
+    assert all(REDACTED in one for one in gone), gone
+    for line in held:
+        assert line.split("=", 1)[1].strip() not in published, (name, line)
 
-        # The saved form is what an operator keeps, and it has to stay usable.
-        assert REDACTED not in saved, saved
+    # The saved form is what an operator keeps, and it has to stay usable.
+    assert REDACTED not in saved, saved
 
 
 #: A value away from the default for every persisted field no fixture moves.
