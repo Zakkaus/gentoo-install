@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import io
 import os
 import shutil
@@ -15,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from gentoo_install import cli, errors
+from gentoo_install.i18n import Catalog, tag_for
 from gentoo_install.exec import fetch
 from gentoo_install.exec import report
 from gentoo_install.exec.probe import BootMethod, Probe as RealProbe
@@ -106,7 +108,7 @@ def test_dd_execution_skips_target_shell_and_log_handover(
         resume=False,
         no_shell=False,
         menu=False,
-    )
+     lang="")
     monkeypatch.setattr(cli, "apply", lambda *args: None)
     monkeypatch.setattr(report, "offer_paste", lambda *args: None)
     monkeypatch.setattr(
@@ -679,7 +681,7 @@ def test_an_unattended_run_is_never_asked_about_a_shell(
 
     from gentoo_install.exec.apply import Machine
 
-    arguments = argparse.Namespace(no_shell=True, menu=False, target=Path("/mnt/gentoo"))
+    arguments = argparse.Namespace(no_shell=True, menu=False, target=Path("/mnt/gentoo"), lang="")
     said: list[str] = []
     cli._offer_a_shell(
         arguments,
@@ -688,8 +690,61 @@ def test_an_unattended_run_is_never_asked_about_a_shell(
         False,
         Path("/mnt/gentoo"),
         DiskMode.PARTITION,
+        Catalog("en"),
     )
     assert not said and not capsys.readouterr().out
+
+
+def test_the_closing_questions_are_asked_in_the_menu_language(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both questions come after curses has gone and were English literals, so
+    a machine whose every screen had been in Chinese ended by asking
+    `enter a root shell in /mnt/gentoo before unmounting? [y/N]`."""
+    import argparse
+    from types import SimpleNamespace
+
+    from gentoo_install.exec import report
+    from gentoo_install.exec.apply import Machine
+
+    asked: list[str] = []
+
+    def say_no(question: str) -> bool:
+        asked.append(question)
+        return False
+
+    monkeypatch.setattr(cli, "_unattended", lambda arguments: False)
+    monkeypatch.setattr(cli, "_asked", say_no)
+    arguments = argparse.Namespace(
+        no_shell=False, menu=True, target=Path("/mnt/gentoo"), lang=""
+    )
+    machine = cast(Machine, SimpleNamespace(runner=None))
+
+    cli._offer_a_shell(
+        arguments,
+        machine,
+        lambda one: None,
+        False,
+        Path("/mnt/gentoo"),
+        DiskMode.PARTITION,
+        Catalog("zh-TW"),
+    )
+    report.offer_paste(
+        Path("/tmp"), lambda one: None, False, False, say_no, lambda one: None, Catalog("zh-TW")
+    )
+
+    assert len(asked) == 2, asked
+    for question in asked:
+        assert not question.isascii(), question
+    # And the tag the menu recorded is the one those questions are built
+    # from: `_from_menu` writes it onto `RunState` and `install` reads it.
+    walked = cli.RunState()
+    walked.language = "zh-TW"
+    assert cli._closing_catalog(walked, arguments).tag == "zh-TW"
+    # A `--config` run never opens a screen, so the environment decides.
+    assert cli._closing_catalog(cli.RunState(), arguments).tag == tag_for(
+        override=arguments.lang
+    )
 
 
 def test_a_conversion_is_offered_a_shell_in_the_root_it_converted(
@@ -720,16 +775,24 @@ def test_a_conversion_is_offered_a_shell_in_the_root_it_converted(
         return True
 
     monkeypatch.setattr(cli, "_asked", say_yes)
-    arguments = argparse.Namespace(no_shell=False, menu=False, target=Path("/mnt/gentoo"))
+    arguments = argparse.Namespace(no_shell=False, menu=False, target=Path("/mnt/gentoo"), lang="")
     runner = Fake()
     machine = cast(Machine, SimpleNamespace(runner=runner))
 
-    cli._offer_a_shell(arguments, machine, lambda one: None, False, Path("/"), DiskMode.IN_PLACE)
+    cli._offer_a_shell(
+        arguments, machine, lambda one: None, False, Path("/"), DiskMode.IN_PLACE, Catalog("en")
+    )
     assert runner.argv == [["chroot", "/", "/bin/bash", "--login"]]
     assert "/mnt/gentoo" not in asked[0], asked
     # An ordinary install still says what it is about to do.
     cli._offer_a_shell(
-        arguments, machine, lambda one: None, False, Path("/mnt/gentoo"), DiskMode.PARTITION
+        arguments,
+        machine,
+        lambda one: None,
+        False,
+        Path("/mnt/gentoo"),
+        DiskMode.PARTITION,
+        Catalog("en"),
     )
     assert "before unmounting" in asked[1], asked
     assert "before unmounting" not in asked[0], asked
@@ -856,7 +919,7 @@ def test_an_unattended_run_is_asked_nothing_on_the_way_out(
         asked.append(question)
         return False
 
-    arguments = argparse.Namespace(no_shell=True, menu=False, target=tmp_path)
+    arguments = argparse.Namespace(no_shell=True, menu=False, target=tmp_path, lang="")
     report.offer_paste(
         tmp_path,
         lambda line: None,
@@ -1031,6 +1094,7 @@ def test_the_log_is_kept_before_the_target_is_unmounted(
             no_shell=True,
             menu=False,
             dry_run=False,
+            lang="",
         )
         try:
             cli.install(replace(config(ext4_on_gpt())), operations, arguments, cli.RunState())
@@ -1090,6 +1154,7 @@ def test_the_conversion_hands_the_offer_the_root_it_resolved(
             no_shell=True,
             menu=False,
             dry_run=False,
+            lang="",
         )
         cli.install(chosen, tuple(build(config(ext4_on_gpt()), load_catalog())), arguments, cli.RunState())
         return handed[mode.value]
@@ -1615,7 +1680,7 @@ def test_a_conversion_reads_the_running_layout_even_for_a_dry_run(
 
 
 def _conversion_arguments(no_shell: bool) -> argparse.Namespace:
-    return argparse.Namespace(no_shell=no_shell, menu=False)
+    return argparse.Namespace(no_shell=no_shell, menu=False, lang="")
 
 
 def test_the_swap_is_confirmed_before_it_runs(
@@ -1667,7 +1732,7 @@ def test_a_declined_conversion_exits_as_a_user_abort(
         no_shell=True,
         menu=False,
         dry_run=False,
-    )
+     lang="")
 
     assert cli.install(converted, (), arguments, cli.RunState()) == cli.EXIT_ABORTED
 
@@ -1787,7 +1852,7 @@ def test_a_conversion_acts_on_the_running_root_not_the_mount_point(
         no_shell=True,
         menu=False,
         dry_run=False,
-    )
+     lang="")
     cli.install(converted, (), arguments, cli.RunState())
     assert seen == [Path("/")], seen
 
@@ -1827,7 +1892,7 @@ def test_the_machine_gets_the_derived_configuration_for_a_conversion(
         no_shell=True,
         menu=False,
         dry_run=False,
-    )
+     lang="")
 
     cli.install(converted, (), arguments, cli.RunState(), running)
 
@@ -1881,7 +1946,7 @@ def test_an_unattended_conversion_still_records_that_ssh_stops() -> None:
     return or the one run nobody is watching never carries it.
     """
     said: list[str] = []
-    unattended = argparse.Namespace(no_shell=True, menu=False)
+    unattended = argparse.Namespace(no_shell=True, menu=False, lang="")
 
     assert cli._confirmed_swap(unattended, said.append)
     assert any(cli.SESSION_IS_THE_LIFELINE in line for line in said), said
@@ -2361,7 +2426,7 @@ def test_a_refused_menu_configuration_returns_to_the_menu(
     """
     walked: list[str] = []
 
-    def menu(arguments: object, refused: str = "") -> None:
+    def menu(arguments: object, refused: str = "", state: object = None) -> None:
         walked.append(refused)
         if len(walked) == 1:
             raise errors.PreflightFailed("disk1-table claims 40GiB, which does not fit")
@@ -2397,7 +2462,7 @@ def test_the_same_refusal_twice_stops_rather_than_asking_again(
     """
     walked: list[str] = []
 
-    def menu(arguments: object, refused: str = "") -> None:
+    def menu(arguments: object, refused: str = "", state: object = None) -> None:
         walked.append(refused)
         raise errors.PreflightFailed("the same thing is still wrong")
 
@@ -2419,7 +2484,7 @@ def test_a_refused_configuration_from_the_menu_returns_to_it(
     lose the other nineteen rows."""
     walked: list[str] = []
 
-    def menu(arguments: object, refused: str = "") -> None:
+    def menu(arguments: object, refused: str = "", state: object = None) -> None:
         walked.append(refused)
         if len(walked) == 1:
             raise errors.UnknownDeviceId("no node with id ''")
