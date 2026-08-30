@@ -29,6 +29,10 @@ The implementation covers normal disk installation, storage and boot configurati
 
 Unit, plan and fixture coverage describes implementation behavior; it does not establish that an installed system booted. [`tests/fixtures/`](tests/fixtures/) exercise the configuration model, not an installed machine. The record names unverified combinations.
 
+<!-- fact: verification-architecture -->
+
+`gentoo_install/model/architecture.py` carries rows for amd64, arm64 and x86, and the GRUB target, the `CPU_FLAGS_*` variable, the binary host subdirectory and the EFI executable names are composed from that row. Only amd64 is verified: [`TESTED.md`](TESTED.md) records no arm64 or x86 run, and `tests/vm/` exercises amd64 alone.
+
 ## Requirements
 
 <!-- fact: requirements-runtime -->

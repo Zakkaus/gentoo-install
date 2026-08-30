@@ -29,6 +29,10 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 单元、计划和 fixture coverage 说明实现行为，不能证明已安装系统已经引导。[`tests/fixtures/`](tests/fixtures/)验证配置模型，不是已安装的机器。记录会列出尚未验证的组合。
 
+<!-- fact: verification-architecture -->
+
+`gentoo_install/model/architecture.py` 带有 amd64、arm64 和 x86 三列，GRUB 目标、`CPU_FLAGS_*` 变量、二进制软件包主机的子目录和 EFI 可执行文件名称都由那一列组成。已验证的只有 amd64：[`TESTED.md`](TESTED.md)没有任何 arm64 或 x86 的记录，`tests/vm/` 也只运行 amd64。
+
 ## 要求
 
 <!-- fact: requirements-runtime -->
