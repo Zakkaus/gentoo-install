@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Final
 
+from ..model.architecture import DEFAULT_ARCHITECTURE
 from ..model.config import (
     BASE_PROFILE,
     Bootloader,
@@ -308,7 +309,8 @@ def _kernel_version(config: InstallConfig, context: Context) -> str:
 
 
 def _keywords(config: InstallConfig, context: Context) -> str:
-    return "~amd64" if config.portage.keywords is Keywords.TESTING else "amd64"
+    row = DEFAULT_ARCHITECTURE
+    return row.testing_keyword if config.portage.keywords is Keywords.TESTING else row.gentoo_name
 
 
 def _bootloader(config: InstallConfig, context: Context) -> str:

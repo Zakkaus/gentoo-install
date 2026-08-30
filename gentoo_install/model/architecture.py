@@ -46,6 +46,16 @@ class Architecture:
     #: `meson.build`, and `BOOTAA64.EFI` measured on an aarch64 machine's esp.
     efi_name: str
 
+    @property
+    def testing_keyword(self) -> str:
+        """What accepts a package this architecture has not stabilised.
+
+        Spelled from the row rather than written out: four places held
+        `~amd64`, and two of them reach `/etc/portage` on the installed
+        machine.
+        """
+        return f"~{self.gentoo_name}"
+
 
 #: The row every published path targets today: the stage3, the profile and the
 #: official binary host are all fetched for it. Named so that the default is
