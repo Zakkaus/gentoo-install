@@ -1279,3 +1279,29 @@ def test_a_test_that_could_not_run_is_not_read_as_a_missing_image() -> None:
 
     with pytest.raises(CommandFailed, match="could not be read"):
         kernel.RequireKernelImage().apply(recorder)
+
+
+def test_the_initramfs_rebuild_names_the_version_the_merge_installed() -> None:
+    """`dist-kernel` slots by version, so a machine carrying two of them makes
+    `emerge --config sys-kernel/gentoo-kernel` print both and exit `Please use
+    a specific atom` — `action_config` matches the argument against the vdb and
+    refuses more than one hit."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import KernelConfig, KernelSource
+    from gentoo_install.plan.kernel import RebuildInitramfs
+
+    pinned = _replace(
+        config(),
+        kernel=KernelConfig(source=KernelSource.DIST_BIN, version="6.12.47"),
+    )
+    operations = kernel.build(pinned)
+    merge = next(
+        one
+        for one in operations
+        if isinstance(one, Emerge) and one.summary.startswith("install the kernel")
+    )
+    rebuild = next(one for one in operations if isinstance(one, RebuildInitramfs))
+
+    assert rebuild.package in merge.packages, (rebuild.package, merge.packages)
+    assert rebuild.package.startswith("="), rebuild.package
