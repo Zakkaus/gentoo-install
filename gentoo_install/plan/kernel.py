@@ -569,6 +569,9 @@ class RebuildInitramfs(Operation):
     any package that pulls one in, so the image is built again from it."""
 
     stage: Stage = Stage.KERNEL
+    #: The atom the merge used, not the bare package: `dist-kernel` slots by
+    #: version, so with two installed `emerge --config sys-kernel/gentoo-kernel`
+    #: prints both and exits `Please use a specific atom`.
     package: str
 
     def describe(self) -> str:
@@ -844,7 +847,7 @@ def build(config: InstallConfig, hardware: HardwareFacts = HardwareFacts()) -> l
     # is built here.
     if graph.of_type(ZfsPool):
         operations.append(GenerateHostId())
-    operations.append(RebuildInitramfs(package=package))
+    operations.append(RebuildInitramfs(package=atom))
     operations.append(RequireKernelImage())
     return operations
 
