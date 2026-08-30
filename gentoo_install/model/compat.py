@@ -449,6 +449,20 @@ def kernel_package_name(config: InstallConfig) -> str:
     return re.sub(r"-\d[\w.]*\*?$", "", bare)
 
 
+def _a_key_can_log_in(system: SystemConfig) -> bool:
+    """Whether sshd will accept one of the configured keys.
+
+    `plan/system.py` writes every key to `/root/.ssh/authorized_keys` when no
+    user has sudo, and writes `PermitRootLogin no` unless root login is asked
+    for, so the two questions are one.
+    """
+    return bool(
+        system.sshd
+        and system.authorized_keys
+        and (system.sshd_root_login or any(one.sudo for one in system.users))
+    )
+
+
 def cjk_kernel_problems(
     config: InstallConfig, row: Architecture | None = None
 ) -> tuple[str, ...]:
@@ -620,6 +634,8 @@ class Trait(Enum):
     ROOT_LOCKED = "a root password hash that cannot authenticate"
     NO_OTHER_LOGIN = "no user password and no authorised ssh key usable by sshd"
     IN_PLACE_CONVERSION = "in-place conversion"
+    AUTHORIZED_KEYS = "authorised ssh keys"
+    NO_ACCOUNT_A_KEY_CAN_REACH = "no account sshd will accept a key for"
 
 
 @dataclass(frozen=True)
@@ -644,6 +660,13 @@ class Rule:
 
 
 RULES: tuple[Rule, ...] = (
+    Rule(
+        Trait.AUTHORIZED_KEYS,
+        Trait.NO_ACCOUNT_A_KEY_CAN_REACH,
+        "every key is written to /root/.ssh/authorized_keys and sshd is given "
+        "PermitRootLogin no, so none of them can log in: add a user with sudo, "
+        "or allow root login",
+    ),
     Rule(
         Trait.ROOT_LOCKED,
         Trait.NO_OTHER_LOGIN,
@@ -767,10 +790,7 @@ def traits_of(
     if not _password_can_authenticate(config.system.root_password_hash):
         found.add(Trait.ROOT_LOCKED)
         named = any(_password_can_authenticate(one.password_hash) for one in config.system.users)
-        key_account = config.system.sshd and bool(config.system.authorized_keys) and (
-            config.system.sshd_root_login or any(one.sudo for one in config.system.users)
-        )
-        if not named and not key_account:
+        if not named and not _a_key_can_log_in(config.system):
             found.add(Trait.NO_OTHER_LOGIN)
 
     if _holds(graph, config.disk.root, (ZfsPool, ZfsDataset)):
@@ -864,6 +884,13 @@ def traits_of(
         found.add(Trait.COMMUNITY_BINHOST)
     if not any(overlay.name == "gentoo-zh" for overlay in config.portage.overlays):
         found.add(Trait.NO_GENTOOZH_OVERLAY)
+    # Not under remote unlock: dracut-crypt-ssh reads /root/.ssh/authorized_keys
+    # and nothing else, so a key that only the initramfs uses is what was asked
+    # for.
+    if config.system.authorized_keys and not config.kernel.remote_unlock.enabled:
+        found.add(Trait.AUTHORIZED_KEYS)
+        if not _a_key_can_log_in(config.system):
+            found.add(Trait.NO_ACCOUNT_A_KEY_CAN_REACH)
     if config.kernel.remote_unlock.enabled:
         found.add(Trait.REMOTE_UNLOCK)
         if not config.system.authorized_keys:

@@ -315,7 +315,22 @@ def a_system_nothing_can_log_into() -> InstallConfig:
     return replace(config(), system=SystemConfig())
 
 
+def a_key_no_account_can_use() -> InstallConfig:
+    """`plan/system.py` writes every key to `/root/.ssh/authorized_keys` when
+    no user has sudo, and sshd is given `PermitRootLogin no` unless root login
+    was asked for. A working root password kept this out of `ROOT_LOCKED`, so
+    the machine booted with keys nothing would accept."""
+    return replace(
+        config(),
+        system=SystemConfig(
+            root_password_hash="$6$salt$" + "x" * 86,
+            authorized_keys=("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI zakk@host",),
+        ),
+    )
+
+
 CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
+    (a_key_no_account_can_use, Trait.AUTHORIZED_KEYS, Trait.NO_ACCOUNT_A_KEY_CAN_REACH),
     (a_system_nothing_can_log_into, Trait.ROOT_LOCKED, Trait.NO_OTHER_LOGIN),
     (zfs_on_grub, Trait.ROOT_ON_ZFS, Trait.GRUB),
     (a_kernel_on_zfs_under_grub, Trait.BOOT_ON_ZFS, Trait.GRUB),
