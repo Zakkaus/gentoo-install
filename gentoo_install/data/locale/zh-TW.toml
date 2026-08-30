@@ -443,6 +443,7 @@
 "Yes, and open" = "是，並開啟"
 "editable" = "可自行編輯"
 "required" = "必填"
+"confirm" = "待確認"
 "never opened" = "未開啟過"
 "User name" = "使用者名稱"
 "empty for root only" = "留空表示只有 root"

@@ -200,6 +200,9 @@ class Context:
         #: disk authorised a second one the prompt never named.
         self.confirmed: set[str] = set()
         self.provenance: set[ValueProvenance] = set()
+        # Declared as an annotation and set only by `App`, so a `Context` built
+        # anywhere else answered `settled` with an AttributeError.
+        self.visited: set[str] = set()
         #: The hand-written partition table, when the layout is manual.
         self.layout = manual.Layout()
         #: Whether the disk comes from that table rather than a template.

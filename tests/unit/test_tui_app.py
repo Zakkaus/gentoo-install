@@ -3247,6 +3247,41 @@ def test_the_short_form_of_a_selector_confirms_the_same_disk() -> None:
     assert at.confirmed == {named}
 
 
+def test_a_detected_value_says_it_still_needs_confirming() -> None:
+    """`settled` refuses a detected value nobody opened, and the row drew it
+    exactly like an answered one. Three operators read `* Drive  /dev/vda` as
+    done, and pressing the row to clear the star discarded a hand-written
+    partition table."""
+    at = context()
+    built = config(zfs_root())
+    row = next(
+        one
+        for group in settings.SETTINGS
+        for one in (group.rows or (group,))
+        if one.key == "disk"
+    )
+    assert row.required and row.detected
+
+    unopened = settings.shown_value(row, built, at)
+    assert unopened.endswith("(confirm)"), unopened
+    assert not settings.settled(row, built, at)
+
+    at.visited.add("disk")
+    opened = settings.shown_value(row, built, at)
+    assert "(confirm)" not in opened, opened
+    assert opened and settings.settled(row, built, at)
+
+    # A row that is required without a detected default says nothing extra:
+    # its value can only have come from the operator.
+    password = next(
+        one
+        for group in settings.SETTINGS
+        for one in (group.rows or (group,))
+        if one.key == "root"
+    )
+    assert password.required and not password.detected
+
+
 def test_a_disk_is_shown_by_its_kernel_name_and_stored_by_its_selector() -> None:
     """The configuration keeps `/dev/disk/by-id/...` because a kernel name is
     assigned at probe time and one saved today installs somewhere else after
@@ -3276,6 +3311,9 @@ def test_a_disk_is_shown_by_its_kernel_name_and_stored_by_its_selector() -> None
         for one in (group.rows or (group,))
         if one.key == "disk"
     )
+    # Opened, so the row is not still asking to be confirmed: this test is
+    # about the kernel name replacing the selector, not about that marker.
+    at.visited.add("disk")
     assert settings.shown_value(row, installation, at) == "/dev/sda"
 
     at.confirmed.clear()
