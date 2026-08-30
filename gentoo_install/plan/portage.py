@@ -292,12 +292,15 @@ class WriteProxyClients(Operation):
     proxy: ProxyConfig
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        # Not gpg: its proxy is `dirmngr.conf`, which `PrepareBinhostTrust`
+        # writes after `getuto` rebuilds that directory. Naming it here
+        # described a file this operation never writes.
         if self.proxy.enabled:
             return (
-                "configure Portage, wget, curl, git and gpg for {} in /etc/wgetrc, /etc/gitconfig, curl-proxy.conf and proxy.toml",
+                "configure wget, curl and git for {} in /etc/wgetrc, /etc/gitconfig, curl-proxy.conf and proxy.toml",
                 (self.proxy.redacted_url,),
             )
-        return "configure Portage, wget, curl, git and gpg for direct connection", ()
+        return "write no proxy configuration, so every client connects directly", ()
 
     def apply(self, context: Context) -> None:
         proxy = self.proxy
@@ -1379,8 +1382,16 @@ class PrepareBinhostTrust(Operation):
     proxy: ProxyConfig = ProxyConfig()
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        # `dirmngr.conf` only where it is written: `apply` guards it on
+        # `over_http`, and every plan without a proxy promised a file the run
+        # never produced.
+        if self.proxy.over_http:
+            return (
+                "run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf",
+                (),
+            )
         return (
-            "run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf",
+            "run getuto so Portage has a keyring to verify binary packages against",
             (),
         )
 
