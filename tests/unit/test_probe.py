@@ -6,7 +6,7 @@ from typing import Final, Sequence
 import json
 import pytest
 
-from gentoo_install.errors import DeviceNotFound
+from gentoo_install.errors import CommandFailed, DeviceNotFound
 from gentoo_install.exec import probe
 from gentoo_install.exec.probe import Probe
 from gentoo_install.exec.runner import Result, Runner
@@ -150,6 +150,30 @@ def test_a_disk_probe_keeps_the_kernel_path_that_the_display_tuple_lost(
         setattr(disk, "selector", "/dev/vda")
     assert probe.disks() == (("/dev/disk/by-id/virtio-sample", "64G Sample Disk"),)
 
+def test_an_unreadable_disk_listing_does_not_answer_as_no_install_target(
+    tmp_path: Path,
+) -> None:
+    class Failing(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            return Result(
+                argv=tuple(argv),
+                returncode=1,
+                stdout="lsblk: cannot access block devices\n",
+                stderr="",
+                seconds=0.0,
+            )
+
+    with pytest.raises(CommandFailed, match="lsblk could not list disks"):
+        Probe(runner=Failing(log=lambda line: None), work=tmp_path).disks()
+
+
 
 def test_a_partition_probe_keeps_the_exact_size_that_the_display_tuple_lost(
     tmp_path: Path,
@@ -166,6 +190,35 @@ def test_a_partition_probe_keeps_the_exact_size_that_the_display_tuple_lost(
     with pytest.raises(FrozenInstanceError):
         setattr(partition, "size_bytes", 0)
     assert probe.partitions("/dev/vda") == (("/dev/vda1", "16G", "ext4"),)
+
+@pytest.mark.parametrize(
+    ("returncode", "stdout"),
+    ((1, "lsblk: not a block device\n"), (0, "not JSON\n")),
+    ids=("nonzero", "malformed-json"),
+)
+def test_an_unreadable_partition_listing_does_not_answer_as_empty(
+    tmp_path: Path, returncode: int, stdout: str
+) -> None:
+    class Failing(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            return Result(
+                argv=tuple(argv),
+                returncode=returncode,
+                stdout=stdout,
+                stderr="",
+                seconds=0.0,
+            )
+
+    with pytest.raises(CommandFailed, match="lsblk could not read the partitions"):
+        Probe(runner=Failing(log=lambda line: None), work=tmp_path).partitions("/dev/vda")
+
 
 
 def test_the_live_medium_is_read_from_the_kernel_command_line(
@@ -435,7 +488,13 @@ def test_a_uefi_machine_without_systemd_boot_uses_efibootmgr(
 
     class NoBootctl(Runner):
         def run(self, argv: Sequence[str], **rest: object) -> Result:
-            return Result(argv=tuple(argv), returncode=1, stdout="", stderr="", seconds=0.0)
+            return Result(
+                argv=tuple(argv),
+                returncode=0,
+                stdout="Current Boot Loader:\n Product: grub\n",
+                stderr="",
+                seconds=0.0,
+            )
 
     method = probe.Probe(runner=NoBootctl(log=lambda line: None), work=tmp_path).boot_method()
 
@@ -891,6 +950,10 @@ def test_a_selector_may_be_spelled_the_way_the_installer_writes_one() -> None:
     assert udev_path_for("PARTUUID=dd") == "/dev/disk/by-partuuid/dd"
     # The tag as `blkid` prints it or as an operator types it.
     assert udev_path_for("partlabel=esp") == "/dev/disk/by-partlabel/esp"
+    assert (
+        udev_path_for("PARTLABEL=Basic data/root")
+        == "/dev/disk/by-partlabel/Basic\\x20data\\x2froot"
+    )
 
     # A path is left exactly as written, including one that already names the
     # directory this would have built.

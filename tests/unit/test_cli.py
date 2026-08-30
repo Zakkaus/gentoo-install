@@ -20,7 +20,7 @@ from gentoo_install.i18n import Catalog, tag_for
 from gentoo_install.exec import fetch
 from gentoo_install.exec import report
 from gentoo_install.exec.probe import BootMethod, Probe as RealProbe
-from gentoo_install.exec.runner import Runner
+from gentoo_install.exec.runner import Result, Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_INTEGRITY, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import CommandFailed, ConfigError, IntegrityError
 from gentoo_install.model.config import DiskConfig, DiskMode, ImageFormat, MemoryLaunch, MemoryMode
@@ -1936,6 +1936,113 @@ def test_the_conversion_offer_names_the_command_the_reading_needs(
     absent.clear()
     with pytest.raises(AssertionError, match="must not be read"):
         cli._conversion_offer(cast(RealProbe, Probe()))
+
+def test_an_unreadable_fstab_refuses_conversion_before_entries_are_lost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gentoo_install.exec import probe as probe_module
+    from gentoo_install.model import refusals
+
+    class Storage(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            if argv[0] == "findmnt":
+                stdout = (
+                    '{"filesystems":[{"target":"/","source":"/dev/vda2",'
+                    '"fstype":"ext4","avail":21474836480}]}'
+                )
+            elif argv[0] == "lsblk":
+                stdout = (
+                    '{"blockdevices":[{"path":"/dev/vda2","type":"part",'
+                    '"pkname":"/dev/vda"},{"path":"/dev/vda","type":"disk"}]}'
+                )
+            else:
+                stdout = "root-uuid\n"
+            return Result(argv=tuple(argv), returncode=0, stdout=stdout, stderr="", seconds=0.0)
+
+    def unreadable(
+        path: Path, encoding: str | None = None, errors: str | None = None
+    ) -> str:
+        raise OSError(f"{path}: permission denied")
+
+    monkeypatch.setattr(probe_module, "EFI_MARKER", tmp_path / "no-efi")
+    monkeypatch.setattr(Path, "read_text", unreadable)
+    monkeypatch.setattr(RealProbe, "live_medium", lambda self: "")
+    monkeypatch.setattr(report, "absent", lambda wanted, probe=None: set())
+
+    _, refused, layout = cli._conversion_offer(
+        RealProbe(runner=Storage(log=lambda line: None), work=tmp_path)
+    )
+
+    assert layout is None
+    assert refused.reason == refusals.CANNOT_READ_THE_SYSTEM
+    assert "/etc/fstab" in refused.detail
+
+    # A machine with no fstab at all carries nothing, which is an answer: only
+    # one this cannot open is a probe that failed.
+    def absent(path: Path, encoding: str | None = None, errors: str | None = None) -> str:
+        raise FileNotFoundError(f"{path}: no such file")
+
+    monkeypatch.setattr(Path, "read_text", absent)
+    _, allowed, read = cli._conversion_offer(
+        RealProbe(runner=Storage(log=lambda line: None), work=tmp_path)
+    )
+    assert read is not None, allowed
+    assert read.carried_fstab == ()
+
+
+def test_an_unreadable_bootctl_status_does_not_build_a_grub_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gentoo_install.exec import probe as probe_module
+
+    class Failing(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            return Result(
+                argv=tuple(argv),
+                returncode=1,
+                stdout="bootctl: failed to read boot loader status\n",
+                stderr="",
+                seconds=0.0,
+            )
+
+    class BootProbe(RealProbe):
+        def storage_layout(self) -> StorageLayout:
+            return StorageLayout(
+                root_device="/dev/vda2",
+                root_filesystem_type="ext4",
+                root_uuid="root-uuid",
+                root_on_lvm=False,
+                root_on_luks=False,
+                root_on_mdraid=False,
+                root_below_device="/dev/vda",
+                boot_device="/dev/vda2",
+                boot_filesystem_type="ext4",
+                boot_same_filesystem=True,
+                esp_device="/dev/vda1",
+                esp_mountpoint="/boot/efi",
+                uefi=True,
+                root_free_bytes=20 * 2**30,
+            )
+
+    monkeypatch.setattr(probe_module, "_efi_variables", lambda: True)
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    with pytest.raises(CommandFailed, match="bootctl status"):
+        cli._boot_target(BootProbe(runner=Failing(log=lambda line: None), work=tmp_path))
 
 
 def test_an_unattended_conversion_still_records_that_ssh_stops() -> None:

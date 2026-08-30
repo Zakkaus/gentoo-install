@@ -18,6 +18,9 @@ from gentoo_install.plan.convert import SwapDirectories
 from gentoo_install.plan.operations import Stage
 from gentoo_install.model.config import DiskConfig, DiskMode
 from gentoo_install.errors import ConversionFailed, ConversionUnsupported
+from gentoo_install.exec import probe as probe_module
+from gentoo_install.exec.probe import Probe
+from gentoo_install.exec.runner import Result, Runner
 from gentoo_install.model.device import (
     DeviceGraph,
     DeviceId,
@@ -502,6 +505,48 @@ def test_a_conversion_without_a_layout_is_refused_there_too() -> None:
 
     with pytest.raises(ConversionUnsupported, match="was not read"):
         running_config(_in_place(), None)
+
+def test_an_unreadable_block_listing_refuses_conversion_as_an_unknown_stack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Failing(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            if argv[0] == "findmnt":
+                stdout = (
+                    '{"filesystems":[{"target":"/","source":"/dev/vda2",'
+                    '"fstype":"ext4","avail":21474836480}]}'
+                )
+                returncode = 0
+            elif argv[0] == "lsblk":
+                stdout = "lsblk: cannot access block devices\n"
+                returncode = 1
+            else:
+                stdout = "root-uuid\n"
+                returncode = 0
+            return Result(
+                argv=tuple(argv),
+                returncode=returncode,
+                stdout=stdout,
+                stderr="",
+                seconds=0.0,
+            )
+
+    efi = tmp_path / "efi"
+    efi.mkdir()
+    monkeypatch.setattr(probe_module, "EFI_MARKER", efi)
+    monkeypatch.setattr(probe_module, "_fstab_we_do_not_manage", lambda esp, boot: ())
+    layout = Probe(runner=Failing(log=lambda line: None), work=tmp_path).storage_layout()
+
+    assert layout.root_on_luks is None
+    with pytest.raises(ConversionUnsupported, match="block-device stack could not be read"):
+        convert.layout_graph(layout)
 
 
 def test_the_mounts_the_conversion_does_not_manage_are_carried() -> None:
