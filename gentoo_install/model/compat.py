@@ -434,6 +434,19 @@ def kernel_version_problems(config: InstallConfig) -> tuple[str, ...]:
         "digits, dots, an optional letter, an optional _alpha/_beta/_pre/_rc/_p "
         "suffix and an optional -rN",
     )
+def kernel_package_name(config: InstallConfig) -> str:
+    """The bare `category/name` of the kernel this install will merge.
+
+    The override first, because `plan/kernel.py` merges
+    `config.kernel.package or KERNEL_PACKAGES[source].atom` and a rule reading
+    only the source decides for a package the install is not installing. The
+    trailing `*` is stripped as well: `=sys-kernel/gentoo-sources-6.12*` is a
+    form portage takes, and leaving it on walked past the `-sources` refusal.
+    """
+    atom = config.kernel.package or KERNEL_PACKAGES[config.kernel.source].atom
+    bare = atom.lstrip("=<>~!").split(":", 1)[0]
+    bare = re.sub(r"-r\d+\*?$", "", bare)
+    return re.sub(r"-\d[\w.]*\*?$", "", bare)
 
 
 def cjk_kernel_problems(
@@ -451,13 +464,16 @@ def cjk_kernel_problems(
     # evaluated when the function is defined, so the row could not be varied
     # and a test that swapped it saw the machine's own.
     row = row if row is not None else DEFAULT_ARCHITECTURE
-    package = KERNEL_PACKAGES.get(config.kernel.source)
-    if package is None or not package.applies_cjktty:
+    # The package this install merges, not the one its source names: an
+    # override naming a cjk atom took the architecture refusal past this rule
+    # while the trait reader below saw it.
+    name = kernel_package_name(config)
+    if name not in _CJK_KERNEL_PACKAGES:
         return ()
     if row.gentoo_name == AMD64.gentoo_name:
         return ()
     return (
-        f"{package.atom} carries the cjktty patch, which gentoo-zh builds for "
+        f"{name} carries the cjktty patch, which gentoo-zh builds for "
         f"{AMD64.gentoo_name} only, and this installs {row.gentoo_name}",
     )
 
@@ -833,11 +849,7 @@ def traits_of(
             and _encrypted_pool(graph, config.disk.root)
         ):
             found.add(Trait.NATIVE_ZFS_SYSTEM_INITRAMFS)
-    package = config.kernel.package or KERNEL_PACKAGES[config.kernel.source].atom
-    package_name = package.lstrip("=<>~!").split(":", 1)[0]
-    package_name = re.sub(r"-r\d+$", "", package_name)
-    package_name = re.sub(r"-\d[\w.]*$", "", package_name)
-    if package_name in _CJK_KERNEL_PACKAGES:
+    if kernel_package_name(config) in _CJK_KERNEL_PACKAGES:
         found.add(Trait.CJK_KERNEL)
     else:
         found.add(Trait.KERNEL_WITHOUT_CJKTTY)
