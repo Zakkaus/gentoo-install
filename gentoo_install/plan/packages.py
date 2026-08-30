@@ -754,6 +754,23 @@ class WriteInputMethodEnvironment(Operation):
             context.run_in_target(["env-update"])
 
 
+def _owned_paths(home: PurePosixPath, written: Sequence[PurePosixPath]) -> list[str]:
+    """The written files and the directories between them and the home.
+
+    `context.write` creates a missing parent as root, so the account cannot
+    read its own configuration without them; anything the home already held is
+    left as it was.
+    """
+    paths = {home}
+    for path in written:
+        paths.add(path)
+        parent = path.parent
+        while parent != home and parent != parent.parent:
+            paths.add(parent)
+            parent = parent.parent
+    return [str(one) for one in sorted(paths, key=lambda one: len(one.parts))]
+
+
 @dataclass(frozen=True, kw_only=True)
 class WriteInputMethodProfile(Operation):
     """fcitx starts with no engine configured, so a fresh desktop types latin
@@ -782,16 +799,21 @@ class WriteInputMethodProfile(Operation):
 
     def apply(self, context: Context) -> None:
         for home, owner in self.homes:
-            context.write(home / FCITX_PROFILE, self._profile())
+            written = [home / FCITX_PROFILE]
+            context.write(written[0], self._profile())
             for version in GTK_VERSIONS:
-                context.write(
-                    home / GTK_SETTINGS.format(version=version),
-                    "[Settings]\ngtk-im-module=fcitx\n",
-                )
+                written.append(home / GTK_SETTINGS.format(version=version))
+                context.write(written[-1], "[Settings]\ngtk-im-module=fcitx\n")
             if self.schemas:
-                context.write(home / RIME_CUSTOM, self._rime())
+                written.append(home / RIME_CUSTOM)
+                context.write(written[-1], self._rime())
             if owner:
-                context.run_in_target(["chown", "--recursive", f"{owner}:{owner}", str(home)])
+                # These paths, not the whole home: `--recursive` re-owned every
+                # file a preserved /home already held, so recreating an account
+                # took another one's files with it.
+                context.run_in_target(
+                    ["chown", f"{owner}:{owner}", *_owned_paths(home, written)]
+                )
 
     def _profile(self) -> str:
         """fcitx's own ini. The keyboard is first and the default, so a console
