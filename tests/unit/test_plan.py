@@ -1000,3 +1000,32 @@ def test_the_iwd_backend_asks_for_the_use_flag_that_selects_it() -> None:
             assert [one.lines for one in asked] == [NETWORK_BACKENDS[backend].use], backend
         else:
             assert not asked, backend
+
+
+def test_the_input_method_owns_what_it_wrote_and_not_the_rest_of_the_home() -> None:
+    """It ran `chown --recursive` on the whole home while its description named
+    three configuration files. A reused `/home` with a recreated account
+    therefore handed every retained file to that account, including files
+    another one owned."""
+    from pathlib import PurePosixPath as _P
+
+    from gentoo_install.plan.packages import WriteInputMethodProfile
+
+    home = _P("/home/alice")
+    written = WriteInputMethodProfile(
+        engines=("rime",), schemas=("luna_pinyin",), homes=((home, "alice"),), layout="us"
+    )
+    recorder = Recorder()
+    written.apply(recorder)
+
+    chowned = [argv for argv in recorder.in_target if argv[0] == "chown"]
+    assert len(chowned) == 1, chowned
+    assert "--recursive" not in chowned[0], chowned[0]
+
+    owned = set(chowned[0][2:])
+    assert str(home) in owned
+    for path in recorder.files:
+        assert str(path) in owned, (path, sorted(owned))
+        assert str(path.parent) in owned, (path, sorted(owned))
+    # Nothing outside the home, and nothing the operation did not create.
+    assert all(one.startswith(str(home)) for one in owned), sorted(owned)
