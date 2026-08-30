@@ -918,7 +918,8 @@ def _custom(recorder: Recorder) -> str:
 
 
 def test_the_entry_carries_what_a_cloud_image_grub_needs() -> None:
-    """Taken from `bin456789/reinstall`, which arms the same kind of machine:
+    """What `bin456789/reinstall` had already found out about the same kind of
+    machine, listed in `CREDITS.md` among the projects read for behaviour:
     an image with a GRUB password refuses an entry that is not
     `--unrestricted`, Fedora's EFI GRUB has no `all_video` loaded, an LVM
     `/boot` needs its module, and a `/boot` inside a btrfs subvolume resolves

@@ -112,9 +112,12 @@ def purpose_of(entry: Slice) -> Purpose:
 class SliceStatus(Enum):
     """What happens to one row of the table.
 
-    Taken from `archinstall`'s `ModificationStatus`. Two exclusive modes could
-    not say "keep the Windows partition, reformat the root, delete the rest,
-    add a swap", and that is the ordinary case rather than an exotic one.
+    Four states rather than two, which `archinstall` had already found with
+    its `ModificationStatus`: two exclusive modes could not say "keep the
+    Windows partition, reformat the root, delete the rest, add a swap", and
+    that is the ordinary case rather than an exotic one. The shape is the
+    lesson; none of its code is here, and `CREDITS.md` lists that project
+    among the ones read for behaviour.
     """
 
     #: Already there and untouched. Mounted if it names a mount point.
