@@ -531,18 +531,16 @@ def test_a_directory_that_cannot_be_listed_is_not_reported_as_empty(
 def test_a_copied_entry_is_undone_by_removing_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The later rollback renamed back what only a copy could bring in.
+    """The rollback is told how each entry arrived rather than asking again.
 
-    `_replace_contents` reaches `copy()` only after `rename` answered `EXDEV`,
-    and `_restore_contents` then renamed the same entry the other way: the
-    same cross-device move, which raises. `convert` records the error and
-    leaves the directory half replaced, and on `/usr` that is a machine that
-    does not boot.
+    It used to try the reverse `rename` and read `EXDEV` to decide, so the
+    answer depended on the mount still being there. `convert` records the
+    error and leaves the directory half replaced, and on `/usr` that is a
+    machine that does not boot.
     """
-    import errno
-    import os
+    del monkeypatch
 
-    from gentoo_install.exec.convert import KEPT_ASIDE, _restore_contents
+    from gentoo_install.exec.convert import KEPT_ASIDE, Arrival, _restore_contents
 
     destination = tmp_path / "var"
     staged = tmp_path / "staging" / "var"
@@ -553,27 +551,23 @@ def test_a_copied_entry_is_undone_by_removing_it(
     # entry held aside, the staged one copied in, and the staged original
     # still present because a copy does not consume it.
     (aside / "old").write_text("the machine's own")
-    (destination / "new").write_text("from the stage3")
-    (staged / "new").write_text("from the stage3")
+    # The copy is half written, which is the hazard `_replace_contents` records
+    # when it puts the entry on the list before calling `copy`.
+    (destination / "new").write_text("from the stage3, half")
+    (staged / "new").write_text("from the stage3, whole")
 
-    real_rename = os.rename
-
-    def crossing(source: "str | Path", target: "str | Path") -> None:
-        # Only the direction that leaves the mount: an entry moving out of the
-        # destination into the staging root. Putting the held-aside original
-        # back is a rename inside the mount and still works.
-        if str(source).startswith(str(destination)) and KEPT_ASIDE not in str(source):
-            raise OSError(errno.EXDEV, "Invalid cross-device link")
-        real_rename(source, target)
-
-    monkeypatch.setattr(os, "rename", crossing)
-    _restore_contents(destination, staged)
+    # `rename` works throughout: the mount the copy crossed is gone by the time
+    # the rollback runs, which is exactly when rederiving the answer gives the
+    # wrong one. The old code renamed the underlying entry into staging and
+    # left the copy behind.
+    _restore_contents(destination, staged, [("new", Arrival.COPIED)])
 
     # The machine's own entry is back and the copy is gone.
     assert (destination / "old").read_text() == "the machine's own"
     assert not (destination / "new").exists()
-    # The staged copy is untouched, so a later attempt still has it.
-    assert (staged / "new").read_text() == "from the stage3"
+    # The staged original is untouched, so a later attempt still has it. The
+    # rollback used to rename the half-written copy over it.
+    assert (staged / "new").read_text() == "from the stage3, whole"
     assert not aside.exists()
 
 
@@ -584,7 +578,7 @@ def test_a_rollback_still_raises_for_anything_but_a_crossing(
     import errno
     import os
 
-    from gentoo_install.exec.convert import KEPT_ASIDE, _restore_contents
+    from gentoo_install.exec.convert import KEPT_ASIDE, Arrival, _restore_contents
 
     destination = tmp_path / "var"
     staged = tmp_path / "staging" / "var"
@@ -598,7 +592,7 @@ def test_a_rollback_still_raises_for_anything_but_a_crossing(
 
     monkeypatch.setattr(os, "rename", busy)
     with pytest.raises(OSError) as raised:
-        _restore_contents(destination, staged)
+        _restore_contents(destination, staged, [("new", Arrival.RENAMED)])
     assert raised.value.errno == errno.EBUSY
 
 

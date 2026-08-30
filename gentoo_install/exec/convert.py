@@ -100,7 +100,9 @@ def _remove(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
-def _replace_contents(destination: Path, staged: Path, copy: Copier) -> None:
+def _replace_contents(
+    destination: Path, staged: Path, copy: Copier
+) -> list[tuple[str, Arrival]]:
     """Swap what is in a mount point, since the mount point cannot be renamed.
 
     Moving the destination's own entries aside is a `rename(2)` inside the
@@ -157,27 +159,25 @@ def _replace_contents(destination: Path, staged: Path, copy: Copier) -> None:
         raise ConversionFailed(
             f"{destination} could not be replaced by content: {error}"
         ) from error
+    return arrived
 
 
-def _restore_contents(destination: Path, staged: Path) -> None:
+def _restore_contents(
+    destination: Path, staged: Path, arrived: Sequence[tuple[str, Arrival]]
+) -> None:
     """Undo `_replace_contents` when a later directory fails.
 
-    Entries that arrived across a filesystem boundary are removed rather than
-    renamed back. `_replace_contents` reaches `copy()` only after `rename`
-    answered `EXDEV`, and renaming the same entry the other way is that move
-    again: it raised, the caller recorded the error and left the directory
-    half replaced, which on `/usr` is a machine that does not boot. A copy
-    leaves the staged original in place, so removing the copy is the undo.
+    Told how each entry arrived rather than asking again: rederiving it meant
+    trying the reverse `rename` and reading `EXDEV`, and a mount that has gone
+    since answers that rename with success, which moves the underlying entry
+    into staging and leaves the copy on the mount. A copy leaves the staged
+    original in place, so removing the copy is its undo.
     """
     aside = destination / KEPT_ASIDE
-    for name in sorted(os.listdir(destination)):
-        if name == KEPT_ASIDE:
-            continue
-        try:
+    for name, how in reversed(arrived):
+        if how is Arrival.RENAMED:
             os.rename(destination / name, staged / name)
-        except OSError as error:
-            if error.errno != errno.EXDEV:
-                raise
+        else:
             _remove(destination / name)
     for name in sorted(os.listdir(aside)):
         os.rename(aside / name, destination / name)
@@ -233,12 +233,15 @@ def convert(
     destinations.sort(key=lambda entry: entry[5])
 
     swapped: list[tuple[str, Path, Path, Path, bool, bool]] = []
+    #: How each entry of a replaced mount point arrived, so the rollback is
+    #: told rather than asking the filesystem a second time.
+    arrivals: dict[str, list[tuple[str, Arrival]]] = {}
     for entry in destinations:
         name, destination, staged, old, present, mounted = entry
         moved_old = False
         try:
             if mounted:
-                _replace_contents(destination, staged, copy)
+                arrivals[name] = _replace_contents(destination, staged, copy)
             else:
                 if present:
                     os.rename(destination, old)
@@ -261,7 +264,11 @@ def convert(
                 ) = entry_back
                 if was_mounted:
                     try:
-                        _restore_contents(swapped_destination, swapped_staged)
+                        _restore_contents(
+                            swapped_destination,
+                            swapped_staged,
+                            arrivals.get(swapped_name, []),
+                        )
                     except OSError as rollback_error:
                         error.add_note(
                             f"could not restore {swapped_name}: {rollback_error}"
