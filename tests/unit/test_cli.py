@@ -2791,3 +2791,34 @@ def test_the_menu_walk_is_wrapped_in_the_quiet(tmp_path: Path) -> None:
         if isinstance(node, ast.Call)
     }
     assert "kernel_messages_held" in called, sorted(called)
+
+
+def test_a_mirror_of_the_region_opens_the_menu_when_the_default_one_is_blocked(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A machine in China reaches USTC and not `distfiles.gentoo.org`, and
+    refusing there stopped an install the first mirror row would have run."""
+    interactive_stdin(monkeypatch)
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    online(monkeypatch, False, said="HTTP Error 503")
+    monkeypatch.setattr(fetch, "egress_country", lambda *a, **k: "CN")
+    monkeypatch.setattr(
+        fetch,
+        "mirror_online",
+        lambda mirror, *a, **k: mirror == "https://mirrors.ustc.edu.cn/gentoo",
+    )
+
+    assert cli._a_mirror_that_answers() == "https://mirrors.ustc.edu.cn/gentoo"
+    cli._require_network()
+    assert "mirrors.ustc.edu.cn" in capsys.readouterr().err
+
+
+def test_no_mirror_of_the_region_answering_still_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    online(monkeypatch, False, said="HTTP Error 503")
+    monkeypatch.setattr(fetch, "egress_country", lambda *a, **k: "CN")
+    monkeypatch.setattr(fetch, "mirror_online", lambda *a, **k: False)
+
+    with pytest.raises(errors.PreflightFailed, match="nor any mirror"):
+        cli._require_network()
