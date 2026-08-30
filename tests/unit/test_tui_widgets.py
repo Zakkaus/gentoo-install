@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from gentoo_install.tui.widgets import (
+    MARKS,
     Answer,
     Confirm,
     Field,
@@ -1470,3 +1471,96 @@ def test_a_derived_network_manager_is_undone_like_the_login_screen() -> None:
     }
     kept = _desktop_proposes(with_manager, with_manager, at, "")
     assert kept.system.networking == Networking.NETWORKMANAGER_WPA, kept.system
+
+def test_accepting_multiple_choices_drops_selected_disabled_values() -> None:
+    choices: MultipleChoiceMenu[str] = MultipleChoiceMenu(
+        title="Applications",
+        items=[
+            Item(label="old", value="old", disabled_because="removed"),
+            Item(label="ok", value="ok"),
+        ],
+        selected={0},
+        cursor=1,
+    )
+
+    assert choices.run(FakeScreen(keys=["\n"])).unwrap() == ()
+
+
+def test_a_form_clear_key_replaces_the_active_field() -> None:
+    from gentoo_install.tui.widgets import CLEAR_KEY
+
+    form = Form(done="Done", title="Size", fields=[Field(label="Root", value="1GiB")])
+    keys = [CLEAR_KEY, *"512M", "KEY_DOWN", "\n"]
+
+    assert form.run(FakeScreen(keys=keys)).unwrap() == ["512M"]
+
+
+def test_enter_after_an_empty_filter_does_not_choose_a_hidden_row() -> None:
+    from gentoo_install.tui.widgets import FILTER_KEY
+
+    menu: Menu[str] = Menu(title="Filesystem", items=[Item(label="ext4", value="ext4")])
+    answer = menu.run(FakeScreen(keys=[FILTER_KEY, "z", "\n", "KEY_LEFT"]))
+
+    assert answer.outcome is Outcome.BACK
+
+
+def test_a_dimmed_menu_row_draws_without_a_mark_lookup_failure() -> None:
+    menu: Menu[str] = Menu(
+        title="Applications",
+        items=[Item(label="old", value="old", style=Style.DIMMED)],
+    )
+
+    assert menu.run(FakeScreen(keys=["\n"])).unwrap() == "old"
+
+
+def test_a_region_stops_clearing_after_the_pane_disappears() -> None:
+    from gentoo_install.tui.widgets import TwoPane
+
+    screen = FakeScreen(keys=["KEY_LEFT"], lines=24, columns=80)
+    pane = TwoPane(
+        title="gentoo-install",
+        rows=[
+            PaneRow(
+                label="Mirrors",
+                value=0,
+                detail=("the shrinking pane must not erase this continuation", "end"),
+            )
+        ],
+    )
+    region = pane.frame(screen, 0, dimmed=True)
+    assert region is not None
+
+    screen.columns = 79
+    answer = TextField(title="Mirror URL").run(region)
+
+    assert answer.outcome is Outcome.BACK
+    assert "continuation" in screen.drawn(21)
+
+
+def test_a_wide_menu_label_continues_by_display_cells() -> None:
+    label = WIDE[0] * 20
+    screen = FakeScreen(keys=["\n"], lines=24, columns=24)
+
+    assert Menu(title="Filesystem", items=[Item(label=label, value="ext4")]).run(screen).unwrap() == "ext4"
+    assert [line.strip() for line in screen.frames[0][2:4]] == [WIDE[0] * 10, WIDE[0] * 10]
+
+
+def test_menu_paging_counts_wrapped_display_rows() -> None:
+    items = [Item(label=WIDE[0] * 20, value=index) for index in range(10)]
+    screen = FakeScreen(keys=["KEY_NPAGE", "\n"], lines=12, columns=24)
+
+    assert Menu(title="Filesystem", items=items).run(screen).unwrap() == 4
+
+
+def test_form_backspace_uses_the_active_field_touch_state() -> None:
+    form = Form(done="Done", title="Account", fields=[Field(label="First"), Field(label="Second")])
+    answer = form.run(FakeScreen(keys=[*"value", "KEY_DOWN", "\x7f", "\x03"]))
+
+    assert answer.outcome is Outcome.BACK
+
+
+def test_every_style_has_a_mark() -> None:
+    """`MARKS` is read while a row is drawn, so a member missing from it raises
+    where no caller can answer for it. The table covers the enum, not the two
+    members that happened to be drawn when it was written."""
+    assert set(MARKS) == set(Style), set(Style) - set(MARKS)
