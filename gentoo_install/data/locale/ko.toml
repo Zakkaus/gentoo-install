@@ -762,3 +762,8 @@
 "{disk} can hand out {usable} and these sizes come to {claimed}" = "디스크 {disk}: 배정 가능한 용량 {usable}, 지정한 합계 {claimed}"
 "Writing an image discards the rest of the answers." = "이미지를 쓰면 나머지 답변은 버려집니다."
 "{count} groups of answers are discarded." = "버려지는 답변은 {count}개 묶음입니다."
+"enter a root shell in the converted system at {target}?" = "변환된 시스템 {target} 에서 root 셸을 열까?"
+"enter a root shell in {target} before unmounting?" = "마운트 해제 전에 {target} 에서 root 셸을 열까?"
+"the install stopped" = "설치가 중단되었다"
+"the install finished" = "설치가 끝났다"
+"{outcome}. send the log to {host}, which is public?" = "{outcome}. 로그를 {host} 에 보낼까? 공개된다"

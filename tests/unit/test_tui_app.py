@@ -1121,17 +1121,90 @@ def test_a_chinese_system_locale_selects_no_input_method_or_font_group() -> None
     }
     assert not language_packages.intersection(chosen.packages.applications)
 
-def test_a_chinese_interface_selects_removable_font_and_input_groups() -> None:
-    at = context()
-    chinese = screens.with_language(config(), "zh-CN")
-    assert chinese.packages.desktop == ""
-    assert chinese.packages.applications == ("noto-cjk", "fcitx5", "rime")
+def test_a_desktop_on_a_cjk_interface_proposes_its_font_and_framework() -> None:
+    """The other half: the language installs nothing, and the desktop asks.
+    Without a session `media-fonts/noto-cjk` and `media-libs/fontconfig` render
+    nothing, so they belong to the desktop choice and go through `settle`,
+    where the operator confirms them rather than meeting them on the installed
+    machine."""
+    from gentoo_install.tui import packages as tui_packages
 
-    without_fonts = tui_packages.select_cjk_fonts(chinese, at.groups, (), ())
-    assert "noto-cjk" not in without_fonts.packages.applications
-    without_input = tui_packages.select_input_framework(without_fonts, at.groups, "")
-    assert not set(tui_packages.input_method_groups(at.groups)).intersection(
-        without_input.packages.applications
+    at = context()
+    at.tag = "zh-CN"
+    chinese = screens.with_language(config(), "zh-CN")
+    assert "noto-cjk" not in chinese.packages.applications
+
+    with_desktop = tui_packages._desktop_proposes(
+        replace(chinese, packages=replace(chinese.packages, desktop="plasma")),
+        chinese,
+        at,
+        "plasma",
+    )
+    assert "noto-cjk" in with_desktop.packages.applications
+
+    # `settle` lists it, so the choice is confirmed rather than silent.
+    effects = tui_packages.derive_effects(chinese, with_desktop, at)
+    assert "noto-cjk" in effects.fonts, effects.fonts
+    assert effects.has_changes
+
+    # GNOME carries ibus in its own settings panel and Plasma carries
+    # fcitx5's, so each desktop proposes the one it is built around.
+    for desktop, framework in (("gnome", "ibus"), ("plasma", "fcitx5"), ("xfce", "fcitx5")):
+        at.tag = "zh-CN"
+        proposed = tui_packages._desktop_proposes(
+            replace(chinese, packages=replace(chinese.packages, desktop=desktop)),
+            chinese,
+            at,
+            desktop,
+        )
+        assert framework in proposed.packages.applications, (desktop, proposed.packages)
+        listed = tui_packages.derive_effects(chinese, proposed, at)
+        assert listed.input_framework == framework, listed
+
+    # A framework the operator picked is not replaced by the desktop's.
+    at.tag = "zh-CN"
+    theirs = tui_packages.select_input_framework(chinese, at.groups, "fcitx5")
+    kept = tui_packages._desktop_proposes(
+        replace(theirs, packages=replace(theirs.packages, desktop="gnome")),
+        theirs,
+        at,
+        "gnome",
+    )
+    assert "ibus" not in kept.packages.applications, kept.packages.applications
+
+    # An English interface is proposed nothing.
+    at.tag = "en"
+    english = tui_packages._desktop_proposes(
+        replace(chinese, packages=replace(chinese.packages, desktop="plasma")),
+        chinese,
+        at,
+        "plasma",
+    )
+    assert "noto-cjk" not in english.packages.applications
+
+
+def test_a_chinese_interface_selects_no_package_group_at_all() -> None:
+    """This asserted `("noto-cjk", "fcitx5", "rime")`. Measured on `tui1`,
+    whose spec said no desktop: the fcitx5 group ran from 0:33:01 to 1:39:38
+    of a 1:43:48 install, pulling `fcitx-gtk` and `fcitx-qt` onto a machine
+    with no X and no Wayland. The language decides the locale, the timezone,
+    the console and the mirror region; the CJK console comes from the cjktty
+    kernel and not from a font package.
+    """
+    at = context()
+    started = config()
+    chinese = screens.with_language(started, "zh-CN")
+
+    assert chinese.packages.desktop == ""
+    assert chinese.packages.applications == started.packages.applications
+    assert chinese.system.console_cjk
+
+    # And each group is still selectable on its own row.
+    with_fonts = tui_packages.select_cjk_fonts(chinese, at.groups, ("noto-cjk",), ())
+    assert "noto-cjk" in with_fonts.packages.applications
+    with_input = tui_packages.select_input_framework(with_fonts, at.groups, "fcitx5")
+    assert set(tui_packages.input_method_groups(at.groups)).intersection(
+        with_input.packages.applications
     )
 
 

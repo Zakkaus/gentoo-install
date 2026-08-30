@@ -2202,8 +2202,6 @@ class LanguageDefaults:
     #: gentoo-zh, so it is not a default for a language that would not use the
     #: rest of that overlay.
     cjk_console: bool = False
-    font_groups: tuple[str, ...] = ()
-    input_method_groups: tuple[str, ...] = ()
 
 
 #: One row per interface language. Keyed by the same tags as the catalogs.
@@ -2214,16 +2212,12 @@ LANGUAGE_DEFAULTS: Final[dict[str, LanguageDefaults]] = {
         "Asia/Shanghai",
         MirrorRegion.CN,
         cjk_console=True,
-        font_groups=("noto-cjk",),
-        input_method_groups=("fcitx5", "rime"),
     ),
     "zh-TW": LanguageDefaults(
         "zh_TW.UTF-8",
         "Asia/Taipei",
         MirrorRegion.GLOBAL,
         cjk_console=True,
-        font_groups=("noto-cjk",),
-        input_method_groups=("fcitx5", "rime"),
     ),
     # cjktty is what puts Chinese, Japanese and Korean on the console, so all
     # four of those catalogs take the patched kernel and not only the two
@@ -2252,11 +2246,14 @@ def with_language(config: InstallConfig, tag: str) -> InstallConfig:
     locales = config.system.locales
     if chosen.locale not in locales:
         locales = (*locales, chosen.locale)
-    language_groups = (*chosen.font_groups, *chosen.input_method_groups)
-    applications = (
-        *config.packages.applications,
-        *(group for group in language_groups if group not in config.packages.applications),
-    )
+    # No package group at all. The interface language decides the locale, the
+    # timezone, the console and the mirror region; it decided package groups
+    # too, and on a machine that asked for no desktop that installed
+    # `app-i18n/fcitx{,-gtk,-qt}`, rime and `media-fonts/noto-cjk`, which need
+    # a session that is not there. Measured on `tui1`: the fcitx5 group ran
+    # from 0:33:01 to 1:39:38 of a 1:43:48 install. The CJK console comes from
+    # `console_cjk` and the cjktty kernel, not from those fonts.
+    applications = config.packages.applications
     seeded = replace(
         config,
         system=replace(

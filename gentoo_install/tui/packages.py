@@ -188,12 +188,21 @@ class Effects:
     kept_display_manager: str = ""
     withdrawn_use: tuple[str, ...] = ()
     withdrawn_video_cards: tuple[str, ...] = ()
+    #: CJK fonts a desktop needs and the console does not. The interface
+    #: language used to install these unasked, which put `media-fonts/noto-cjk`
+    #: and `media-libs/fontconfig` on a machine with no session to render with.
+    fonts: tuple[str, ...] = ()
+    #: The input framework a desktop proposes. Listed like the fonts, because
+    #: it installs packages the operator did not ask for by name.
+    input_framework: str = ""
 
     @property
     def has_changes(self) -> bool:
         """Whether the choice has a value to confirm."""
         return bool(
-            self.use_flags
+            self.input_framework
+            or self.fonts
+            or self.use_flags
             or self.video_cards
             or self.user_groups
             or self.profile
@@ -232,6 +241,21 @@ def derive_effects(
         # Not what the operator also typed: `desktop_screen` records the
         # proposal as derived after the flags row has recorded the edit as
         # theirs, so a value in both was withdrawn by the next desktop change.
+        input_framework=next(
+            (
+                name
+                for name in after.packages.applications
+                if name not in before.packages.applications
+                and name in set(input_framework_groups(context.groups))
+            ),
+            "",
+        ),
+        fonts=tuple(
+            name
+            for name in after.packages.applications
+            if name not in before.packages.applications
+            and name in cjk_font_groups(context.groups)
+        ),
         withdrawn_use=tuple(
             one.value
             for one in context.provenance
@@ -263,6 +287,29 @@ def apply_effects(after: InstallConfig, effects: Effects) -> InstallConfig:
             video_cards=(*kept_cards, *effects.video_cards),
         ),
     )
+
+
+#: Interface languages whose desktop wants CJK glyphs. `ko` and `ja` are here
+#: with the two Chinese tags: the fonts carry all of CJK, and a Korean desktop
+#: with no CJK font draws boxes exactly as a Chinese one does.
+CJK_INTERFACES: Final[frozenset[str]] = frozenset({"zh-CN", "zh-TW", "ja", "ko"})
+
+#: What a CJK desktop is offered. One group, because `noto-cjk` is the only
+#: one in the catalog that covers all three scripts; the row offers the rest.
+CJK_DESKTOP_FONTS: Final[tuple[str, ...]] = ("noto-cjk",)
+
+#: The input framework each desktop is built around. GNOME carries ibus in its
+#: own settings panel and Plasma carries fcitx5's, so proposing the other one
+#: gives an operator two configuration tools and one that does not work from
+#: the desktop's own settings. Proposed only with a desktop and only on a CJK
+#: interface, and listed in the confirmation like every other proposal.
+DESKTOP_INPUT_FRAMEWORK: Final[dict[str, str]] = {
+    "gnome": "ibus",
+    "gnome-full": "ibus",
+    "plasma": "fcitx5",
+    "plasma-full": "fcitx5",
+    "xfce": "fcitx5",
+}
 
 
 def _desktop_proposes(
@@ -304,7 +351,54 @@ def _desktop_proposes(
             changed,
             system=replace(changed.system, networking=Networking.NETWORKMANAGER_WPA),
         )
+    changed = replace(
+        changed,
+        packages=replace(
+            changed.packages,
+            applications=(
+                *changed.packages.applications,
+                *_cjk_fonts_a_desktop_needs(changed, context),
+            ),
+        ),
+    )
+    framework = _input_framework_a_desktop_needs(changed, context, desktop)
+    if framework:
+        changed = select_input_framework(changed, context.groups, framework)
     return changed
+
+
+def _input_framework_a_desktop_needs(
+    config: InstallConfig, context: Context, desktop: str
+) -> str:
+    """The framework this desktop is built around, or empty.
+
+    Nothing when the interface is not CJK and nothing when the operator has
+    already chosen one: this proposes, it does not overrule.
+    """
+    if context.tag not in CJK_INTERFACES:
+        return ""
+    if _selected_input_framework(config, context.groups):
+        return ""
+    wanted = DESKTOP_INPUT_FRAMEWORK.get(desktop, "")
+    return wanted if wanted in set(input_framework_groups(context.groups)) else ""
+
+
+def _cjk_fonts_a_desktop_needs(config: InstallConfig, context: Context) -> tuple[str, ...]:
+    """The CJK font groups a CJK interface wants once there is a session.
+
+    Nothing when the interface is not CJK, and nothing that is already
+    selected. Proposed here rather than seeded by the language: without a
+    desktop these render nothing, and `settle` lists them so the operator
+    confirms them rather than meeting them in the installed system.
+    """
+    if context.tag not in CJK_INTERFACES:
+        return ()
+    offered = cjk_font_groups(context.groups)
+    return tuple(
+        name
+        for name in CJK_DESKTOP_FONTS
+        if name in offered and name not in config.packages.applications
+    )
 
 
 def settle(
@@ -334,6 +428,10 @@ def settle(
     lines = []
     if effects.video_cards:
         lines.append(f"VIDEO_CARDS: {' '.join(effects.video_cards)}")
+    if effects.fonts:
+        lines.append(f"{translate('Fonts')}: {' '.join(effects.fonts)}")
+    if effects.input_framework:
+        lines.append(f"{translate('Input method')}: {effects.input_framework}")
     if effects.use_flags:
         lines.append(f"USE: {' '.join(effects.use_flags)}")
     if effects.display_manager_changed:

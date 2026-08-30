@@ -762,3 +762,8 @@
 "{disk} can hand out {usable} and these sizes come to {claimed}" = "{disk} が割り当てられるのは {usable} ですが、指定された合計は {claimed} です"
 "Writing an image discards the rest of the answers." = "イメージを書き込むと、ほかの回答は破棄されます。"
 "{count} groups of answers are discarded." = "破棄される回答は {count} 組です。"
+"enter a root shell in the converted system at {target}?" = "変換したシステム {target} で root シェルを開きますか。"
+"enter a root shell in {target} before unmounting?" = "アンマウントの前に {target} で root シェルを開きますか。"
+"the install stopped" = "インストールは停止しました"
+"the install finished" = "インストールが完了しました"
+"{outcome}. send the log to {host}, which is public?" = "{outcome}。ログを {host} に送りますか。公開されます"

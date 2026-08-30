@@ -763,3 +763,8 @@
 "{disk} can hand out {usable} and these sizes come to {claimed}" = "{disk} 能配出 {usable}，這些大小加起來是 {claimed}"
 "Writing an image discards the rest of the answers." = "寫入映像檔會捨棄其餘的答案。"
 "{count} groups of answers are discarded." = "有 {count} 組答案會被捨棄。"
+"enter a root shell in the converted system at {target}?" = "要在轉換完成的系統 {target} 開一個 root shell 嗎？"
+"enter a root shell in {target} before unmounting?" = "卸載之前要在 {target} 開一個 root shell 嗎？"
+"the install stopped" = "安裝已停止"
+"the install finished" = "安裝已完成"
+"{outcome}. send the log to {host}, which is public?" = "{outcome}。要把日誌送到 {host} 嗎？那是公開的"
