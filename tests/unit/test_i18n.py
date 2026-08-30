@@ -555,6 +555,8 @@ def test_no_catalog_shows_a_particle_the_writer_had_not_chosen() -> None:
 #: goes and rotated the three names in the stage3 line.
 REVIEWED_TEMPLATES: frozenset[str] = frozenset(
     {
+        "accept {} for packages from {} only",
+        "accept {} for {} and nothing else",
         "write {} for {} with addresses {}; gateways {}; DNS {}",
         "write {} for the wired interface with addresses {}; gateways {}; DNS {}",
         "write {} for {} with DHCP and DNS {}",

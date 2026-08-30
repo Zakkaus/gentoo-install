@@ -1358,3 +1358,32 @@ def test_every_named_source_is_in_the_ledger() -> None:
     assert outside, "the scan found no named source at all, so it holds nothing"
     for name, where in sorted(outside.items()):
         assert name in credits, (where, name)
+
+
+def test_no_operation_writes_an_architecture_keyword_it_spelled_itself() -> None:
+    """`model/architecture.py` is the one table that spells a machine, and
+    `mirrors.py` already takes both halves of a binary host URL from it. Six
+    places wrote `~amd64` instead, and four of them reach `/etc/portage` on
+    the installed machine, so an install on any other architecture keyworded a
+    package for a machine it is not.
+    """
+    import ast
+
+    from gentoo_install.model.architecture import ARCHITECTURES
+
+    spellings = {one.gentoo_name for one in ARCHITECTURES}
+    written: list[str] = []
+    for path in sorted((PACKAGE / "plan").glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Call):
+                continue
+            named = getattr(node.func, "id", "") or getattr(node.func, "attr", "")
+            if named != "WritePortageConfig":
+                continue
+            for keyword in node.keywords:
+                for inner in ast.walk(keyword.value):
+                    if not isinstance(inner, ast.Constant) or not isinstance(inner.value, str):
+                        continue
+                    if any(one in inner.value for one in spellings):
+                        written.append(f"{path.name}:{inner.lineno}: {inner.value!r}")
+    assert not written, written

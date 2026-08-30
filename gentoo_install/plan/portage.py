@@ -1001,13 +1001,18 @@ class AcceptOverlayKeywords(Operation):
     repository: str
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "accept ~amd64 for packages from {} only", (self.repository,)
+        return (
+            "accept {} for packages from {} only",
+            (DEFAULT_ARCHITECTURE.testing_keyword, self.repository),
+        )
 
     def apply(self, context: Context) -> None:
         WritePortageConfig(
             kind=PortageConfigKind.KEYWORDS,
             name=self.repository,
-            lines=(f"*/*::{self.repository} ~amd64",),
+            lines=(
+                f"*/*::{self.repository} {DEFAULT_ARCHITECTURE.testing_keyword}",
+            ),
         ).apply(context)
 
 
@@ -1653,13 +1658,19 @@ class AcceptTestingPackages(Operation):
     packages: tuple[str, ...]
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "accept ~amd64 for {} and nothing else", (" ".join(self.packages),)
+        return (
+            "accept {} for {} and nothing else",
+            (DEFAULT_ARCHITECTURE.testing_keyword, " ".join(self.packages)),
+        )
 
     def apply(self, context: Context) -> None:
         WritePortageConfig(
             kind=PortageConfigKind.KEYWORDS,
             name="user",
-            lines=tuple(f"{atom} ~amd64" for atom in self.packages),
+            lines=tuple(
+                f"{atom} {DEFAULT_ARCHITECTURE.testing_keyword}"
+                for atom in self.packages
+            ),
         ).apply(context)
 
 
@@ -1671,10 +1682,16 @@ class AcceptTestingGlobally(Operation):
     stage: Stage = Stage.FINISH
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return 'append ACCEPT_KEYWORDS="~amd64" to make.conf, after everything is installed', ()
+        return (
+            'append ACCEPT_KEYWORDS="{}" to make.conf, after everything is installed',
+            (DEFAULT_ARCHITECTURE.testing_keyword,),
+        )
 
     def apply(self, context: Context) -> None:
-        context.append(PurePosixPath("/etc/portage/make.conf"), 'ACCEPT_KEYWORDS="~amd64"\n')
+        context.append(
+            PurePosixPath("/etc/portage/make.conf"),
+            f'ACCEPT_KEYWORDS="{DEFAULT_ARCHITECTURE.testing_keyword}"\n',
+        )
 
 
 def _other_mirrors(config: InstallConfig, chosen: str) -> tuple[str, ...]:

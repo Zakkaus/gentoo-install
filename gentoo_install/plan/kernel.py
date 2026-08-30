@@ -408,7 +408,7 @@ class ConfigureIntelMicrocode(Operation):
         WritePortageConfig(
             kind=PortageConfigKind.KEYWORDS,
             name="intel-microcode",
-            lines=(f"{INTEL_MICROCODE} ~amd64",),
+            lines=(f"{INTEL_MICROCODE} {DEFAULT_ARCHITECTURE.testing_keyword}",),
         ).apply(context)
         WritePortageConfig(
             kind=PortageConfigKind.LICENSE,
@@ -443,7 +443,9 @@ class ConfigureRemoteUnlock(Operation):
         WritePortageConfig(
             kind=PortageConfigKind.KEYWORDS,
             name="dracut-crypt-ssh",
-            lines=(f"{REMOTE_UNLOCK_PACKAGE} ~amd64",),
+            lines=(
+                f"{REMOTE_UNLOCK_PACKAGE} {DEFAULT_ARCHITECTURE.testing_keyword}",
+            ),
         ).apply(context)
         if not self.system_initramfs:
             context.write(
@@ -526,7 +528,9 @@ class AcceptKernelVersion(Operation):
         WritePortageConfig(
             kind=PortageConfigKind.KEYWORDS,
             name="kernel-version",
-            lines=(f"={self.package}-{self.version} ~amd64",),
+            lines=(
+                f"={self.package}-{self.version} {DEFAULT_ARCHITECTURE.testing_keyword}",
+            ),
         ).apply(context)
 
 
@@ -548,7 +552,7 @@ class RequestCjkKernel(Operation):
         WritePortageConfig(
             kind=PortageConfigKind.KEYWORDS,
             name="cjk-kernel",
-            lines=(f"{self.package} ~amd64",),
+            lines=(f"{self.package} {DEFAULT_ARCHITECTURE.testing_keyword}",),
         ).apply(context)
         flag = CJK_USE if self.cjk else f"-{CJK_USE}"
         VerifyPackageUse(atom=self.package, flags=(flag,)).apply(context)
