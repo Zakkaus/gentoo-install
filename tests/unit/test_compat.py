@@ -329,7 +329,24 @@ def a_key_no_account_can_use() -> InstallConfig:
     )
 
 
+def an_esp_mdadm_could_not_read() -> InstallConfig:
+    """mdadm asked and unable to answer, which is not the same as answering
+    that the device is no array. Reading the two alike accepted an esp on a
+    1.2 array, which the firmware cannot read as plain vfat."""
+    return config(reused_esp())
+
+
+#: The facts a case needs to reach its rule. Most rules read the graph alone;
+#: these read what the machine answered about a device already on it.
+FACTS_FOR: dict[Callable[[], InstallConfig], StorageFacts] = {
+    an_esp_mdadm_could_not_read: StorageFacts(
+        mdraid_metadata={i("esp"): MdraidMetadataState.UNAVAILABLE}
+    ),
+}
+
+
 CASES: list[tuple[Callable[[], InstallConfig], Trait, Trait]] = [
+    (an_esp_mdadm_could_not_read, Trait.UEFI_BOOT, Trait.ESP_MDRAID_UNREADABLE),
     (a_key_no_account_can_use, Trait.AUTHORIZED_KEYS, Trait.NO_ACCOUNT_A_KEY_CAN_REACH),
     (a_system_nothing_can_log_into, Trait.ROOT_LOCKED, Trait.NO_OTHER_LOGIN),
     (zfs_on_grub, Trait.ROOT_ON_ZFS, Trait.GRUB),
@@ -390,7 +407,8 @@ def test_kernel_cases_cover_the_package_table() -> None:
 def test_each_rule_fires_on_a_configuration_that_breaks_it(
     build: Callable[[], InstallConfig], when: Trait, excludes: Trait
 ) -> None:
-    assert (when, excludes) in {(rule.when, rule.excludes) for rule in violations(build())}
+    found = violations(build(), FACTS_FOR.get(build))
+    assert (when, excludes) in {(rule.when, rule.excludes) for rule in found}
 
 
 @pytest.mark.parametrize("name", ["ext2", "ext3"])
@@ -844,14 +862,22 @@ def test_a_reused_array_under_the_esp_meets_the_firmware_rule() -> None:
         installation,
         StorageFacts(mdraid_metadata={i("esp"): MdraidMetadataState.ABSENT}),
     )
-    unavailable = traits_of(installation, StorageFacts())
+    not_probed = traits_of(installation, StorageFacts())
+    unavailable = traits_of(
+        installation,
+        StorageFacts(mdraid_metadata={i("esp"): MdraidMetadataState.UNAVAILABLE}),
+    )
 
     assert Trait.ESP_ON_MDRAID in at_start
     assert Trait.ESP_MDRAID_SUPERBLOCK_AT_START in at_start
     assert Trait.ESP_ON_MDRAID in at_end
     assert Trait.ESP_MDRAID_SUPERBLOCK_AT_START not in at_end
     assert Trait.ESP_ON_MDRAID not in absent
-    assert Trait.ESP_ON_MDRAID not in unavailable
+    # Nobody asked, so nothing is claimed; mdadm asked and could not say, which
+    # is the answer a rule has to refuse.
+    assert Trait.ESP_ON_MDRAID not in not_probed
+    assert Trait.ESP_MDRAID_UNREADABLE not in not_probed
+    assert Trait.ESP_MDRAID_UNREADABLE in unavailable
 
 
 def test_a_mirror_with_no_ipv6_is_refused_on_an_ipv6_only_machine() -> None:

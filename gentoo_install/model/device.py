@@ -82,8 +82,14 @@ class RaidMetadata(Enum):
 
 
 class MdraidMetadataState(Enum):
-    """Why a reused device has no mdraid metadata version."""
+    """Why a reused device has no mdraid metadata version.
 
+    Three answers, not two: nobody asked, mdadm could not answer, and mdadm
+    answered that this is not an array. A rule that reads the middle one as the
+    last accepted an esp on a 1.2 array, which the firmware cannot read.
+    """
+
+    NOT_PROBED = "not probed"
     UNAVAILABLE = "unavailable"
     ABSENT = "absent"
 
@@ -190,7 +196,7 @@ class StorageFacts:
         object.__setattr__(self, "capacities", MappingProxyType(dict(capacities or {})))
 
     def metadata_for(self, device: DeviceId) -> MdraidMetadataFact:
-        return self.mdraid_metadata.get(device, MdraidMetadataState.UNAVAILABLE)
+        return self.mdraid_metadata.get(device, MdraidMetadataState.NOT_PROBED)
 
 
 @dataclass(frozen=True)

@@ -51,6 +51,7 @@ from .device import (
     Partition,
     PartitionRole,
     PartitionTable,
+    MdraidMetadataState,
     RaidMetadata,
     StorageFacts,
     Swap,
@@ -636,6 +637,7 @@ class Trait(Enum):
     IN_PLACE_CONVERSION = "in-place conversion"
     AUTHORIZED_KEYS = "authorised ssh keys"
     NO_ACCOUNT_A_KEY_CAN_REACH = "no account sshd will accept a key for"
+    ESP_MDRAID_UNREADABLE = "an esp whose mdraid metadata could not be read"
 
 
 @dataclass(frozen=True)
@@ -660,6 +662,12 @@ class Rule:
 
 
 RULES: tuple[Rule, ...] = (
+    Rule(
+        Trait.UEFI_BOOT,
+        Trait.ESP_MDRAID_UNREADABLE,
+        "mdadm could not say whether the esp is on an array, and only metadata "
+        "0.90 and 1.0 leave a member the firmware can read as plain vfat",
+    ),
     Rule(
         Trait.AUTHORIZED_KEYS,
         Trait.NO_ACCOUNT_A_KEY_CAN_REACH,
@@ -867,8 +875,16 @@ def traits_of(
     mounted = esp_mount(graph)
     beneath = {node.id for node in _chain(graph, mounted.id)} if mounted else set()
     for reused in graph.of_type(Existing):
+        if reused.id not in beneath:
+            continue
         metadata = facts.metadata_for(reused.id)
-        if not isinstance(metadata, RaidMetadata) or reused.id not in beneath:
+        # `NOT_PROBED` is a plan built without facts and answers nothing.
+        # `UNAVAILABLE` is mdadm asked and unable to say, which cannot be read
+        # as `ABSENT`: an esp on a 1.2 array boots nothing.
+        if metadata is MdraidMetadataState.UNAVAILABLE:
+            found.add(Trait.ESP_MDRAID_UNREADABLE)
+            continue
+        if not isinstance(metadata, RaidMetadata):
             continue
         found.add(Trait.ESP_ON_MDRAID)
         if metadata.superblock_at_start:
