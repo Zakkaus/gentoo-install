@@ -326,3 +326,26 @@ def test_a_reused_whole_device_root_is_measured_too(tmp_path: Path) -> None:
     )
 
     assert any("carries / and is" in one for one in report.fatal), report.fatal
+
+
+def test_a_bios_machine_is_told_why_a_uefi_configuration_refuses(tmp_path: Path) -> None:
+    """`[bootloader] firmware` defaults to UEFI in the parser, while the menu
+    takes it from the machine. A configuration file that leaves the key out,
+    run on a BIOS machine, therefore installs for UEFI — and the refusal told
+    the operator to mount efivarfs, which a BIOS machine does not have."""
+    from gentoo_install.exec.probe import Machine as ProbedMachine
+
+    class Bios(Probe):
+        def machine(
+            self, wanted: frozenset[str] = frozenset(), judged: Iterable[str] = ()
+        ) -> ProbedMachine:
+            return replace(
+                super().machine(wanted, judged), uefi=False, efi_variables=False
+            )
+
+    report = preflight.check(
+        config(), Bios(runner=Runner(log=lambda line: None), work=tmp_path), operations=()
+    )
+
+    assert any("booted by BIOS" in one for one in report.fatal), report.fatal
+    assert not any("efivarfs" in one for one in report.fatal), report.fatal

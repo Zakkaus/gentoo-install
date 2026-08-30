@@ -542,7 +542,17 @@ def inspect(
         )
     elif targets_machine_firmware and not wants_uefi and machine.uefi:
         warnings.append("the configuration boots by BIOS on a machine that booted by UEFI")
-    if targets_machine_firmware and wants_uefi and not machine.efi_variables:
+    if targets_machine_firmware and wants_uefi and not machine.uefi:
+        # A machine that booted by BIOS has no variables to mount, and the
+        # message below sent such an operator looking for efivarfs. The usual
+        # cause is a configuration file with no `firmware` key: the menu takes
+        # that from the machine and the parser defaults it to UEFI.
+        fatal.append(
+            "this machine booted by BIOS and the configuration installs for UEFI: "
+            'set `firmware = "bios"` under `[bootloader]`, or boot the medium '
+            "through UEFI"
+        )
+    elif targets_machine_firmware and wants_uefi and not machine.efi_variables:
         # Fatal: `efibootmgr --create` is what the ZFSBootMenu install runs,
         # and GRUB's `--bootloader-id` entry needs the same. The operator can
         # mount it, so the message says which command.
