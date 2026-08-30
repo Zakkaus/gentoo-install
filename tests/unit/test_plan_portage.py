@@ -3325,3 +3325,33 @@ def test_a_source_retry_killed_by_the_machine_says_so() -> None:
         portage.Emerge(packages=("sys-libs/zlib",), summary="install zlib").apply(recorder)
     assert "source retry" in str(stopped.value), stopped.value
     assert "MAKEOPTS" in str(stopped.value), stopped.value
+
+
+def test_a_description_names_only_the_files_that_run_writes() -> None:
+    """Both operations promised a file `apply` does not always write: the proxy
+    clients named gpg, whose proxy is `dirmngr.conf` and belongs to the
+    operation after it, and the trust step named `dirmngr.conf` on every plan
+    while writing it only for an HTTP proxy."""
+    from gentoo_install.model.config import ProxyConfig, ProxyKind
+
+    direct = portage.WriteProxyClients(proxy=ProxyConfig())
+    recorder = Recorder()
+    direct.apply(recorder)
+    assert recorder.files == {}, recorder.files
+    assert "gpg" not in direct.describe_parts()[0]
+
+    socks = portage.WriteProxyClients(
+        proxy=ProxyConfig(kind=ProxyKind.SOCKS5, host="127.0.0.1", port=1080)
+    )
+    written = Recorder()
+    socks.apply(written)
+    said = socks.describe_parts()[0]
+    assert "gpg" not in said, said
+    assert not any("gnupg" in str(path) for path in written.files), sorted(written.files)
+
+    trust = portage.PrepareBinhostTrust(proxy=ProxyConfig())
+    assert "dirmngr.conf" not in trust.describe_parts()[0]
+    over_http = portage.PrepareBinhostTrust(
+        proxy=ProxyConfig(kind=ProxyKind.HTTP, host="127.0.0.1", port=3128)
+    )
+    assert "dirmngr.conf" in over_http.describe_parts()[0]

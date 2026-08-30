@@ -19,10 +19,10 @@
 
 [portage]
   write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, FEATURES; 3 mirrors in the configured order, 5 appended
-  configure Portage, wget, curl, git and gpg for direct connection
+  write no proxy configuration, so every client connects directly
   create /etc/portage/package.use/zz-autounmask, /etc/portage/package.accept_keywords/zz-autounmask, /etc/portage/package.license/zz-autounmask, which emerge writes its decisions into
   disable inherited binary package host gentoo
-  run getuto so Portage has a keyring to verify binary packages against, and write dirmngr.conf
+  run getuto so Portage has a keyring to verify binary packages against
   import BB572E0E2D182910 from /usr/share/openpgp-keys/gentoo-release.asc, locally sign it for gentoo, and verify the local signature
   write /etc/portage/binrepos.conf/gentoo.conf adding verified binary package host gentoo at https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
   fetch the first ebuild repository snapshot with emerge-webrsync

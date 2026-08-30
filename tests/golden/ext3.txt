@@ -22,7 +22,7 @@
 
 [portage]
   write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N; 3 mirrors in the configured order, 5 appended
-  configure Portage, wget, curl, git and gpg for direct connection
+  write no proxy configuration, so every client connects directly
   create /etc/portage/package.use/zz-autounmask, /etc/portage/package.accept_keywords/zz-autounmask, /etc/portage/package.license/zz-autounmask, which emerge writes its decisions into
   disable inherited binary package host gentoo
   fetch the first ebuild repository snapshot with emerge-webrsync
