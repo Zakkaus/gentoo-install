@@ -541,3 +541,34 @@ def test_a_simple_disk_refuses_a_key_it_does_not_know() -> None:
 
     with pytest.raises(ConfigError, match="filesystems"):
         parse(raw)
+
+
+@pytest.mark.parametrize(
+    "key, value, said",
+    [
+        ("table", '""', "expected one of"),
+        ("pool", '""', "is empty"),
+    ],
+)
+def test_an_empty_value_is_not_the_key_being_absent(
+    key: str, value: str, said: str
+) -> None:
+    """`raw.get(key)` and `_str(...) or default` both read an explicit empty
+    string as the key not being there, while the graph reader answers
+    `expected one of` for the same value. A configuration that says the table
+    has no type installed a GPT one, and one that says the pool has no name
+    installed `rpool`."""
+    raw = tomllib.loads(
+        f'[disk.simple]\ndisk = "/dev/sda"\nlayout = "whole-disk-zfs"\n{key} = {value}\n'
+    )
+    with pytest.raises(ConfigError, match=said):
+        parse(raw)
+
+
+def test_a_key_left_out_still_takes_the_default() -> None:
+    without = parse(
+        tomllib.loads('[disk.simple]\ndisk = "/dev/sda"\nlayout = "whole-disk-zfs"\n')
+    )
+    assert without.disk.simple is not None
+    assert without.disk.simple.table is None
+    assert without.disk.simple.pool == "rpool"

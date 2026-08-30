@@ -413,12 +413,29 @@ def _choice(raw: Any, at: str) -> templates.Choice:
         disk=_str(raw, "disk", at, required=True),
         layout=layout,
         firmware=_enum(raw, "firmware", at, Firmware, Firmware.UEFI),
-        table=_enum(raw, "table", at, TableType, None) if raw.get("table") else None,
+        # `in raw`, not truthiness: an explicit `table = ""` was read as the
+        # key being absent, while the graph reader answers `expected one of` for
+        # the same value. One spelling of a key cannot mean two things.
+        table=_enum(raw, "table", at, TableType, None) if "table" in raw else None,
         filesystem=_enum(raw, "filesystem", at, FilesystemType, FilesystemType.XFS),
         swap=_size(raw, "swap", at),
         passphrase_file=_str(raw, "passphrase_file", at),
-        pool=_str(raw, "pool", at) or "rpool",
+        pool=_pool(raw, at),
     )
+
+
+def _pool(raw: Mapping[str, Any], at: str) -> str:
+    """The pool name, refusing an empty one rather than substituting.
+
+    `_str(...) or "rpool"` read `pool = ""` as the key being absent, so a
+    configuration that says the pool has no name installed one called `rpool`.
+    """
+    if "pool" not in raw:
+        return templates.Choice(disk="").pool
+    named = _str(raw, "pool", at)
+    if not named:
+        raise ConfigError(f"{_at('pool', at)} is empty; name the pool or leave the key out")
+    return named
 
 
 def _node(raw: Mapping[str, Any], at: str) -> Node:
