@@ -507,8 +507,17 @@ class AppendConfiguration(Operation):
     access: bool = False
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        # Every file it writes 0600, named: the old text passed the dry-run
+        # rule because the word `inside` appeared in `inside the initramfs`,
+        # not because it named the root password record.
+        if self.launch.root_password:
+            return (
+                "put the installer and the configuration in the initramfs, with {} key(s)"
+                " in authorized_keys and the root password in root-password",
+                (str(len(self.keys)),),
+            )
         return (
-            "put the installer, the configuration and {} key(s) in authorized_keys inside the initramfs",
+            "put the installer and the configuration in the initramfs, with {} key(s) in authorized_keys",
             (str(len(self.keys)),),
         )
 

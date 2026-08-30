@@ -1916,3 +1916,40 @@ def test_a_partial_previous_entry_is_refused_rather_than_swallowing_the_file() -
         ).apply(recorder)
 
     assert "theirs, after" in recorder.files[custom]
+
+
+def test_the_payload_description_names_the_files_it_writes() -> None:
+    """It read `put the installer, the configuration and N key(s) in
+    authorized_keys inside the initramfs`, which says all three go into that
+    one file. `apply` writes the configuration to config.toml and only the
+    keys to authorized_keys, and four catalogs translated the false reading."""
+    recorder = _answering()
+    operation = netboot.AppendConfiguration(
+        target=_target(),
+        launch=_launch(),
+        configuration='[disk]\nmode = "partition"\n',
+        source="/opt/gentoo-install",
+        keys=("ssh-ed25519 AAAA one", "ssh-ed25519 AAAA two"),
+    )
+
+    operation.apply(recorder)
+    written = {str(path): body for path, body in recorder.files.items()}
+    keys_file = next(one for one in written if one.endswith("authorized_keys"))
+    assert "[disk]" not in written[keys_file], written[keys_file]
+    assert any(one.endswith("config.toml") for one in written), sorted(written)
+
+    said = operation.describe_parts()[0]
+    assert "in the initramfs" in said, said
+    assert said.index("configuration") < said.index("authorized_keys"), said
+    assert "and {} key(s) in authorized_keys inside" not in said, said
+
+    # And the root password record, which the dry-run rule wants named. The
+    # old text satisfied that rule only because `inside the initramfs` held
+    # the word `inside`, which is how `inside / ROOT_PASSWORD` is spelled.
+    with_password = netboot.AppendConfiguration(
+        target=_target(),
+        launch=_launch(root_password="$6$salt$" + "x" * 86),
+        configuration="[disk]\n",
+        source="/opt/gentoo-install",
+    )
+    assert "root-password" in with_password.describe_parts()[0]
