@@ -184,6 +184,7 @@
 "Fetch from a URL" = "URL에서 가져오기"
 "URL of a public key" = "공개 키의 URL"
 "that address returned no key" = "그 주소는 공개 키를 반환하지 않았습니다"
+"{value} is above the sys-fs/zfs ceiling {ceiling}" = "{value}: sys-fs/zfs 상한 {ceiling} 초과"
 "ssh-ed25519 AAAA... name@host" = "ssh-ed25519 AAAA... name@host"
 "https://example.com/id_ed25519.pub" = "https://example.com/id_ed25519.pub"
 "SSH server" = "SSH 서버"

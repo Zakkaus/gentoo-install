@@ -184,6 +184,7 @@
 "Fetch from a URL" = "URL から取得"
 "URL of a public key" = "公開鍵の URL"
 "that address returned no key" = "そのアドレスは公開鍵を返しませんでした"
+"{value} is above the sys-fs/zfs ceiling {ceiling}" = "{value} は sys-fs/zfs の上限 {ceiling} を超えています"
 "ssh-ed25519 AAAA... name@host" = "ssh-ed25519 AAAA... name@host"
 "https://example.com/id_ed25519.pub" = "https://example.com/id_ed25519.pub"
 "SSH server" = "SSH サーバー"
