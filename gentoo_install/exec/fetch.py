@@ -13,6 +13,7 @@ import errno
 import hashlib
 import http.client
 import json
+import re
 import socket
 import ssl
 import time
@@ -25,7 +26,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from collections.abc import Iterator, Sequence
-from typing import Any, Callable, Final, cast
+from typing import Any, Callable, Final
 
 from ..errors import (
     ArchiveDigestMismatch,
@@ -550,15 +551,46 @@ def zfs_kernel_max(proxy: ProxyConfig | None = None) -> KernelCeiling:
     return KernelCeiling(None)
 
 
-def _version_key(version: str) -> tuple[int, ...]:
-    """Numeric components, so 6.18.43 sorts above 6.6.148."""
+#: Gentoo's own order for a version suffix. The bare version sits between the
+#: pre-releases and `_p`, which is what `_rc1` sorting equal to the release
+#: cost: the reader takes the first sorted version, so a candidate could be
+#: chosen as the ZFS kernel ceiling and `-r1` was indistinguishable from the
+#: version it revises.
+_SUFFIX_ORDER: Final[dict[str, int]] = {
+    "alpha": -4,
+    "beta": -3,
+    "pre": -2,
+    "rc": -1,
+    "": 0,
+    "p": 1,
+}
+
+_SUFFIXED: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<numbers>[0-9.]+)(?:_(?P<suffix>alpha|beta|pre|rc|p)(?P<count>\d*))?"
+    r"(?:-r(?P<revision>\d+))?"
+)
+
+
+def _version_key(version: str) -> tuple[tuple[int, ...], int, int, int]:
+    """Numeric components, so 6.18.43 sorts above 6.6.148, then the suffix.
+
+    Four fields rather than one tuple of numbers: `2.4.3`, `2.4.3-r1` and
+    `2.4.3_rc1` all answered `(2, 4, 3)`, and a stable sort then left their
+    order to whatever packages.gentoo.org happened to return.
+    """
+    found = _SUFFIXED.match(version.strip())
+    if found is None:
+        return ((), 0, 0, 0)
     parts: list[int] = []
-    for piece in version.replace("-", ".").replace("_", ".").split("."):
+    for piece in found.group("numbers").split("."):
         digits = "".join(takewhile(str.isdigit, piece))
         if not digits:
             break
         parts.append(int(digits))
-    return tuple(parts)
+    suffix = found.group("suffix") or ""
+    count = found.group("count") or "0"
+    revision = found.group("revision") or "0"
+    return (tuple(parts), _SUFFIX_ORDER[suffix], int(count), int(revision))
 
 
 def _asked(url: str, *, data: bytes | None = None, method: str = "GET", **headers: str) -> urllib.request.Request:
@@ -638,15 +670,12 @@ def _socks_connect(proxy: ProxyConfig, host: str, port: int, timeout: float | No
         if _recv(sock, 2) != b"\x01\x00":
             sock.close()
             raise OSError("SOCKS5 proxy rejected credentials")
-    # SOCKS5 uses proxy-side DNS so intranet names do not need local resolution.
-    remote_dns = True
-    if remote_dns:
-        encoded = host.encode()
-        address = b"\x03" + bytes((len(encoded),)) + encoded
-    else:
-        resolved = cast(str, socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)[0][4][0])
-        packed = socket.inet_pton(socket.AF_INET6 if ":" in resolved else socket.AF_INET, resolved)
-        address = (b"\x04" if ":" in resolved else b"\x01") + packed
+    # The name, not an address: `model/config.py` writes every SOCKS proxy as
+    # `socks5h`, which is the scheme that asks the proxy to resolve, and an
+    # intranet mirror is a name only the proxy can resolve. The branch that
+    # resolved locally could not be reached from either spelling.
+    encoded = host.encode()
+    address = b"\x03" + bytes((len(encoded),)) + encoded
     sock.sendall(b"\x05\x01\x00" + address + port.to_bytes(2, "big"))
     reply = _recv(sock, 4)
     if reply[1] != 0:
