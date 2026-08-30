@@ -1117,18 +1117,14 @@ class Emerge(Operation):
             self._from_source(context)
             return
         if not isinstance(result, CommandOutput) or result.returncode == 0:
-            # A host that answers no index does not fail the emerge: Portage
-            # says so, compiles everything and exits 0. Recorded here or
-            # nowhere, and recorded once, because it says so on every emerge.
-            unreadable = _unreadable_index(str(result))
-            if unreadable is not None and not context.degraded(BINARY_PACKAGES):
-                context.degrade(BINARY_PACKAGES, unreadable)
+            self._note_an_unreadable_index(context, result)
             return
         if (killed := _binhost_killed_emerge(result)) and not context.degraded(
             BINARY_PACKAGES
         ):
             second = context.run_in_target(command, check=False)
             if not isinstance(second, CommandOutput) or second.returncode == 0:
+                self._note_an_unreadable_index(context, second)
                 return
             context.degrade(BINARY_PACKAGES, killed)
             self._from_source(context)
@@ -1136,14 +1132,7 @@ class Emerge(Operation):
         if not _binpkg_failure(str(result)) or context.degraded(BINARY_PACKAGES):
             if self._optional(context, str(result)):
                 return
-            if _ran_out_of_memory(str(result)):
-                raise CommandFailed(
-                    "the compiler was killed because the machine ran out of memory, "
-                    "not because the package is broken: lower the job count in "
-                    "MAKEOPTS or give the machine swap, then resume. "
-                    f"emerge ended with {result.ending}: {worth_reading(str(result))}"
-                )
-            raise CommandFailed(f"emerge ended with {result.ending}: {worth_reading(str(result))}")
+            raise _emerge_failed("emerge", result)
         marker = _binpkg_failure(str(result))
         if (again := self._one_more_binary_try(context, command)) is not None:
             marker = again
@@ -1198,10 +1187,20 @@ class Emerge(Operation):
     def _from_source(self, context: Context) -> None:
         retry_result = context.run_in_target(self._argv(context, source_only=True), check=False)
         if isinstance(retry_result, CommandOutput) and retry_result.returncode != 0:
-            raise CommandFailed(
-                f"source retry ended with {retry_result.ending}: "
-                f"{worth_reading(str(retry_result))}"
-            )
+            raise _emerge_failed("source retry", retry_result)
+
+    def _note_an_unreadable_index(self, context: Context, result: object) -> None:
+        """A host that answers no index does not fail the emerge: Portage says
+        so, compiles everything and exits 0. Recorded here or nowhere, and
+        recorded once, because it says so on every emerge.
+
+        Every reader of a zero exit, not the first one: a retry that succeeded
+        left the run saying it fetches binary packages from a host whose index
+        it had just failed to read.
+        """
+        unreadable = _unreadable_index(str(result))
+        if unreadable is not None and not context.degraded(BINARY_PACKAGES):
+            context.degrade(BINARY_PACKAGES, unreadable)
 
     def _one_more_binary_try(self, context: Context, command: list[str]) -> str | None:
         """Run the same emerge again, and answer what still names a binary
@@ -1217,6 +1216,7 @@ class Emerge(Operation):
         except CommandFailed as error:
             return _binpkg_failure(str(error)) or str(error).strip()
         if not isinstance(again, CommandOutput) or again.returncode == 0:
+            self._note_an_unreadable_index(context, again)
             return None
         return _binpkg_failure(str(again)) or str(again).strip()
 
@@ -1268,6 +1268,22 @@ _OUT_OF_MEMORY: Final[re.Pattern[str]] = re.compile(
     r"Out of memory: Killed|fatal error: Killed|virtual memory exhausted|"
     r"cc1plus: out of memory|g\+\+: fatal error: Killed"
 )
+
+
+def _emerge_failed(what: str, result: CommandOutput) -> CommandFailed:
+    """The failure a merge deserves, with the one cause an operator can act on.
+
+    `g++: fatal error: Killed` is the machine running out of memory rather than
+    a broken package, and the source retry raised the generic text for it.
+    """
+    if _ran_out_of_memory(str(result)):
+        return CommandFailed(
+            "the compiler was killed because the machine ran out of memory, "
+            "not because the package is broken: lower the job count in "
+            "MAKEOPTS or give the machine swap, then resume. "
+            f"{what} ended with {result.ending}: {worth_reading(str(result))}"
+        )
+    return CommandFailed(f"{what} ended with {result.ending}: {worth_reading(str(result))}")
 
 
 def _ran_out_of_memory(said: str) -> bool:
