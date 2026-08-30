@@ -1207,6 +1207,14 @@ def _without_previous(text: str) -> str:
     if CUSTOM_BEGIN not in text:
         return text
     before, _, rest = text.partition(CUSTOM_BEGIN)
+    if CUSTOM_END not in rest:
+        # `partition` answers an empty tail for a marker that is not there, so
+        # an interrupted write took everything after the opening marker with
+        # it, including entries the operator wrote.
+        raise PreflightFailed(
+            f"{CUSTOM_BEGIN} in the GRUB custom configuration has no "
+            f"{CUSTOM_END} after it; remove the partial entry by hand"
+        )
     _, _, after = rest.partition(CUSTOM_END)
     return before + after.lstrip("\n")
 

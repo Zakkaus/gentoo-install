@@ -1894,3 +1894,25 @@ def test_the_plan_is_the_one_place_that_decides_the_environment_needs_sshd(
     assert {one.needs_ssh for one in asked} == {wanted}, [
         (type(one).__name__, one.needs_ssh) for one in asked
     ]
+
+
+def test_a_partial_previous_entry_is_refused_rather_than_swallowing_the_file() -> None:
+    """`partition` answers an empty tail for a marker that is not there, so an
+    opening marker with no closing one took everything after it — the
+    operator's own entries included — and wrote the new entry over them."""
+    recorder = _answering()
+    target = _target(BootMethod.BIOS_GRUB)
+    custom = PurePosixPath("/boot/grub/custom.cfg")
+    recorder.files[custom] = (
+        f"menuentry 'theirs' {{ linux /vmlinuz }}\n"
+        f"{netboot.CUSTOM_BEGIN}\n"
+        "menuentry 'ours, half written' {\n"
+        "menuentry 'theirs, after' { linux /other }\n"
+    )
+
+    with pytest.raises(PreflightFailed, match="has no"):
+        netboot.WriteMemoryEntry(
+            mode=MemoryMode.RAM, target=target, launch=_launch()
+        ).apply(recorder)
+
+    assert "theirs, after" in recorder.files[custom]
