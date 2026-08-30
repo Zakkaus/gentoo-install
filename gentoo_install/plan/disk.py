@@ -163,7 +163,7 @@ class ReleaseTarget(Operation):
         # 1 is `findmnt` saying the path is not a mountpoint; anything else is
         # the probe failing, and reading that as unmounted skipped the lazy
         # unmount and let the wipe run against a target still mounted.
-        if found.returncode not in _FINDMNT_ANSWERED:
+        if found.returncode not in FINDMNT_ANSWERED:
             raise CommandFailed(
                 f"whether {path} is mounted could not be read: {str(found).strip()[:200]}"
             )
@@ -751,6 +751,15 @@ class VerifySubvolume(Operation):
             # the same name is not a subvolume and mounting `subvol=` on it fails
             # at the mount rather than here.
             listed = context.run(["btrfs", "subvolume", "list", str(scratch)], check=False)
+            if not isinstance(listed, CommandOutput):
+                raise CommandFailed(f"cannot list the subvolumes of {self.device}")
+            # A failed listing has no subvolume in it either, so reading the two
+            # as one answer reported a reused subvolume as absent.
+            if listed.returncode != 0:
+                raise CommandFailed(
+                    f"the subvolumes of {self.device} could not be read: "
+                    f"{str(listed).strip()[:200]}"
+                )
             wanted = self.name.lstrip("/")
             if not any(
                 line.rsplit(" path ", 1)[-1].strip() == wanted for line in listed.splitlines()
@@ -1104,7 +1113,7 @@ class UnmountTarget(Operation):
             raise CommandFailed(
                 f"whether {context.target} is mounted could not be read"
             )
-        if found.returncode not in _FINDMNT_ANSWERED:
+        if found.returncode not in FINDMNT_ANSWERED:
             raise CommandFailed(
                 f"whether {context.target} is mounted could not be read: "
                 f"{str(found).strip()[:200]}"
@@ -1609,7 +1618,7 @@ def _expect(graph: DeviceGraph, device: DeviceId, kind: type[T]) -> T:
 #: Every other code is the probe failing, which is a different answer: the
 #: rule is written out at `MountFilesystem`, and the two cleanup readers had
 #: it as `returncode == 0`.
-_FINDMNT_ANSWERED: Final[tuple[int, ...]] = (0, 1)
+FINDMNT_ANSWERED: Final[tuple[int, ...]] = (0, 1)
 
 
 def _under(target: PurePosixPath, path: PurePosixPath) -> PurePosixPath:

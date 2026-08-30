@@ -14,7 +14,13 @@ from typing import Final
 
 from ..model.architecture import DEFAULT_ARCHITECTURE, Architecture
 from ..model.config import Bootloader, InitSystem, InstallConfig, KernelSource
-from ..errors import ConfigError, ConversionUnsupported, NothingToBoot, ValidationFailed
+from ..errors import (
+    CommandFailed,
+    ConfigError,
+    ConversionUnsupported,
+    NothingToBoot,
+    ValidationFailed,
+)
 from ..model import compat
 from ..model.compat import CJK_KERNELS, KERNEL_PACKAGES
 from ..model.hardware import HardwareFacts
@@ -30,7 +36,7 @@ from ..model.device import (
 )
 from .bootloader import array_parameters, boot_facts, keymap_parameters, luks_parameters
 from .bootloader import GenerateHostId
-from .operations import Context, Operation, Stage
+from .operations import CommandOutput, Context, Operation, Stage
 from .portage import (
     Emerge,
     InstallMode,
@@ -42,6 +48,10 @@ from .bootloader import VerifyPackageUse
 
 #: Filesystems whose driver dracut only includes when asked.
 FILESYSTEM_MODULES: Final[dict[FilesystemType, str]] = {FilesystemType.BTRFS: "btrfs"}
+
+#: `test` answers 0 for true and 1 for false. A chroot that could not run it
+#: answers 126 or 127, which is not an answer about the file.
+TEST_ANSWERED: Final[tuple[int, ...]] = (0, 1)
 
 #: Early unlocking over ssh. It is `~amd64`, and its RDEPEND brings dropbear
 #: and one of the network managers dracut's network module can drive.
@@ -612,7 +622,16 @@ class RequireKernelImage(Operation):
         root, image, initramfs = fields[7], fields[8], fields[9]
         for path in (f"{root}/{image}", f"{root}/{initramfs}"):
             found = context.run_in_target(["test", "-s", path], check=False)
-            if not getattr(found, "returncode", 1) == 0:
+            if not isinstance(found, CommandOutput):
+                raise CommandFailed(f"whether {path} exists could not be read")
+            # `test` answers 1 for absent or empty and nothing else; 126 and 127
+            # are the chroot failing, and reading those as absent named an image
+            # that is there as the reason there is nothing to boot.
+            if found.returncode not in TEST_ANSWERED:
+                raise CommandFailed(
+                    f"whether {path} exists could not be read: {str(found).strip()[:200]}"
+                )
+            if found.returncode != 0:
                 raise NothingToBoot(f"installkernel payload names missing image {path}")
 
 

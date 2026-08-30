@@ -30,7 +30,7 @@ from ..model.device import (
     VolumeGroup,
 )
 from ..log import Journal
-from ..plan.disk import STAGE3_CACHE
+from ..plan.disk import FINDMNT_ANSWERED, STAGE3_CACHE
 from ..plan.operations import CommandOutput, Operation
 from . import fetch, packages
 from .preflight import SecretStore
@@ -236,7 +236,14 @@ class Machine:
         return what in self.given_up
 
     def is_mounted(self, path: str) -> bool:
-        return self.runner.run(["findmnt", "--mountpoint", path], check=False).returncode == 0
+        # `plan/disk.py` refuses to read a failed probe as unmounted, and this is
+        # the third reader of the same rule rather than a second answer to it.
+        found = self.runner.run(["findmnt", "--mountpoint", path], check=False)
+        if found.returncode not in FINDMNT_ANSWERED:
+            raise CommandFailed(
+                f"whether {path} is mounted could not be read: {found.stdout.strip()[:200]}"
+            )
+        return found.returncode == 0
 
     def swap_directories(
         self,
