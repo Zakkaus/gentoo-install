@@ -1101,7 +1101,7 @@ def build(
     ]
     if configuration:
         # After the kernel is placed and before the entry names it: the
-        # appended segment goes on the initramfs that operation just wrote.
+        # appended segment goes on the initramfs that operation wrote.
         operations.append(
             AppendConfiguration(
                 target=target,
@@ -1173,7 +1173,7 @@ def _write_custom(
     # rereading the machine's own configuration works whatever `search` set.
     # `grub-set-default` writes `saved_entry`, which a machine whose
     # configuration says `GRUB_DEFAULT=0` never reads: a `--bypass` guest
-    # rebooted straight into `Booting \'Debian GNU/Linux\'` with our entry
+    # rebooted straight into `Booting \'Debian GNU/Linux\'` with the installer entry
     # selected in `grubenv`. `custom.cfg` is sourced at the end of `grub.cfg`,
     # after its own `set default`, so this assignment is the one that stands.
     chooses = f"set default='{ENTRY_LABEL}'\n" if bypass else ""
@@ -1203,7 +1203,7 @@ def _write_custom(
 
 
 def _without_previous(text: str) -> str:
-    """The file with any earlier entry of ours removed, markers included."""
+    """The file with any earlier entry of this installer removed, markers included."""
     if CUSTOM_BEGIN not in text:
         return text
     before, _, rest = text.partition(CUSTOM_BEGIN)

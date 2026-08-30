@@ -387,9 +387,13 @@ def test_no_definition_in_the_package_is_unreachable() -> None:
     assert orphans == [], orphans
 
 
+#: Filler, and the first person. Both lists are in CLAUDE.md; `just` was left
+#: out of this table and fourteen uses of it accumulated behind the gate that
+#: exists to stop them.
 BANNED_WORDS = (
-    "simply", "note that", "basically", "obviously",
+    "simply", "just", "note that", "basically", "obviously",
     "powerful", "robust", "seamlessly", "leverage", "utilize",
+    "we", "our", "ours", "mine",
 )
 
 
@@ -400,10 +404,14 @@ def test_no_source_file_uses_a_banned_filler_word() -> None:
 
     root = Path(__file__).resolve().parents[2]
     pattern = re.compile("|".join(rf"\b{word}\b" for word in BANNED_WORDS), re.IGNORECASE)
+    # Backticks hold literals and tool output, and `parted` says `the closest
+    # location we can manage is 1048kB`. The rule is about this project's own
+    # prose, so what a quoted tool said is not the project saying it.
+    quoted = re.compile(r"`[^`]*`")
     found: list[str] = []
     for path in sorted((root / "gentoo_install").rglob("*.py")):
         for number, line in enumerate(path.read_text().splitlines(), 1):
-            if pattern.search(line):
+            if pattern.search(quoted.sub("", line)):
                 found.append(f"{path.relative_to(root)}:{number} {line.strip()[:60]}")
     assert found == [], found
 

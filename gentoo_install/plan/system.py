@@ -780,10 +780,10 @@ class WriteNetworkConfig(Operation):
             found = re.search(r"link/ether ([0-9a-f:]{17})", rest)
             if found:
                 addresses[name.partition("@")[0]] = found.group(1)
-        mine = addresses.get(self.interface, "")
-        if not mine or list(addresses.values()).count(mine) != 1:
+        address = addresses.get(self.interface, "")
+        if not address or list(addresses.values()).count(address) != 1:
             return ""
-        return mine
+        return address
 
     def _networkd(self, address: str = "") -> str:
         if address:

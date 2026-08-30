@@ -255,9 +255,8 @@ def gentoo_rsync_uri(region: MirrorRegion, preferred: str = "") -> str:
 
 #: Where a mirror keeps the official binary packages, relative to the
 #: distfiles base. Every site that carries the releases tree carries these.
-#: Where a mirror keeps the official binary packages, relative to the
-#: distfiles base. The architecture appears twice in one URL and both come
-#: from the same row: `releases/<gentoo_name>/binpackages/<release>/<subarch>`.
+#: The architecture appears twice in one URL and both come from the same row:
+#: `releases/<gentoo_name>/binpackages/<release>/<subarch>`.
 BINPACKAGES: Final[str] = "releases/{arch}/binpackages/" + PROFILE_RELEASE
 
 

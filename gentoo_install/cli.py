@@ -1217,11 +1217,11 @@ def _refuse_a_different_run(
         record("resuming: the journal records no identity, so it is not checked")
         return
     for name, refusal in _RESUME_REFUSALS.items():
-        mine, theirs = identity.get(name, ""), held.get(name, "")
+        now, recorded = identity.get(name, ""), held.get(name, "")
         # An empty value on either side is a machine that cannot answer, and
         # the boot id is the one that can be missing; comparing against it
         # would refuse every resume there.
-        if mine and theirs and mine != theirs:
+        if now and recorded and now != recorded:
             raise ResumeRefused(refusal)
 
 def _refuse_a_resume_with_no_journal(work: Path, resuming: bool) -> None:

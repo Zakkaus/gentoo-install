@@ -458,7 +458,7 @@ def settle(
     where = effects.editable_row
     named = translate("USE flags") if effects.use_flags else translate("VIDEO_CARDS")
     # Yes first and preselected. Declining cancels the desktop the operator
-    # just chose, and these values are what makes it work rather than extras
+    # chose, and these values are what makes it work rather than extras
     # that come with it, so the cursor starting on `No` offered the refusal as
     # the default answer to a question the choice itself had already implied.
     items = [
@@ -499,7 +499,7 @@ def settle(
         if opened.outcome is Outcome.CANCELLED:
             # Cancelling reaches the application's leave confirmation. Reading
             # it as `keep what was pinned` committed a desktop and a profile
-            # the operator had just refused.
+            # the operator had refused.
             return Answer(Outcome.CANCELLED)
     return Answer(Outcome.CHOSE, pinned)
 
@@ -519,7 +519,7 @@ def _record_derived(context: Context, after: InstallConfig, effects: Effects) ->
     # Only the kinds this proposal owns: it used to drop every derived record,
     # so choosing a desktop after ZFSBootMenu erased the overlay's and taking
     # the bootloader back left an overlay nobody had selected.
-    mine = {
+    owned = {
         ValueKind.USE_FLAG,
         ValueKind.VIDEO_CARD,
         ValueKind.NETWORKING,
@@ -528,7 +528,7 @@ def _record_derived(context: Context, after: InstallConfig, effects: Effects) ->
     context.provenance = {
         one
         for one in context.provenance
-        if not (one.kind in mine and one.source is ValueSource.DERIVED)
+        if not (one.kind in owned and one.source is ValueSource.DERIVED)
     }
     context.provenance.update(
         ValueProvenance(ValueKind.USE_FLAG, value, ValueSource.DERIVED)

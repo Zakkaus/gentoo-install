@@ -262,7 +262,7 @@ def _newest(
     The path, not the bare name. Each entry is `<timestamp>/<name> <size>`,
     and the dated directory is where the file stays; `current-stage3-amd64-*`
     is a symlink that moves when a build is published, and downloading through
-    it answered `404 Not Found` for an archive the pointer had just named.
+    it answered `404 Not Found` for an archive the pointer had named a moment before.
 
     The signature around the entries is not checked here: the DIGESTS file is,
     and it is what decides whether the bytes are the right ones.
@@ -753,7 +753,7 @@ def _over(family: int) -> Iterator[None]:
     guest a second earlier.
 
     Both directions, not only a fall back to IPv4. An IPv6-only machine has no
-    IPv4 route at all, and retrying the family that just failed is no retry.
+    IPv4 route at all, and retrying the family that failed is no retry.
     """
     # One thread at a time: this replaces the process-global resolver and
     # restores what it captured, so two overlapping calls leave the second
@@ -844,11 +844,12 @@ def _interfaces() -> str:
 def _network_namespace() -> str:
     """Whether this process shares the machine's network namespace."""
     try:
-        mine = Path("/proc/self/ns/net").readlink()
-        theirs = Path("/proc/1/ns/net").readlink()
+        process = Path("/proc/self/ns/net").readlink()
+        machine = Path("/proc/1/ns/net").readlink()
     except OSError as error:
         return f"namespace unreadable: {type(error).__name__}"
-    return f"namespace {'shared' if mine == theirs else f'{mine} not {theirs}'}"
+    same = process == machine
+    return f"namespace {'shared' if same else f'{process} not {machine}'}"
 
 
 def _kernel_routes(path: Path) -> str:
