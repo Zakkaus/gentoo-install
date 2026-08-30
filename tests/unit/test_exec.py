@@ -1988,10 +1988,14 @@ def test_an_edited_table_counts_what_it_keeps(tmp_path: Path) -> None:
             timeout: float | None = None,
         ) -> Result:
             said = ""
-            if argv[0] == "lsblk" and "SIZE" in argv and "PARTN,SIZE" not in argv:
+            if argv[0] == "lsblk" and "--json" in argv:
+                said = (
+                    '{"blockdevices":[{"name":"/dev/null","children":['
+                    f'{{"name":"/dev/null1","partn":1,"size":{18 * 1024**3},'
+                    '"fstype":"ext4","type":"part"}]}]}'
+                )
+            elif argv[0] == "lsblk" and "SIZE" in argv and "PARTN,SIZE" not in argv:
                 said = f"{twenty}\n"
-            elif argv[0] == "lsblk" and "PARTN,SIZE" in argv:
-                said = f"1 {18 * 1024**3}\n"
             return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
 
     probe = Probe(runner=Answering(log=lambda line: None), work=tmp_path)
@@ -2048,10 +2052,14 @@ def test_removing_a_partition_the_disk_does_not_have_is_refused(tmp_path: Path) 
                 timeout: float | None = None,
             ) -> Result:
                 said = ""
-                if argv[0] == "lsblk" and "SIZE" in argv and "PARTN,SIZE" not in argv:
+                if argv[0] == "lsblk" and "--json" in argv:
+                    said = (
+                        '{"blockdevices":[{"name":"/dev/null","children":['
+                        f'{{"name":"/dev/null1","partn":1,"size":{1024**3},'
+                        '"fstype":"ext4","type":"part"}]}]}'
+                    )
+                elif argv[0] == "lsblk" and "SIZE" in argv and "PARTN,SIZE" not in argv:
                     said = f"{64 * 1024**3}\n"
-                elif argv[0] == "lsblk" and "PARTN,SIZE" in argv:
-                    said = f"1 {1024**3}\n"
                 return Result(argv=tuple(argv), returncode=0, stdout=said, stderr="", seconds=0.0)
 
         probe = Probe(runner=Answering(log=lambda line: None), work=tmp_path)

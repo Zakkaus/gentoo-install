@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Final, Iterable, Mapping
 
-from ..errors import CommandFailed, DeviceNotFound
+from ..errors import CommandFailed, DeviceNotFound, PreflightFailed
 from ..model.config import DiskMode, InstallConfig
 from ..model.hardware import CpuVendor, HardwareFacts
 # Declared in `model/` because `plan/netboot.py` derives operations from it
@@ -222,6 +222,20 @@ UDEV_DIRECTORY_FOR_TAG: Final[dict[str, str]] = {
     "ID": "by-id",
 }
 
+_BLKID_SAFE_CHARACTERS: Final[frozenset[str]] = frozenset(
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#+-.:=@_"
+)
+
+
+def _blkid_encoded(value: str) -> str:
+    """Encode a tag value as `blkid` writes it for udev."""
+    return "".join(
+        character
+        if not character.isascii() or character in _BLKID_SAFE_CHARACTERS
+        else f"\\x{ord(character):02x}"
+        for character in value
+    )
+
 
 def udev_path_for(selector: str) -> str:
     """A `TAG=value` selector as the path udev keeps for it, or the selector.
@@ -239,7 +253,8 @@ def udev_path_for(selector: str) -> str:
             f"{selector!r} names no identifier this installer knows; "
             f"use one of {', '.join(sorted(UDEV_DIRECTORY_FOR_TAG))} or a path"
         )
-    return f"/dev/disk/{directory}/{value}"
+    # udev links use blkid's hex escapes, so raw labels with separators do not resolve.
+    return f"/dev/disk/{directory}/{_blkid_encoded(value)}"
 
 
 @dataclass(frozen=True)
@@ -269,8 +284,12 @@ def _fstab_we_do_not_manage(esp: str | None, boot: str | None) -> tuple[str, ...
     managed = set(_MANAGED_MOUNTS) | {one for one in (esp, boot) if one}
     try:
         lines = Path("/etc/fstab").read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except FileNotFoundError:
+        # A machine with no fstab carries nothing, which is an answer. One that
+        # has an fstab this cannot open is not, and both returned `()`.
         return ()
+    except OSError as error:
+        raise PreflightFailed(f"/etc/fstab could not be read: {error}") from error
     carried = []
     for line in lines:
         fields = line.split()
@@ -798,8 +817,11 @@ class Probe:
             ["lsblk", "--noheadings", "--nodeps", "--paths", "--output", "NAME,SIZE,TYPE,MODEL"],
             check=False,
         )
+        # A failed inventory must not present the machine as having no install target.
+        if listed.returncode != 0:
+            raise CommandFailed("lsblk could not list disks")
         found: list[ProbedDisk] = []
-        for line in listed.stdout.splitlines() if listed.returncode == 0 else []:
+        for line in listed.stdout.splitlines():
             fields = line.split(maxsplit=3)
             if len(fields) < 3 or fields[2] != "disk":
                 continue
@@ -888,8 +910,9 @@ class Probe:
             ["parted", "--machine", "--script", disk, "unit", "B", "print", "free"],
             check=False,
         )
+        # A failed table read cannot fall back to model-only placement on an edited disk.
         if listed.returncode != 0:
-            raise DeviceNotFound(f"parted could not read the table of {disk}")
+            raise CommandFailed(f"parted could not read the table of {disk}")
         found: list[Extent] = []
         for line in listed.stdout.splitlines():
             fields = line.strip().rstrip(";").split(":")
@@ -1272,9 +1295,18 @@ class Probe:
         would answer `UEFI_GRUB` for a machine GRUB does not manage.
         """
         if _efi_variables():
-            said = self.runner.run(["bootctl", "status"], check=False)
-            if said.returncode == 0 and BOOTED_BY_SYSTEMD_BOOT.search(said.stdout):
-                return BootMethod.SYSTEMD_BOOT
+            # A machine without systemd carries no `bootctl`, which is an answer
+            # about the loader. A `bootctl` that is there and fails is not, and
+            # reading that as GRUB armed `grub-reboot` on a systemd-boot machine.
+            if shutil.which("bootctl") is not None:
+                said = self.runner.run(["bootctl", "status"], check=False)
+                if said.returncode != 0:
+                    raise CommandFailed(
+                        "bootctl status could not determine the current boot loader: "
+                        f"{said.stdout.strip()[:200]}"
+                    )
+                if BOOTED_BY_SYSTEMD_BOOT.search(said.stdout):
+                    return BootMethod.SYSTEMD_BOOT
             if shutil.which("efibootmgr") is not None:
                 return BootMethod.UEFI_GRUB
             return BootMethod.NONE
@@ -1326,18 +1358,25 @@ class Probe:
             ],
             check=False,
         )
+        # An unreadable listing must not present an occupied disk as empty.
         if listed.returncode != 0:
-            return ()
+            raise CommandFailed(f"lsblk could not read the partitions of {disk}")
         try:
             document: object = json.loads(listed.stdout)
-        except json.JSONDecodeError:
-            return ()
+        except json.JSONDecodeError as error:
+            raise CommandFailed(
+                f"lsblk could not read the partitions of {disk}: invalid JSON"
+            ) from error
         if not isinstance(document, Mapping):
-            return ()
+            raise CommandFailed(
+                f"lsblk could not read the partitions of {disk}: invalid JSON document"
+            )
         roots = document.get("blockdevices")
-        if not isinstance(roots, list):
-            return ()
-        return tuple(row for root in roots for row in _lsblk_children(root))
+        if not isinstance(roots, list) or len(roots) != 1 or not isinstance(roots[0], Mapping):
+            raise CommandFailed(
+                f"lsblk could not read the partitions of {disk}: invalid JSON document"
+            )
+        return _lsblk_children(roots[0])
 
     def partitions(self, disk: str) -> tuple[tuple[str, str, str], ...]:
         """Display rows retained for callers that have not moved to facts."""
@@ -1636,8 +1675,6 @@ def _free_extents(graph: DeviceGraph, probe: Probe) -> dict[DeviceId, tuple[Exte
         disk = graph.nodes.get(table.disk)
         if not isinstance(disk, Existing):
             continue
-        try:
-            found[table.id] = probe.free_extents(probe.resolve(disk.id, disk.selector))
-        except DeviceNotFound:
-            continue
+        # An edited table needs measured gaps; guessing can overwrite retained partitions.
+        found[table.id] = probe.free_extents(probe.resolve(disk.id, disk.selector))
     return found

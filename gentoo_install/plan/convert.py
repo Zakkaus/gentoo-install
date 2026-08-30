@@ -473,6 +473,9 @@ def _unsupported_layer(layout: StorageLayout) -> str:
         ("LVM", layout.root_on_lvm),
         ("mdraid", layout.root_on_mdraid),
     ):
+        # A failed block probe is not evidence that the root has no unsupported layer.
+        if present is None:
+            raise ConversionUnsupported("the root block-device stack could not be read")
         if present:
             return name
     return ""

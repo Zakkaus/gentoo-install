@@ -1073,6 +1073,40 @@ def test_a_partition_added_to_an_edited_mbr_goes_after_the_ones_on_the_disk() ->
     assert start.bytes > 1074790399, start
     assert start.is_aligned(), start
 
+def test_an_unreadable_edited_table_does_not_fall_back_to_model_placement(
+    tmp_path: Path,
+) -> None:
+    from gentoo_install.exec.probe import Probe, probe_storage_facts
+    from gentoo_install.exec.runner import Result, Runner
+    from gentoo_install.model.config import DiskConfig
+
+    class Failing(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            failed = argv[0] == "parted"
+            return Result(
+                argv=tuple(argv),
+                returncode=1 if failed else 0,
+                stdout="parted: cannot read the partition table\n" if failed else "",
+                stderr="",
+                seconds=0.0,
+            )
+
+    installation = replace(
+        config(),
+        disk=DiskConfig(graph=_edited_mbr(), root=DeviceId("m")),
+    )
+    reader = Probe(runner=Failing(log=lambda line: None), work=tmp_path)
+
+    with pytest.raises(CommandFailed, match="parted could not read the table"):
+        probe_storage_facts(installation, reader)
+
 
 def test_a_partition_that_fits_no_free_extent_is_refused_before_anything_runs() -> None:
     """Refused while the table is unchanged: the removals of the same plan run
