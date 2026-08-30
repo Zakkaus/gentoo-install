@@ -3247,6 +3247,84 @@ def test_the_short_form_of_a_selector_confirms_the_same_disk() -> None:
     assert at.confirmed == {named}
 
 
+def test_the_init_row_moves_the_profile_with_it() -> None:
+    """A profile carries its init: leaving a systemd profile on an OpenRC
+    machine is a configuration `validate` refuses, from a row that says
+    nothing about profiles."""
+    from gentoo_install.model.config import InitSystem
+
+    at = context()
+    built = config(zfs_root())
+    assert built.system.init is InitSystem.SYSTEMD
+
+    for keys in (["KEY_DOWN", "\n"], ["KEY_UP", "\n"]):
+        answered = screens.init_screen(
+            FakeScreen(keys=keys, lines=24, columns=100), built, at
+        )
+        after = answered.unwrap()
+        assert (after.system.init is InitSystem.SYSTEMD) == (
+            "systemd" in after.portage.profile
+        ), (after.system.init, after.portage.profile)
+
+
+def test_the_logger_row_refuses_itself_under_systemd() -> None:
+    """systemd carries journald, so a second logger records the same lines
+    twice. The row says so rather than offering one."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.tui.widgets import Outcome as _Outcome
+
+    at = context()
+    built = config(zfs_root())
+    refused = screens.logger_screen(
+        FakeScreen(keys=["\n"], lines=24, columns=100), built, at
+    )
+    assert refused.outcome is _Outcome.BACK
+    assert not refused.chosen
+
+    # OpenRC is offered the menu, because a stage3 carries no logger at all.
+    openrc = _replace(built, system=_replace(built.system, init=InitSystem.OPENRC))
+    offered = screens.logger_screen(
+        FakeScreen(keys=["\n"], lines=24, columns=100), openrc, at
+    )
+    assert offered.chosen
+
+
+def test_the_compile_jobs_row_stores_this_machine_as_nothing() -> None:
+    """`-j32` saved from a 32-core machine builds with 32 jobs on a four-core
+    laptop, so the machine's own count is stored as the empty string. The row
+    still preselects it, which is what makes reopening the screen and
+    accepting leave it unpinned."""
+    from dataclasses import replace as _replace
+
+    at = context()
+    at.cores = 8
+    built = config(zfs_root())
+
+    # The first row is this machine's count, and accepting it pins nothing.
+    followed = screens.makeopts_screen(
+        FakeScreen(keys=["\n"], lines=24, columns=100), built, at
+    ).unwrap()
+    assert followed.portage.makeopts == "", followed.portage.makeopts
+
+    # A different row is stored as it reads.
+    pinned = screens.makeopts_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=100), built, at
+    ).unwrap()
+    assert pinned.portage.makeopts.startswith("-j"), pinned.portage.makeopts
+    assert pinned.portage.makeopts != f"-j{at.cores}"
+
+    # Reopened on an unpinned configuration, the cursor is on that first row,
+    # so accepting again leaves it unpinned rather than pinning the number.
+    again = screens.makeopts_screen(
+        FakeScreen(keys=["\n"], lines=24, columns=100),
+        _replace(followed, portage=_replace(followed.portage, makeopts="")),
+        at,
+    ).unwrap()
+    assert again.portage.makeopts == ""
+
+
 def test_a_detected_value_says_it_still_needs_confirming() -> None:
     """`settled` refuses a detected value nobody opened, and the row drew it
     exactly like an answered one. Three operators read `* Drive  /dev/vda` as
