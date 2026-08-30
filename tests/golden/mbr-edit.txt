@@ -18,7 +18,7 @@
   seed the target's resolv.conf from the install medium
 
 [portage]
-  write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, FEATURES; 2 mirrors in the configured order, 5 appended
+  write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, FEATURES; 3 mirrors in the configured order, 5 appended
   configure Portage, wget, curl, git and gpg for direct connection
   create /etc/portage/package.use/zz-autounmask, /etc/portage/package.accept_keywords/zz-autounmask, /etc/portage/package.license/zz-autounmask, which emerge writes its decisions into
   disable inherited binary package host gentoo
