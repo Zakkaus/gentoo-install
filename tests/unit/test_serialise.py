@@ -408,6 +408,7 @@ def test_a_published_configuration_redacts_the_key_file_path() -> None:
 #: unknown key while every fixture round trip stayed green.
 NON_DEFAULT: "dict[tuple[type, str], object]" = {
     (Binhost, "subarch"): "arm64",
+    (Binhost, "url"): "http://10.31.0.2/gentoo/releases/amd64/binpackages/23.0/x86-64",
     (FirstBoot, "commands"): ("emerge --info",),
     (FirstBoot, "url"): "https://example.test/first-boot.sh",
     (KernelConfig, "dracut_modules"): ("crypt", "lvm"),

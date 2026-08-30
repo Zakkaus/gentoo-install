@@ -1703,7 +1703,8 @@ def build(
             ),
             ConfigureBinhost(
                 name="gentoo",
-                sync_uri=mirrors.gentoo_binhost(
+                sync_uri=portage.binhost.url
+                or mirrors.gentoo_binhost(
                     portage.mirrors.region, portage.mirrors.site, portage.binhost.subarch
                 ),
                 verify=True,
