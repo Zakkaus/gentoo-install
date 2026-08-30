@@ -612,6 +612,46 @@ def test_a_binhost_that_cannot_be_trusted_compiles_instead_of_stopping() -> None
     assert "--usepkg=n" in emerge and "--getbinpkg=y" not in emerge
 
 
+def test_a_host_that_is_not_written_takes_getbinpkg_with_it() -> None:
+    """`WriteMakeConf` writes `FEATURES="getbinpkg"` six operations before
+    `ConfigureBinhost` finds out whether there is a host the machine can
+    verify. When there is not, it returns without writing `binrepos.conf` --
+    and the installed system was left saying it fetches binary packages with
+    nothing naming where from."""
+    recorder = Recorder()
+    recorder.files[portage.MAKE_CONF] = (
+        'MAKEOPTS="-j4"\nFEATURES="getbinpkg"\nUSE="X"\n'
+    )
+    recorder.degrade(portage.BINARY_PACKAGES, "the index could not be read")
+
+    portage.ConfigureBinhost(name="gentoo", sync_uri="https://example/", verify=True).apply(
+        recorder
+    )
+    portage.SettleBinhostFeature(hosts=("gentoo",)).apply(recorder)
+
+    assert PurePosixPath("/etc/portage/binrepos.conf/gentoo.conf") not in recorder.files
+    written = recorder.files[portage.MAKE_CONF]
+    assert "getbinpkg" not in written, written
+    # Only that one feature, and nothing else in the file.
+    assert 'MAKEOPTS="-j4"' in written and 'USE="X"' in written, written
+
+
+def test_a_host_that_is_written_keeps_getbinpkg() -> None:
+    """Negative control: the feature belongs there whenever the host does, and
+    a degradation during the merges does not take it away -- the host is
+    configured and verified, one package simply did not arrive."""
+    recorder = Recorder()
+    recorder.files[portage.MAKE_CONF] = 'FEATURES="getbinpkg"\n'
+
+    portage.ConfigureBinhost(name="gentoo", sync_uri="https://example/", verify=True).apply(
+        recorder
+    )
+    portage.SettleBinhostFeature(hosts=("gentoo",)).apply(recorder)
+
+    assert PurePosixPath("/etc/portage/binrepos.conf/gentoo.conf") in recorder.files
+    assert "getbinpkg" in recorder.files[portage.MAKE_CONF]
+
+
 def test_a_binhost_that_can_be_trusted_is_used() -> None:
     recorder = Recorder()
     portage.PrepareBinhostTrust().apply(recorder)

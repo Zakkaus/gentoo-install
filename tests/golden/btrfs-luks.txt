@@ -47,6 +47,7 @@
   install the key the community binary packages are signed with: emerge sec-keys/openpgp-keys-gentoozh, from source
   import 38A0234EC16AD42E from /usr/share/openpgp-keys/gentoozh.asc, locally sign it for gentoo-zh, and verify the local signature
   write /etc/portage/binrepos.conf/gentoo-zh.conf adding verified binary package host gentoo-zh at https://distfiles.gentoozh.org/binpkgs/x86-64
+  drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written
   set sys-kernel/installkernel to dracut
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
   accept the linux-firmware licence

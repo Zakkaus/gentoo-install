@@ -42,6 +42,7 @@
   install git, which every later repository sync needs: emerge dev-vcs/git
   write /etc/portage/repos.conf/gentoo.conf pointing gentoo at https://github.com/gentoo-mirror/gentoo.git, commit signatures verified
   sync repository gentoo
+  drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written
   ask for sys-fs/lvm2[lvm], which dracut needs and the default build lacks
   set sys-kernel/installkernel to dracut
   accept the linux-firmware licence

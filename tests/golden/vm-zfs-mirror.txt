@@ -45,6 +45,7 @@
   write /etc/portage/repos.conf/gentoo-zh.conf pointing gentoo-zh at https://github.com/gentoo-zh/overlay.git
   sync repository gentoo-zh, 4 other sites to fall back on
   accept ~amd64 for packages from gentoo-zh only
+  drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written
   set sys-kernel/installkernel to dracut, writing BOOT_ROOT=/boot to /etc/kernel/install.conf.d/50-gentoo-install.conf
   verify kernel version - against the target sys-fs/zfs ceiling
   accept the linux-firmware licence
