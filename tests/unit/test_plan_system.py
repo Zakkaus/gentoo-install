@@ -1616,3 +1616,34 @@ def test_every_operation_that_names_a_file_writes_exactly_the_files_it_named() -
                 )
                 checked += 1
     assert checked > 40, checked
+
+
+def test_a_link_listing_that_failed_says_so_before_matching_by_name() -> None:
+    """A probe that could not run answered the same empty string as a MAC two
+    links share, so the fallback this operation records as unreachable was
+    taken without a word. The name is still written, because there is nothing
+    better to write; the run says what it gave up."""
+    from typing import Sequence
+
+    from gentoo_install.plan.operations import CommandOutput
+
+    class Broken(Recorder):
+        def run(
+            self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
+        ) -> CommandOutput:
+            self.commands.append(tuple(argv))
+            if argv[0] == "ip":
+                return CommandOutput("ip: command not found", 127)
+            return super().run(argv, check=check, input_text=input_text)
+
+    recorder = Broken()
+    _wired().apply(recorder)
+
+    written = recorder.files[PurePosixPath("/etc/systemd/network/20-wired.network")]
+    assert "Name=eno1" in written, written
+    assert recorder.degraded(system.MAC_MATCH)
+
+    # A listing that answered is not a degradation.
+    working = _linked()
+    _wired().apply(working)
+    assert not working.degraded(system.MAC_MATCH)
