@@ -364,6 +364,37 @@ def test_invalid_extra_package_dialog_cancellation_reaches_caller() -> None:
     assert answer.outcome is Outcome.CANCELLED
 
 
+def test_extra_package_screen_rejects_operatorless_versioned_atom() -> None:
+    base = config()
+    permissive = replace(base, portage=replace(base.portage, accept_license=("*",)))
+    rejected = tui_packages.extra_packages_screen(
+        FakeScreen(keys=[*"sys-apps/portage-3.0.64", "\n", "q"]), permissive, context()
+    )
+    assert rejected.outcome is Outcome.CANCELLED
+
+    # No leading operator either, which is the decision already written above
+    # the pattern: an operator needs a version and this screen asks for a
+    # package.
+    with_operator = tui_packages.extra_packages_screen(
+        FakeScreen(keys=[*">=sys-apps/portage-3.0.64", "\n", "q"]), permissive, context()
+    )
+    assert with_operator.outcome is Outcome.CANCELLED
+
+
+def test_extra_package_screen_rejects_multiple_slot_separators() -> None:
+    base = config()
+    permissive = replace(base, portage=replace(base.portage, accept_license=("*",)))
+    rejected = tui_packages.extra_packages_screen(
+        FakeScreen(keys=[*"sys-libs/zlib:0/1/2", "\n", "q"]), permissive, context()
+    )
+    assert rejected.outcome is Outcome.CANCELLED
+
+    accepted = tui_packages.extra_packages_screen(
+        FakeScreen(keys=[*"sys-libs/zlib:0/1", "\n"]), permissive, context()
+    )
+    assert accepted.unwrap().packages.extra == ("sys-libs/zlib:0/1",)
+
+
 def test_timezone_back_reopens_area_and_escape_leaves_both() -> None:
     changed = screens.timezone_screen(
         FakeScreen(keys=["\n", "KEY_LEFT", "KEY_DOWN", "\n", "\n"]),

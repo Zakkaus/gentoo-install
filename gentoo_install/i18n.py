@@ -94,6 +94,14 @@ class Catalog:
         for key, value in strings.items():
             if not isinstance(value, str):
                 raise ConfigError(f"{path}: {key} is not a string")
+            control = next(
+                (character for character in value if unicodedata.category(character) == "Cc"),
+                None,
+            )
+            if control is not None:
+                raise ConfigError(
+                    f"{path}: {key} contains control character U+{ord(control):04X}"
+                )
         return {str(key): str(value) for key, value in strings.items()}
 
 

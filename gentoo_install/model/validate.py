@@ -403,8 +403,9 @@ def _proxy_problems(config: InstallConfig) -> list[str]:
         return [refused]
     if any(char.isspace() for char in proxy.host):
         return ["proxy host must not contain spaces"]
-    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in proxy.password):
-        return ["proxy password contains control characters"]
+    for field, value in (("username", proxy.username), ("password", proxy.password)):
+        if character_problem := compat.curl_config_character_problem(value):
+            return [f"proxy {field} contains {character_problem}"]
     if any(not item.strip() or any(char.isspace() for char in item) for item in proxy.bypass):
         return ["proxy bypass hosts must be non-empty host names"]
     return []

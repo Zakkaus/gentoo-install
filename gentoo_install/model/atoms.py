@@ -15,8 +15,21 @@ from typing import Final
 #: `category/name`, with the optional trailing `:slot` and `::repository` that
 #: portage accepts. A leading version operator is deliberately not allowed: it
 #: needs a version too, and the interface asks for a package.
+_CATEGORY: Final[str] = r"[a-z0-9][a-z0-9+._-]*"
+_PACKAGE: Final[str] = r"[a-zA-Z0-9+._-]+"
+#: Portage's own, from `versions.py`, plus its optional revision. A name
+#: ending in one of these is a versioned atom with no operator, which
+#: `isvalidatom` refuses and `emerge --pretend` stops the install over.
+_VERSION: Final[str] = (
+    r"\d+(?:\.\d+)*[a-z]?(?:_(?:pre|p|beta|alpha|rc)\d*)*(?:-r\d+)?"
+)
+#: One optional subslot, the way `slot_re` in portage's `dep/__init__.py`
+#: builds it: `sys-libs/zlib:0/1/2` is an `InvalidAtom` there.
+_SLOT: Final[str] = r":[a-zA-Z0-9+._-]+(?:/[a-zA-Z0-9+._-]+)?"
+_REPOSITORY: Final[str] = r"::[a-zA-Z0-9_-]+"
 _ATOM: Final[re.Pattern[str]] = re.compile(
-    r"^[a-z0-9][a-z0-9+._-]*/[a-zA-Z0-9+._-]+(:[a-zA-Z0-9+._/-]+)?(::[a-zA-Z0-9_-]+)?$"
+    rf"^{_CATEGORY}/(?!{_PACKAGE}-{_VERSION}(?=:|$)){_PACKAGE}"
+    rf"(?:{_SLOT})?(?:{_REPOSITORY})?$"
 )
 
 

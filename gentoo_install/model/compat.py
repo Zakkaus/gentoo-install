@@ -143,6 +143,18 @@ def port_problem(what: str, port: int) -> str:
     return f"{what} must be between {PORTS.start} and {PORTS.stop - 1}"
 
 
+def curl_config_character_problem(value: str) -> str | None:
+    """The first credential character an unescaped curl config cannot preserve."""
+    for character in value:
+        if ord(character) < 0x20 or ord(character) == 0x7F:
+            return f"control character U+{ord(character):04X}"
+        if character == '"':
+            return "a double quote"
+        if character == "\\":
+            return "a backslash"
+    return None
+
+
 def system_network_problems(system: SystemConfig) -> tuple[InputProblem, ...]:
     """Network values that leave a static system without usable name resolution or routing."""
     addresses = tuple(_parse_ip_interface(one) for one in system.addresses)
