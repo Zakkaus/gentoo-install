@@ -58,7 +58,7 @@ TEST_ANSWERED: Final[tuple[int, ...]] = (0, 1)
 REMOTE_UNLOCK_PACKAGE: Final[str] = "sys-kernel/dracut-crypt-ssh"
 
 #: Not `crypt-ssh.conf`: `dracut-crypt-ssh` installs a file of exactly that
-#: name, so writing ours there is a CONFIG_PROTECT collision and the merge
+#: name, so writing the installer's there is a CONFIG_PROTECT collision and the merge
 #: leaves the package's copy unapplied as `._cfg0000_crypt-ssh.conf`.
 #: `zz-` and not a digit prefix: dracut sources the directory in lexical order
 #: and the last assignment to a scalar wins, and a digit sorts before every

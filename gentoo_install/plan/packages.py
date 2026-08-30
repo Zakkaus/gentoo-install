@@ -827,7 +827,7 @@ RIME_SCHEMA_SUFFIX: Final[str] = ".schema.yaml"
 
 @dataclass(frozen=True, kw_only=True)
 class VerifyRimeSchemas(Operation):
-    """The schemas the profile just named, checked against the target.
+    """The schemas the profile named, checked against the target.
 
     rime ignores a schema that is not on disk and fcitx then falls back to
     `keyboard-us`, so a profile naming one reads as a working install: exit 0,
@@ -1087,7 +1087,7 @@ def _frameworks_behind(chosen: Sequence[Group], catalog: Catalog) -> tuple[Group
 
     `rime` on its own merged `app-i18n/fcitx-rime` and nothing else: no
     `app-i18n/fcitx`, and no `fcitx-gtk` or `fcitx-qt`, so no Gtk or Qt
-    application could reach the engine that had just been installed.
+    application could reach the engine installed beside it.
     """
     have = {group.name for group in chosen}
     wanted: list[Group] = []

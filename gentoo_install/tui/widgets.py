@@ -242,7 +242,7 @@ class Region:
         size = self.screen.size()
         if size != self._seen:
             # Before the arithmetic, so the rectangle answered is the one the
-            # frame just drew rather than the one it is about to replace.
+            # frame drew rather than the one it is about to replace.
             self._seen = size
             if self.redraw is not None:
                 self.redraw()

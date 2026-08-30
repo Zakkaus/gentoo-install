@@ -1201,7 +1201,7 @@ class Emerge(Operation):
 
         Every reader of a zero exit, not the first one: a retry that succeeded
         left the run saying it fetches binary packages from a host whose index
-        it had just failed to read.
+        it had failed to read.
         """
         unreadable = _unreadable_index(str(result))
         if unreadable is not None and not context.degraded(BINARY_PACKAGES):
@@ -1822,7 +1822,7 @@ def build(
         # No `dev-vcs/git`: rsync needs none, and the stage3 already has the
         # rsync binary. Signatures are verified per snapshot, not per commit.
         #
-        # No sync here either. `emerge-webrsync` has just placed a signed
+        # No sync here either. `emerge-webrsync` has already placed a signed
         # snapshot, and `SyncRepository` deletes it and fetches the same tree
         # again over rsync. Twelve guests behind one address did that at once
         # and rsync.gentoo.org answered `access denied ... from UNKNOWN`, which

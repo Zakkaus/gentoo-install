@@ -135,7 +135,7 @@ FSTAB: Final[PurePosixPath] = PurePosixPath("/etc/fstab")
 
 @dataclass(frozen=True, kw_only=True)
 class CarryFstabEntries(Operation):
-    """Append the running machine's other mounts to the fstab just written.
+    """Append the running machine's other mounts to the fstab written above.
 
     A conversion replaces `/etc`, so a data partition, a swap or a bind mount
     the operator had would be gone from the new file: the machine boots and is
@@ -321,7 +321,7 @@ class PopulateBoot(Operation):
     `/boot` is not in the swap: it is a separate mount on many machines and
     holds the esp below it on many more, and `rename` refuses both. Without
     this the converted machine keeps the old distribution's kernels and the
-    one that was just built stays in the staging root.
+    one built by this run stays in the staging root.
     """
 
     stage: Stage = Stage.BOOTLOADER

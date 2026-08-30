@@ -268,18 +268,20 @@ class ProbedPartition:
     device_type: str
 
 
-#: The mount points a conversion writes itself. Every other line of the
+#: The mount points a conversion writes itself. Every other mount of the
 #: running `/etc/fstab` is carried across.
 _MANAGED_MOUNTS: Final[frozenset[str]] = frozenset({"/", "/boot", "/efi", "/boot/efi"})
 
 
 def _fstab_we_do_not_manage(esp: str | None, boot: str | None) -> tuple[str, ...]:
-    """The running fstab's other mounts, verbatim.
+    """The running fstab's other mounts, one line each with trailing space cut.
 
-    `distro2gentoo` copies the whole file across and keeps every mount the
-    machine had. This installer writes `/`, `/boot` and the esp from what it
-    probed, because their identifiers are the ones it just read; the rest —
-    a data partition, swap, a bind mount — is the operator's and is carried.
+    Mounts, not the file: comments and blank lines are dropped, so the
+    converted machine keeps what it mounts and not how the file was laid out.
+    `distro2gentoo` copies the whole file across instead. This installer
+    writes `/`, `/boot` and the esp from what it probed, because it read those
+    identifiers itself; the rest — a data partition, swap, a bind mount — is
+    the operator's and is carried.
     """
     managed = set(_MANAGED_MOUNTS) | {one for one in (esp, boot) if one}
     try:
@@ -1454,7 +1456,7 @@ class Probe:
         """Every partition on the disk now, by number, in bytes.
 
         A table the operator edits rather than rewrites keeps partitions the
-        configuration never names, and their space is claimed just as much as
+        configuration never names, and their space is claimed as much as
         a new partition's.
         """
         found = {
@@ -1562,16 +1564,16 @@ class Probe:
             # answer `True` when their command fails, and so does this one.
             return True
         whole = str(Path(disk).resolve())
-        ours = False
+        ignored = False
         for line in listed.stdout.splitlines():
             if not line.startswith(("\t", " ")):
                 # A pool line. Its last field is the altroot, and `-` when the
                 # pool was imported without one.
                 fields = line.split()
                 where = fields[-1] if fields else "-"
-                ours = bool(ignoring) and where != "-" and _under(where, ignoring)
+                ignored = bool(ignoring) and where != "-" and _under(where, ignoring)
                 continue
-            if ours:
+            if ignored:
                 continue
             for field in line.split():
                 if not field.startswith("/"):
