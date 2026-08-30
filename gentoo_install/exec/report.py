@@ -140,12 +140,19 @@ def offer_paste(
     unattended: bool,
     ask: Callable[[str], bool],
     show_address: Callable[[str], None],
+    translate: Callable[[str], str] = lambda source: source,
 ) -> None:
     """Offer to publish this run's log and display the resulting address."""
     if unattended:
         return
-    outcome = "the install stopped" if stopped else "the install finished"
-    if not ask(f"{outcome}. send the log to {paste.HOST}, which is public?"):
+    # Two calls, not one conditional inside `translate`: the catalog check
+    # reads the literals out of the source and a conditional hides both.
+    outcome = translate("the install stopped") if stopped else translate("the install finished")
+    if not ask(
+        translate("{outcome}. send the log to {host}, which is public?").format(
+            outcome=outcome, host=paste.HOST
+        )
+    ):
         record(f"the log to publish by hand is {work / RunFile.LOG.value}")
         return
     source = work / RunFile.LOG.value

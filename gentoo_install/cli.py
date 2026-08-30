@@ -112,6 +112,10 @@ class RunState:
     """Machine state that has to survive until the exit message is printed."""
 
     disk_was_written: bool = False
+    #: The interface language the menu was walked in. The closing questions
+    #: are printed after curses has gone, and they were English literals on a
+    #: machine whose every screen had been in Chinese.
+    language: str = ""
 
     def operation_started(self, operation: Operation) -> None:
         if operation.stage is Stage.PARTITION:
@@ -483,7 +487,7 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
                 _check_the_clock()
                 # The menu reads every version from the package site.
                 _require_network()
-            chosen = _from_menu(arguments, refused)
+            chosen = _from_menu(arguments, refused, state)
             if chosen is None:
                 print("cancelled", file=sys.stderr)
                 return EXIT_ABORTED
@@ -663,6 +667,7 @@ def install(
 ) -> int:
     """Check the machine, then perform every operation in order."""
     work: Path = arguments.work
+    translate = _closing_catalog(state, arguments)
     # A conversion replaces the running userland, so every operation after the
     # swap acts on `/`. Left at `--target` they would chroot into a directory
     # the machine does not have.
@@ -727,9 +732,12 @@ def install(
                 _unattended(arguments),
                 _asked,
                 show_the_address,
+                translate,
             )
             if config.disk.mode is not DiskMode.DD:
-                _offer_a_shell(arguments, machine, record, stopped, target, config.disk.mode)
+                _offer_a_shell(
+                    arguments, machine, record, stopped, target, config.disk.mode, translate
+                )
         except BaseException as error:
             failure = _first_failure(failure, error, record)
         if config.disk.mode is not DiskMode.DD:
@@ -851,6 +859,15 @@ def _draws_wide_characters() -> bool:
     return locale.nl_langinfo(locale.CODESET).upper().replace("-", "") == "UTF8"
 
 
+def _closing_catalog(state: RunState, arguments: argparse.Namespace) -> Catalog:
+    """What the questions after the menu are written in.
+
+    The menu's own tag when there was a menu, and what the environment says
+    otherwise: `--config` never opens a screen and has no tag to carry.
+    """
+    return Catalog(state.language or tag_for(override=arguments.lang))
+
+
 def _asked(question: str) -> bool:
     """Ask, after throwing away what was typed before the question existed.
 
@@ -924,6 +941,7 @@ def _offer_a_shell(
     stopped: bool,
     target: Path,
     mode: DiskMode,
+    translate: Catalog,
 ) -> None:
     """A root shell in the target before it is unmounted.
 
@@ -938,10 +956,10 @@ def _offer_a_shell(
     if _unattended(arguments):
         return
     question = (
-        f"enter a root shell in the converted system at {target}?"
+        translate("enter a root shell in the converted system at {target}?")
         if mode is DiskMode.IN_PLACE
-        else f"enter a root shell in {target} before unmounting?"
-    )
+        else translate("enter a root shell in {target} before unmounting?")
+    ).format(target=target)
     if not _asked(question):
         return
     record(f"a root shell was opened in {target}")
@@ -1190,7 +1208,7 @@ def _refuse_a_resume_with_no_journal(work: Path, resuming: bool) -> None:
 
 
 def _from_menu(
-    arguments: argparse.Namespace, refused: str = ""
+    arguments: argparse.Namespace, refused: str = "", state: "RunState | None" = None
 ) -> InstallConfig | None:
     """Walk the screens and return what the operator built, or None.
 
@@ -1269,6 +1287,8 @@ def _from_menu(
         if not _draws_wide_characters():
             context.translate = Catalog("en")
             context.tag = "en"
+            if state is not None:
+                state.language = "en"
             return app.run(display, screens.with_language(start, "en"), context)
         # Asked before the menu: the environment says which language the
         # operator reads, not whether this terminal can draw it.
@@ -1278,6 +1298,8 @@ def _from_menu(
             chosen = screens.with_language(start, context.tag)
         else:
             chosen = screens.with_language(start, context.translate.tag)
+        if state is not None:
+            state.language = context.translate.tag
         if refused:
             # After the language, so it is readable, and before the saved
             # configuration question, so an operator who is about to load a
