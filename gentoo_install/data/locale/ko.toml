@@ -656,7 +656,7 @@
 "enable {} at boot" = "부팅 시 {} 활성화"
 "enable {} in the {} runlevel" = "{}를 {} 런레벨에서 활성화"
 "check that this machine can be told to boot once, {}" = "이 머신에 일회성 부팅을 지시할 수 있는지 확인 ({})"
-"check this machine has the {} MiB {} needs" = "이 머신에 {}가 필요로 하는 {} MiB가 있는지 확인"
+"check this machine has the {} MiB {} needs" = "이 머신에 {} MiB가 있는지 확인 ({}에 필요한 양)"
 "take back anything an earlier run armed" = "이전 실행이 설정한 일회성 부팅을 되돌림"
 "fetch the {} image and verify its checksum" = "{} 이미지를 가져오고 체크섬 검증"
 "unpack the {} kernel and initramfs into {}" = "{}의 커널과 initramfs를 {}에 풀기"

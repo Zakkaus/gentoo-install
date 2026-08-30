@@ -656,7 +656,7 @@
 "enable {} at boot" = "起動時に {} を有効化"
 "enable {} in the {} runlevel" = "{} を {} ランレベルで有効化"
 "check that this machine can be told to boot once, {}" = "このマシンに一度だけの起動を指示できるか確認（{}）"
-"check this machine has the {} MiB {} needs" = "このマシンに {} が必要とする {} MiB があるか確認"
+"check this machine has the {} MiB {} needs" = "このマシンに {} MiB があるか確認（{} が必要とする量）"
 "take back anything an earlier run armed" = "以前の実行が設定した一度きりの起動を取り消す"
 "fetch the {} image and verify its checksum" = "{} イメージを取得してチェックサムを検証"
 "unpack the {} kernel and initramfs into {}" = "{} のカーネルと initramfs を {} に展開"

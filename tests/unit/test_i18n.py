@@ -883,3 +883,29 @@ def test_the_compile_jobs_row_says_what_the_plan_will_write() -> None:
 
     pinned = replace(installation, portage=replace(installation.portage, makeopts="-j4"))
     assert settings._makeopts(pinned, at) == "-j4"
+
+
+#: Words that attach to the value in front of them in every language this
+#: interface offers: a unit follows its number, a flag is named as itself.
+#: `REVIEWED_TEMPLATES` says only a reader can judge placeholder order, and it
+#: is right about word order — but it recorded `check this machine has the {}
+#: MiB {} needs` as read while all four catalogs rendered `512 needs --ram
+#: MiB`, so this much of the order is worth checking by machine.
+ANCHORED_UNITS: Final[tuple[str, ...]] = ("MiB", "GiB", "KiB")
+
+
+def test_a_unit_keeps_the_value_it_measures() -> None:
+    """A translation may reorder a sentence; it may not hand `MiB` to the
+    placeholder that carries a command-line flag."""
+    for source in operation_templates():
+        for unit in ANCHORED_UNITS:
+            if f"{{}} {unit}" not in source:
+                continue
+            wanted = source.split(f"{{}} {unit}")[0].count("{}")
+            for tag in sorted(path.stem for path in LOCALES.glob("*.toml")):
+                value = shipped(tag).get(source)
+                if value is None or unit not in value:
+                    continue
+                before = value.split(unit)[0].rstrip()
+                assert before.endswith("{}"), (tag, source, value)
+                assert before.count("{}") - 1 == wanted, (tag, source, value)

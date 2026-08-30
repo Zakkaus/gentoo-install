@@ -657,7 +657,7 @@
 "enable {} at boot" = "在启动时启用 {}"
 "enable {} in the {} runlevel" = "启用 {}，运行级别 {}"
 "check that this machine can be told to boot once, {}" = "检查这台机器能否预约一次启动（{}）"
-"check this machine has the {} MiB {} needs" = "检查这台机器是否有 {} 所需的 {} MiB"
+"check this machine has the {} MiB {} needs" = "检查这台机器有没有 {} MiB（{} 需要的量）"
 "take back anything an earlier run armed" = "取消先前执行留下的启动预约"
 "fetch the {} image and verify its checksum" = "获取 {} 镜像并验证校验和"
 "unpack the {} kernel and initramfs into {}" = "将 {} 的内核与 initramfs 解开到 {}"
