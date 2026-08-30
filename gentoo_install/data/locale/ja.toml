@@ -442,6 +442,7 @@
 "Yes, and open" = "はい、開く"
 "editable" = "編集できます"
 "required" = "必須"
+"confirm" = "要確認"
 "never opened" = "未確認"
 "User name" = "ユーザー名"
 "empty for root only" = "空欄なら root のみ"

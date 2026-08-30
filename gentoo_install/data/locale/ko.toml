@@ -442,6 +442,7 @@
 "Yes, and open" = "예, 열기"
 "editable" = "편집할 수 있습니다"
 "required" = "필수"
+"confirm" = "확인 필요"
 "never opened" = "열어본 적 없음"
 "User name" = "사용자 이름"
 "empty for root only" = "비우면 root 만"

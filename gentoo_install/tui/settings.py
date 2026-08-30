@@ -236,6 +236,12 @@ def shown_value(
         value = context.translate(
             "required" if setting.required and not refused else UNSET
         )
+    elif setting.required and setting.detected and not settled(setting, config, context):
+        # `settled` already refuses a detected value nobody opened, and the
+        # row drew it exactly like an answered one: three operators read
+        # `* Drive  /dev/vda` as done, and pressing the row to clear the star
+        # discarded a hand-written table.
+        value = f"{value} ({context.translate('confirm')})"
     if room is None:
         return value
     # `required` is fitted too: the widest label in the catalog leaves its own
