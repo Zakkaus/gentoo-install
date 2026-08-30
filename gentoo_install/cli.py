@@ -1060,17 +1060,34 @@ def _require_network() -> None:
     refused = fetch.why_offline()
     if not refused:
         return
-    if fetch.mirror_online(DEFAULT_MIRROR, DEFAULT_VARIANT):
+    answering = _a_mirror_that_answers()
+    if answering:
         print(
             "warning: packages.gentoo.org did not answer, so the version rows "
-            f"offer only what the keywords allow ({refused})",
+            f"offer only what the keywords allow ({refused}); {answering} answers",
             file=sys.stderr,
         )
         return
     raise errors.PreflightFailed(
-        "this machine reaches neither packages.gentoo.org nor "
-        f"{DEFAULT_MIRROR}, so no install can fetch a stage3: {refused}"
+        "this machine reaches neither packages.gentoo.org nor any mirror this "
+        f"installer offers, so no install can fetch a stage3: {refused}"
     )
+
+
+def _a_mirror_that_answers() -> str:
+    """The name of the first mirror that serves a stage3, or an empty string.
+
+    Every site of the region, not `DEFAULT_MIRROR` alone: a machine in China
+    that cannot reach `distfiles.gentoo.org` was refused at the first screen
+    with USTC one row away, which is the same refusal the comment above records
+    for `packages.gentoo.org`.
+    """
+    if fetch.mirror_online(DEFAULT_MIRROR, DEFAULT_VARIANT):
+        return DEFAULT_MIRROR
+    for site in mirrors.gentoo_sites(_region(fetch.egress_country())):
+        if site.releases and fetch.mirror_online(site.distfiles, DEFAULT_VARIANT):
+            return site.distfiles
+    return ""
 
 
 def _conversion_offer(
