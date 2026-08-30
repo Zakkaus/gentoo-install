@@ -12,7 +12,7 @@ from typing import Callable, Final, TypeVar
 
 import pytest
 
-from gentoo_install.errors import ValidationFailed
+from gentoo_install.errors import InvalidLayout, ValidationFailed
 from gentoo_install.i18n import Catalog, width
 from gentoo_install.model import manual
 from gentoo_install.model.config import (
@@ -1741,3 +1741,63 @@ def test_the_manual_row_says_where_a_second_disk_goes() -> None:
     screens.layout_screen(screen, config(), opened())
     drawn = "\n".join(screen.frames[0])
     assert "second disk" in drawn
+
+
+@pytest.mark.parametrize(
+    "role, said",
+    [
+        (PartitionRole.RAID, "never assembled"),
+        (PartitionRole.ZFS, "never imported"),
+    ],
+)
+def test_a_kept_array_or_pool_member_is_refused_rather_than_overwritten(
+    role: PartitionRole, said: str
+) -> None:
+    """`keep` is drawn as `left alone, data and all`, and the graph has no
+    operation that assembles an existing array or imports an existing pool:
+    `plan/disk.py` runs `mdadm --create` and `zpool create -f`. The row was
+    built anyway, so a menu promised the operator their data and the install
+    overwrote it.
+    """
+    kept = manual.Layout(
+        disks=[
+            manual.Disk(
+                selector="/dev/vda",
+                slices=[
+                    manual.Slice(
+                        index=1,
+                        role=PartitionRole.ESP,
+                        size=Size.parse("512MiB"),
+                        filesystem=FilesystemType.VFAT,
+                        mountpoint="/efi",
+                    ),
+                    manual.Slice(
+                        index=2,
+                        role=role,
+                        size=None,
+                        status=manual.SliceStatus.KEEP,
+                        selector="/dev/vda2",
+                    ),
+                ],
+            )
+        ]
+    )
+
+    with pytest.raises(InvalidLayout, match=said):
+        manual.build(kept)
+
+    # The same row formatted is the layout this installer can carry out.
+    formatted = replace(
+        kept,
+        disks=[
+            replace(
+                kept.disks[0],
+                slices=[
+                    kept.disks[0].slices[0],
+                    replace(kept.disks[0].slices[1], status=manual.SliceStatus.FORMAT),
+                ],
+            )
+        ],
+    )
+    graph, _ = manual.build(formatted)
+    assert graph.nodes

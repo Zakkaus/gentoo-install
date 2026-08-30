@@ -1045,7 +1045,14 @@ def _edit_field_legacy(
             context,
             translate("What happens to it"),
             [
-                Item(label=translate(one.value), value=one, detail=translate(manual.STATUS_REASONS[one]))
+                Item(
+                    label=translate(one.value),
+                    value=one,
+                    detail=translate(manual.STATUS_REASONS[one]),
+                    disabled_because=translate(
+                        manual.kept_row_refused(replace(entry, status=one))
+                    ),
+                )
                 for one in offered
             ],
             entry.status,

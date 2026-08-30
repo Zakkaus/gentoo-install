@@ -399,6 +399,8 @@
 "delete" = "削除"
 "create" = "新規"
 "left alone, data and all" = "そのまま。データも残る"
+"an array is created, never assembled, so a member cannot be kept" = "アレイは作成のみで既存のものを組み立てないため、メンバーは保持できません"
+"a pool is created, never imported, so a member cannot be kept" = "プールは作成のみで既存のものをインポートしないため、メンバーは保持できません"
 "kept in the table, given a new filesystem" = "表には残し、ファイルシステムを作り直す"
 "removed from the table, data and all" = "表から削除。データも消える"
 "not on the disk yet" = "ディスクにまだない"
