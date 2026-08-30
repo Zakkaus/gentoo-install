@@ -7,7 +7,12 @@ from typing import Sequence
 
 import pytest
 
-from gentoo_install.errors import ConfigError, NothingToBoot, ValidationFailed
+from gentoo_install.errors import (
+    CommandFailed,
+    ConfigError,
+    NothingToBoot,
+    ValidationFailed,
+)
 
 from gentoo_install.model.config import (
     Bootloader,
@@ -1258,3 +1263,19 @@ def test_one_token_names_both_efi_files() -> None:
             for one in others:
                 assert f"BOOT{one.upper()}.EFI" not in node.value, f"{path}:{node.lineno}"
                 assert f"linux{one}.efi.stub" not in node.value, f"{path}:{node.lineno}"
+
+
+def test_a_test_that_could_not_run_is_not_read_as_a_missing_image() -> None:
+    """`test` answers 1 for absent and nothing else. A chroot that could not run
+    it answers 127, and reading that as absent stopped the install naming an
+    image that is on the disk."""
+    recorder = Recorder(
+        answering=lambda argv: CommandOutput("", 127) if argv[0] == "test" else None
+    )
+    recorder.files[PurePosixPath("/var/lib/misc/installkernel")] = (
+        "date\tsystemd\t6.18.41-gentoo-dist-bin\tx\tcompat\tdracut\tnone\t"
+        "/boot\tvmlinuz\tinitramfs.img\tnotset\n"
+    )
+
+    with pytest.raises(CommandFailed, match="could not be read"):
+        kernel.RequireKernelImage().apply(recorder)

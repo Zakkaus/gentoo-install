@@ -1595,3 +1595,22 @@ def test_a_pool_nothing_will_release_says_what_the_machine_knows(
     # risk of this change is that improving the message turns into forcing
     # the export, which is what the operation refuses to do on purpose.
     assert "-f" not in said, said
+
+
+def test_a_subvolume_listing_that_failed_is_not_read_as_an_absent_subvolume() -> None:
+    """`btrfs subvolume list` answering non-zero produces no line either, so
+    reading the two as one answer named a reused subvolume as missing and sent
+    the operator to look for a subvolume that is there."""
+    recorder = Recorder(
+        answering=lambda argv: (
+            CommandOutput("ERROR: not a btrfs filesystem", 1)
+            if argv[:2] == ["btrfs", "subvolume"]
+            else None
+        )
+    )
+    operation = disk.VerifySubvolume(
+        subvolume=i("root-subvolume"), device=i("root"), name="@"
+    )
+
+    with pytest.raises(CommandFailed, match="could not be read"):
+        operation.apply(recorder)

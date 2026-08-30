@@ -3138,3 +3138,65 @@ def test_the_bios_target_is_not_written_a_second_time() -> None:
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 for one in targets:
                     assert one not in node.value, f"{path}:{node.lineno} writes {one!r}"
+
+
+def test_a_findmnt_that_could_not_run_is_not_read_as_unmounted(tmp_path: Path) -> None:
+    """`plan/disk.py` already refuses to read a failed probe as unmounted. This
+    is the third reader of the same rule, and reading 2 as `not mounted` mounted
+    a second filesystem over one that was already there."""
+    from gentoo_install.plan.disk import Mount
+
+    class Broken(Runner):
+        def __init__(self) -> None:
+            super().__init__(log=lambda line: None)
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            return Result(
+                argv=tuple(argv),
+                returncode=2 if argv[0] == "findmnt" else 0,
+                stdout="findmnt: bad usage" if argv[0] == "findmnt" else "",
+                stderr="",
+                seconds=0.0,
+            )
+
+    answering = Broken()
+    machine = apply.Machine(
+        config=config(),
+        runner=answering,
+        probe=Probe(runner=answering, work=tmp_path),
+        work=tmp_path,
+    )
+
+    with pytest.raises(CommandFailed, match="could not be read"):
+        machine.is_mounted("/mnt/gentoo")
+
+
+def test_a_path_component_that_is_a_file_is_not_read_as_an_absent_file(
+    tmp_path: Path,
+) -> None:
+    """`read` answers empty for a file the stage3 has not unpacked yet. A target
+    whose `/etc/portage` is a regular file is broken, and the same empty string
+    would have let `merge` write a make.conf over it."""
+    runner = Runner(log=lambda line: None)
+    machine = apply.Machine(
+        config=config(),
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+        mountpoint=tmp_path,
+    )
+    (tmp_path / "etc").mkdir()
+    (tmp_path / "etc" / "portage").write_text("not a directory\n")
+
+    from gentoo_install.errors import TargetEscape
+
+    assert machine.read(PurePosixPath("/etc/absent")) == ""
+    with pytest.raises(TargetEscape, match="not a directory in the target"):
+        machine.read(PurePosixPath("/etc/portage/make.conf"))
