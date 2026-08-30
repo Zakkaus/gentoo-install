@@ -1291,3 +1291,69 @@ def test_one_row_decides_both_halves_of_the_binhost_url() -> None:
         if isinstance(node, ast.Constant) and node.value in known
     ]
     assert len(spelled) == 1, spelled
+
+def test_every_named_source_is_in_the_ledger() -> None:
+    """`CREDITS.md` said "Nothing yet. Every line in this repository was
+    written for it." while `tests/vm/cluster.py` said `Taken from shadow's own
+    po/zh_TW.po` and `model/manual.py` named `archinstall`. Nothing checked the
+    two against each other, so the ledger drifted from the tree it is the
+    ledger for -- and which outside project a file names is what decides the
+    licence a release goes out under.
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[2]
+    credits = (root / "CREDITS.md").read_text()
+
+    def rows(after: str) -> list[list[str]]:
+        block = credits.split(after, 1)[1]
+        found = []
+        for line in block.splitlines():
+            if line.startswith("## "):
+                break
+            if not line.startswith("|") or set(line) <= set("|- "):
+                continue
+            if line.startswith("| File here") or line.startswith("| Project"):
+                continue
+            found.append([cell.strip() for cell in line.strip("|").split("|")])
+        return found
+
+    derived = rows("## Derived code")
+    read = rows("## Projects read for behaviour")
+    assert read, "the ledger names no project at all"
+
+    def named(cell: str) -> str:
+        inside = re.search(r"\[([^\]]+)\]", cell)
+        return (inside.group(1) if inside else cell).strip("`")
+
+    # Every derived row names a file that exists and says so itself.
+    for row in derived:
+        here = root / row[0].strip("`")
+        assert here.is_file(), row
+        project = named(row[1]).split("/")[-1]
+        assert project in here.read_text(), (row[0], project)
+
+    # And every outside project a file names as a source is mentioned in the
+    # ledger. The vocabulary is not taken from the ledger itself: a row
+    # deleted from it would then delete the check with it.
+    fixtures = {one.stem for one in (root / "tests" / "fixtures").glob("*.toml")}
+    #: Words that follow `Taken from` inside a sentence about this repository.
+    ORDINARY = {"the", "what", "its", "their", "this", "that", "one", "each"}
+    taken = re.compile(r"(?:Taken|Adapted|Copied) from `?([A-Za-z0-9][A-Za-z0-9_./-]*)")
+    outside: dict[str, str] = {}
+    for path in sorted((root / "gentoo_install").rglob("*.py")) + sorted(
+        (root / "tests").rglob("*.py")
+    ):
+        # Not this file: it quotes the wordings it looks for, so scanning it
+        # reports its own docstring.
+        if path == Path(__file__).resolve():
+            continue
+        for found in taken.finditer(path.read_text()):
+            name = found.group(1)
+            if name in ORDINARY or name in fixtures or "." in name.split("/")[0]:
+                continue
+            outside.setdefault(name, str(path.relative_to(root)))
+
+    assert outside, "the scan found no named source at all, so it holds nothing"
+    for name, where in sorted(outside.items()):
+        assert name in credits, (where, name)
