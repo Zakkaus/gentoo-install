@@ -1618,3 +1618,42 @@ def test_a_pinned_kernel_version_has_to_be_one_portage_can_be_given(
         return
     with pytest.raises(ValidationFailed, match="is not a version portage"):
         validate(config)
+
+
+@pytest.mark.parametrize(
+    "package",
+    ["sys-kernel/gentoo-sources", "=sys-kernel/gentoo-sources-6.12*"],
+)
+def test_a_sources_package_is_refused_in_every_atom_form(package: str) -> None:
+    """The trim read `-\\d[\\w.]*$`, and `=cat/pkg-6.12*` ends in an asterisk, so
+    the name kept its version and the `-sources` refusal did not fire. Portage
+    takes that form, and the installer builds no kernel of its own, so the
+    machine finished with a source tree and an empty `/boot`."""
+    from gentoo_install.model.config import KernelConfig, KernelSource
+
+    config = replace(
+        parse(tomllib.loads((FIXTURES / "ext4-bios.toml").read_text())),
+        kernel=KernelConfig(source=KernelSource.DIST_BIN, package=package),
+    )
+    with pytest.raises(ValidationFailed, match="installs a source tree"):
+        validate(config)
+
+
+def test_the_cjk_refusal_reads_the_package_the_install_will_merge() -> None:
+    """`cjk_kernel_problems` keyed on `kernel.source` while the trait beside it
+    keyed on `kernel.package or ...`. An override naming a cjktty atom took the
+    architecture refusal past the rule, and `emerge` then stopped with the disk
+    already partitioned."""
+    from gentoo_install.model.architecture import ARCHITECTURES, AMD64
+    from gentoo_install.model.config import KernelConfig, KernelSource
+
+    elsewhere = next(one for one in ARCHITECTURES if one.gentoo_name != AMD64.gentoo_name)
+    config = replace(
+        parse(tomllib.loads((FIXTURES / "ext4-bios.toml").read_text())),
+        kernel=KernelConfig(
+            source=KernelSource.DIST_BIN, package="sys-kernel/gentoo-cjk-kernel-bin"
+        ),
+    )
+
+    assert compat.cjk_kernel_problems(config, elsewhere), "the override names a cjk kernel"
+    assert not compat.cjk_kernel_problems(config, AMD64)
