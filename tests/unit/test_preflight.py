@@ -282,3 +282,47 @@ def test_a_conversion_from_a_running_system_is_allowed(tmp_path: Path) -> None:
     )
 
     assert not any("in-place conversion" in one for one in report.fatal)
+
+
+def test_a_reused_whole_device_root_is_measured_too(tmp_path: Path) -> None:
+    """The capacity loop starts at every `PartitionTable`, so a root that is a
+    whole reused device — no table above it — supplied nothing and the size
+    check had nothing to check. An install into 8 GiB runs out during
+    linux-firmware, an hour after the disks were written."""
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import (
+        Existing,
+        Filesystem,
+        FilesystemType,
+        Mountpoint,
+        Node,
+    )
+    from pathlib import PurePosixPath
+
+    nodes: list[Node] = [
+        Existing(id=i("root-device"), selector="/dev/sdb", wipe=False),
+        Filesystem(
+            id=i("rootfs"),
+            device=i("root-device"),
+            kind=FilesystemType.EXT4,
+            create=False,
+        ),
+        Mountpoint(id=i("mnt-root"), source=i("rootfs"), path=PurePosixPath("/")),
+    ]
+    reused = replace(
+        config(),
+        disk=DiskConfig(graph=DeviceGraph.build(nodes), root=i("mnt-root")),
+    )
+
+    class EightGiB(Probe):
+        def resolve(self, device: object, selector: str) -> str:
+            return selector
+
+        def disk_bytes(self, path: str) -> int:
+            return 8 * 2**30
+
+    report = preflight.check(
+        reused, EightGiB(runner=Runner(log=lambda line: None), work=tmp_path), operations=()
+    )
+
+    assert any("carries / and is" in one for one in report.fatal), report.fatal
