@@ -1762,6 +1762,43 @@ def test_a_disk_holding_an_imported_pool_is_in_use(tmp_path: Path) -> None:
     assert not probe._in_an_imported_pool(f"{tmp_path}/disk2")
 
 
+def test_an_absent_zpool_and_a_failing_zpool_answer_differently(tmp_path: Path) -> None:
+    """`mounted` has three readers and two of them answer `True` when their
+    command fails. This one answered `False` for both "no `zpool` here" and
+    "`zpool` ran and failed", so an imported pool's vdev could be
+    repartitioned whenever the command errored for any other reason."""
+    class Failing(Runner):
+        code: int = 1
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            if argv[0] == "zpool":
+                return Result(
+                    argv=tuple(argv), returncode=self.code, stdout="", stderr="", seconds=0.0
+                )
+            return Result(argv=tuple(argv), returncode=0, stdout="", stderr="", seconds=0.0)
+
+    absent = Failing(log=lambda line: None)
+    absent.code = probe_module.ABSENT_COMMAND
+    assert (
+        Probe(runner=absent, work=tmp_path)._in_an_imported_pool(f"{tmp_path}/disk1") is False
+    )
+
+    # `zpool` ran and answered non-zero: nothing is known, so the disk is
+    # treated as in use, the way `lsblk` and `swapon` already are.
+    broken = Failing(log=lambda line: None)
+    broken.code = 1
+    assert (
+        Probe(runner=broken, work=tmp_path)._in_an_imported_pool(f"{tmp_path}/disk1") is True
+    )
+
+
 def test_the_targets_own_half_finished_pool_is_not_somebody_elses_disk(tmp_path: Path) -> None:
     """A run that stopped partway leaves its own pool imported with the install
     target as its altroot. Reading that as a disk in use made the next attempt
