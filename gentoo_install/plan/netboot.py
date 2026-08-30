@@ -109,8 +109,8 @@ ALPINE_ARCHIVE = re.compile(
 PLACE: Final[str] = "gentoo-install-ram"
 
 #: Where the download lands, on the root filesystem rather than the esp. The
-#: esp is whatever size that machine was given — 124 MiB on a Debian cloud
-#: image — and the images are 373 MB and about a gigabyte, so the first real
+#: esp is whatever size that machine was given \u2014 124 MiB on a Debian cloud
+#: image \u2014 and the images are 373 MB and about a gigabyte, so the first real
 #: `--lowram` run ended at `curl: (23) Failure writing output to destination`
 #: with 111 MB written. The firmware only ever reads a kernel and an initramfs
 #: from the esp, and those are tens of megabytes.
@@ -296,8 +296,8 @@ class ClearPreviousArming(Operation):
     """Take back whatever an earlier run armed, before this one writes.
 
     A second run that stops at the download or the unpack otherwise leaves the
-    first one's arming in place, and the next reboot — months later, for
-    another reason — enters a memory environment carrying a configuration
+    first one's arming in place, and the next reboot \u2014 months later, for
+    another reason \u2014 enters a memory environment carrying a configuration
     nobody meant to install any more. `reinstall` clears its own state before
     it fetches for the same reason (`reinstall.sh:4485-4547`, called at 5016).
 
@@ -332,7 +332,7 @@ def _disarm(context: Context, target: BootTarget) -> None:
     `bootctl set-oneshot ""` and not a named entry: `bootctl(1)` says an empty
     ID unsets the variable, while any other value is another entry to boot
     next. This asked for `auto-reboot-to-firmware-setup`, which is not a
-    disarm — it is a machine that reboots into its firmware setup instead.
+    disarm \u2014 it is a machine that reboots into its firmware setup instead.
     """
     if target.method is BootMethod.SYSTEMD_BOOT:
         context.run(["bootctl", "set-oneshot", ""], check=False)
@@ -787,14 +787,23 @@ WIFI_LINES: Final[dict[MemoryMode, tuple[str, ...]]] = {
 
 #: The banner, in the languages that environment can draw. The Alpine netboot
 #: bundle has no CJK font, so Chinese there is a row of blanks.
+#:
+#: Not `the disk has not been touched`: `PlaceMemoryKernel` put a kernel and
+#: an initramfs on the boot target and `WriteMemoryEntry` added an entry to
+#: it, both before the reboot that reaches this screen. What is still true is
+#: the part an operator is deciding about, so that is what it says.
 BANNER: Final[dict[MemoryMode, tuple[str, ...]]] = {
     MemoryMode.RAM: (
-        "gentoo-install is in memory. The disk has not been touched.",
-        "\u5b89\u88dd\u5668\u5df2\u5728\u8a18\u61b6\u9ad4\u4e2d\uff0c\u5c1a\u672a\u5beb\u5165\u78c1\u789f\u3002",
-        "\u5b89\u88c5\u5668\u5df2\u5728\u5185\u5b58\u4e2d\uff0c\u5c1a\u672a\u5199\u5165\u78c1\u76d8\u3002",
+        "gentoo-install is in memory. Its own kernel and boot entry are on this",
+        "machine; no partition table and no filesystem has been changed.",
+        "\u5b89\u88dd\u5668\u5df2\u5728\u8a18\u61b6\u9ad4\u4e2d\u3002\u5b83\u7684\u6838\u5fc3\u8207\u958b\u6a5f\u9805\u76ee\u5df2\u5beb\u5165\u9019\u53f0\u6a5f\u5668\uff0c",
+        "\u5206\u5272\u8868\u8207\u6a94\u6848\u7cfb\u7d71\u90fd\u9084\u6c92\u6709\u8b8a\u52d5\u3002",
+        "\u5b89\u88c5\u5668\u5df2\u5728\u5185\u5b58\u4e2d\u3002\u5b83\u7684\u5185\u6838\u4e0e\u542f\u52a8\u9879\u5df2\u5199\u5165\u8fd9\u53f0\u673a\u5668\uff0c",
+        "\u5206\u533a\u8868\u4e0e\u6587\u4ef6\u7cfb\u7edf\u90fd\u8fd8\u6ca1\u6709\u53d8\u52a8\u3002",
     ),
     MemoryMode.LOWRAM: (
-        "gentoo-install is in memory. The disk has not been touched.",
+        "gentoo-install is in memory. Its own kernel and boot entry are on this",
+        "machine; no partition table and no filesystem has been changed.",
     ),
 }
 
@@ -826,7 +835,7 @@ def _start(mode: MemoryMode) -> str:
     Two answers and no timeout: a countdown that ends in a partitioned disk is
     a countdown nobody can lose safely, and this path is reached by rebooting
     a machine whose operator may still be reconnecting to it. Answering `no`
-    is not the end of the road either — the banner names the command that
+    is not the end of the road either \u2014 the banner names the command that
     starts it again.
     """
     said = "".join(f"printf '%s\\n' '{one}'\n" for one in BANNER[mode])
@@ -1168,7 +1177,7 @@ def _write_custom(
     # GRUB with the kernel not found.
     # Where the kernel actually is, as the filesystem holding it names it. A
     # UEFI GRUB reads it off the esp, so the path is relative to the esp and
-    # `grub_prefix` — which describes `/boot` on the root filesystem — would
+    # `grub_prefix` \u2014 which describes `/boot` on the root filesystem \u2014 would
     # send `search` after a directory that exists nowhere: the entry then
     # stopped in GRUB with `you need to load the kernel first.`
     at = (
@@ -1176,7 +1185,7 @@ def _write_custom(
         if target.method is BootMethod.UEFI_GRUB
         else f"{target.grub_prefix}/{PLACE}"
     )
-    # Guarded, because GRUB answers a missing file with `error: file … not
+    # Guarded, because GRUB answers a missing file with `error: file \u2026 not
     # found.` and `Press any key to continue...`: a machine armed from far away
     # then waits at a menu nobody is at. `$prefix` carries its own device, so
     # rereading the machine's own configuration works whatever `search` set.
@@ -1434,7 +1443,7 @@ def _first_word(digest: str, name: str) -> str:
 
     Not the first word of the file: the CJK release publishes `# SHA256 HASH`
     above the hash, and the first `--ram` run to reach the download refused
-    with `the checksum published beside … is not a SHA-256` because it had
+    with `the checksum published beside \u2026 is not a SHA-256` because it had
     read that comment. The line naming this file is taken when there is one,
     since a file listing several is answered by the wrong hash otherwise.
     """
