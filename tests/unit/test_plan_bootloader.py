@@ -61,6 +61,9 @@ def test_zfsbootmenu_carries_remote_access_in_its_own_image() -> None:
     assert boot_operations.index(configured) < generated
     assert "/etc/zfsbootmenu/dracut.conf.d/dropbear.conf" in configured.describe()
     assert "/etc/dropbear" in configured.describe()
+    said = configured.describe()
+    for value in ("192.0.2.10/24", "eth0", "2201", "1 keys"):
+        assert value in said, said
 
     recorder = Recorder()
     configured.apply(recorder)
@@ -161,6 +164,9 @@ def test_both_bootloaders_wait_the_same_time() -> None:
         for one in bootloader.build(installation)
         if isinstance(one, bootloader.WriteGrubDefaults)
     )
+    said = defaults.describe()
+    assert f"GRUB_TIMEOUT={bootloader.MENU_SECONDS}" in said, said
+    assert "GRUB_DISABLE_RECOVERY=true" in said, said
     recorder = Recorder()
     defaults.apply(recorder)
     written = recorder.files[PurePosixPath("/etc/default/grub")]

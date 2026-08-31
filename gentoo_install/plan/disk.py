@@ -395,7 +395,7 @@ class CreatePartition(Operation):
             extent = f"the free space from {self.start} to {self.limit}"
         else:
             extent = "the rest of the disk"
-        name = f" labelled {self.label}" if self.label else ""
+        name = f" labelled {self.label}" if self.label and self.table_kind is TableType.GPT else ""
         placement = f" in the {self.table_kind.value} table"
         if self.table_kind is TableType.MBR:
             placement += f" from {self.start}"

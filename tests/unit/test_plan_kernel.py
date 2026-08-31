@@ -360,3 +360,16 @@ def test_the_firmware_licence_description_names_every_token_it_writes() -> None:
     # And it is an exception, not the policy: the default is @FREE.
     assert "@FREE" in PortageConfig().accept_license, PortageConfig().accept_license
     assert "ACCEPT_LICENSE" in said, said
+
+def test_kernel_cmdline_description_names_mandatory_read_write_mode() -> None:
+    operation = kernel.WriteKernelCmdline(
+        root=None,
+        dataset="zroot/ROOT/gentoo",
+        kernel_params=(),
+    )
+
+    assert "mode rw" in operation.describe()
+
+
+def test_intel_microcode_description_names_its_license_token() -> None:
+    assert "intel-ucode" in kernel.ConfigureIntelMicrocode().describe()

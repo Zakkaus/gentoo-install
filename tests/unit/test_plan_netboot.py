@@ -537,6 +537,17 @@ def test_a_bios_machine_gets_a_marked_custom_entry_and_grub_reboot() -> None:
     assert custom.rstrip().endswith(netboot.CUSTOM_END), custom
     assert ("grub-reboot", netboot.ENTRY_LABEL) in recorder.commands, recorder.commands
 
+@pytest.mark.parametrize("method", (BootMethod.BIOS_GRUB, BootMethod.UEFI_GRUB))
+def test_grub_memory_entry_preview_names_custom_cfg(method: BootMethod) -> None:
+    operation = netboot.WriteMemoryEntry(
+        mode=MemoryMode.RAM,
+        target=_target(method),
+        launch=_launch(),
+    )
+
+    assert operation.destinations() == (PurePosixPath("/boot/grub/custom.cfg"),)
+    assert "/boot/grub/custom.cfg" in operation.describe()
+
 
 def test_arming_twice_replaces_the_entry_rather_than_adding_beside_it() -> None:
     """A `custom.cfg` that grows one entry per arming boots whichever GRUB
@@ -2084,3 +2095,18 @@ def test_the_payload_description_names_the_files_it_writes() -> None:
         source="/opt/gentoo-install",
     )
     assert "root-password" in with_password.describe_parts()[0]
+
+def test_a_payload_without_keys_does_not_preview_authorized_keys() -> None:
+    recorder = _answering()
+    operation = netboot.AppendConfiguration(
+        target=_target(),
+        launch=_launch(),
+        configuration="[disk]\n",
+        source="/opt/gentoo-install",
+    )
+
+    operation.apply(recorder)
+    said = operation.describe()
+
+    assert not any(path.name == "authorized_keys" for path in recorder.files)
+    assert "authorized_keys" not in said

@@ -21,7 +21,7 @@
   mount dataset zpcala/ROOT/gentoo/home at /home
 
 [stage3]
-  download the newest systemd stage3 from https://distfiles.gentoo.org directly, verify it against BB572E0E2D182910, unpack it into the target and write /etc/gentoo-install/proxy.toml
+  download the newest systemd stage3 from https://distfiles.gentoo.org directly, or https://gentoo.osuosl.org, https://mirror.aarnet.edu.au/pub/gentoo if it does not answer; verify it against BB572E0E2D182910, unpack it into the target and write /etc/gentoo-install/proxy.toml
 
 [chroot]
   mount transient proc, sys, dev and run filesystems into the target
@@ -93,7 +93,7 @@
 [bootloader]
   install the bootloader: emerge sys-boot/zfsbootmenu sys-boot/efibootmgr
   install the EFI stub generate-zbm builds around: emerge sys-apps/systemd
-  write /etc/zfsbootmenu/dracut.conf.d/dropbear.conf and /etc/cmdline.d/dracut-network.conf, authorise keys at /etc/dropbear/root_key, and generate dedicated host keys under /etc/dropbear
+  write /etc/zfsbootmenu/dracut.conf.d/dropbear.conf and /etc/cmdline.d/dracut-network.conf, configure remote unlock at 192.0.2.10/24 via eth0, gateway 192.0.2.1, port 2222, and authorise 1 keys at /etc/dropbear/root_key; generate dedicated host keys under /etc/dropbear
   write /etc/zfsbootmenu/config.yaml, build ZFSBootMenu into /efi/EFI/zbm, copy it over /efi/EFI/BOOT/BOOTX64.EFI, and boot zpcala/ROOT/gentoo/root from it with cmdline console=ttyS0,115200 quiet
 
 [packages]

@@ -374,6 +374,13 @@ def test_an_account_with_no_hash_is_locked_rather_than_left_open() -> None:
     recorder = apply_all(installation, generated=generated(installation))
     assert ("passwd", "--lock", "zakk") in recorder.in_target
     assert ("passwd", "--lock", "root") in recorder.in_target
+    operation = system.CreateUser(
+        name="zakk",
+        groups=("users",),
+        shell="/bin/bash",
+        password_hash="",
+    )
+    assert operation.describe() == "create user zakk in users with a locked password"
 
 
 def test_a_hash_is_set_without_ever_holding_the_password() -> None:
@@ -744,6 +751,21 @@ def test_an_openrc_static_address_is_applied_by_netifrc_and_not_by_dhcpcd() -> N
         one.service for one in system.build(plain) if isinstance(one, system.EnableService)
     ]
     assert "dhcpcd" in services
+
+def test_openrc_dhcp_preview_names_dhcpcd_as_the_active_backend() -> None:
+    operation = system.WriteNetworkConfig(
+        init=InitSystem.OPENRC,
+        networking=Networking.BUILTIN,
+        interface="",
+        addresses=(),
+        gateways=(),
+        dns=(),
+    )
+
+    assert operation.describe() == (
+        'write /etc/conf.d/net with config_eth0="dhcp"; '
+        "dhcpcd configures DHCP on every interface"
+    )
 
 
 def test_networkmanager_is_left_to_manage_the_interfaces_itself() -> None:
@@ -1254,6 +1276,18 @@ def test_the_first_boot_script_is_fetched_while_the_installer_still_can() -> Non
     assert written.rstrip().endswith(f"rm -f {FIRST_BOOT_SCRIPT}")
     assert recorder.modes[FIRST_BOOT_SCRIPT] == 0o700
     assert "WantedBy=multi-user.target" in recorder.files[FIRST_BOOT_UNIT]
+
+def test_firstboot_preview_names_each_command_without_pluralising_one() -> None:
+    operation = system.WriteFirstBoot(
+        commands=("touch /root/marker",),
+        url="",
+        init=InitSystem.SYSTEMD,
+    )
+
+    said = operation.describe()
+
+    assert "touch /root/marker" in said
+    assert "1 commands" not in said
 
 
 def test_openrc_starts_it_through_local_d() -> None:

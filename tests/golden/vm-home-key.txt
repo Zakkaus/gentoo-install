@@ -18,7 +18,7 @@
   mount cryptroot at /home with compress=zstd:1,subvol=@home
 
 [stage3]
-  download the newest systemd stage3 from https://distfiles.gentoo.org directly, verify it against BB572E0E2D182910, unpack it into the target and write /etc/gentoo-install/proxy.toml
+  download the newest systemd stage3 from https://distfiles.gentoo.org directly, or https://gentoo.osuosl.org, https://mirror.aarnet.edu.au/pub/gentoo if it does not answer; verify it against BB572E0E2D182910, unpack it into the target and write /etc/gentoo-install/proxy.toml
 
 [chroot]
   mount transient proc, sys, dev and run filesystems into the target
@@ -77,7 +77,7 @@
 
 [bootloader]
   install the bootloader: emerge sys-boot/grub sys-boot/efibootmgr
-  write /etc/default/grub with GRUB_CMDLINE_LINUX_DEFAULT console=ttyS0,115200 and GRUB_CMDLINE_LINUX empty, its menu on ttyS0
+  write /etc/default/grub with GRUB_CMDLINE_LINUX_DEFAULT console=ttyS0,115200 and GRUB_CMDLINE_LINUX empty; GRUB_TIMEOUT=5; GRUB_DISABLE_RECOVERY=true, its menu on ttyS0
   install GRUB for uefi on the esp at /efi
 
 [finish]
