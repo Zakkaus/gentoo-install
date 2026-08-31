@@ -146,15 +146,19 @@ def _run(recorder: Recorder, first: str) -> list[tuple[str, ...]]:
     return [one for one in recorder.commands if one and one[0] == first]
 
 
-def test_every_operation_describes_itself_without_touching_anything() -> None:
-    """`render()` prints `describe()` and applies nothing, so a description
-    that reads the machine is a dry run that is not one."""
+def test_every_operation_describes_itself() -> None:
+    """`render()` prints `describe()` and applies nothing.
+
+    This holds that each operation has a description at all. That none of
+    them reads the machine is
+    `test_no_description_reads_the_machine_it_describes` in
+    `tests/unit/test_layers.py`: it was asserted here against a `Recorder`
+    that was never passed to an operation, so `describe()` could have run any
+    command it liked and the empty recorder would still have been empty.
+    """
     plan = netboot.build(launch=_launch(), target=_target())
-    empty = Recorder()
     for operation in plan:
         assert operation.describe()
-    assert empty.commands == []
-    assert empty.files == {}
 
 
 def test_the_plan_refuses_and_checks_before_it_fetches() -> None:

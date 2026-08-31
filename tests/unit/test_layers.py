@@ -1426,3 +1426,60 @@ def test_every_desktop_fixture_names_the_profile_its_desktop_declares() -> None:
         if profile != wanted:
             wrong.append(f"{path.name}: {desktop} has {profile}, not {wanted}")
     assert wrong == [], wrong
+
+
+def test_no_description_reads_the_machine_it_describes() -> None:
+    """`render()` prints every `describe()` and applies nothing.
+
+    A description that runs a command turns `--dry-run` into a run, and the
+    claim was asserted in `tests/unit/test_plan_netboot.py` against a
+    `Recorder` that was never passed to an operation: `describe()` could have
+    read the machine and the empty recorder would still have been empty.
+
+    Read out of the syntax rather than by calling: an operation whose
+    description happens to take a branch that touches nothing under a test's
+    inputs is still one that can.
+    """
+    root = Path(__file__).resolve().parents[2]
+    # The names that reach a machine from inside a plan module: the execution
+    # seam is `Context`, and the three modules a description must not import
+    # its own way around.
+    forbidden = {
+        "context",
+        "subprocess",
+        "open",
+        "run",
+        "run_in_target",
+        "read",
+        "read_text",
+        "write",
+        "write_text",
+        "Path",
+        "os",
+    }
+    offenders: list[str] = []
+    described = 0
+    for path in sorted((root / "gentoo_install" / "plan").rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for item in node.body:
+                if not isinstance(item, ast.FunctionDef):
+                    continue
+                if item.name not in ("describe", "describe_parts"):
+                    continue
+                described += 1
+                names = {one.id for one in ast.walk(item) if isinstance(one, ast.Name)}
+                attributes = {
+                    one.attr for one in ast.walk(item) if isinstance(one, ast.Attribute)
+                }
+                touched = sorted((names | attributes) & forbidden)
+                if touched:
+                    offenders.append(
+                        f"{path.name}:{node.name}.{item.name} uses {', '.join(touched)}"
+                    )
+    # The count guards the walk itself: a rename that stops matching any
+    # method would leave this passing over nothing at all.
+    assert described > 100, described
+    assert not offenders, offenders
