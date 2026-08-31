@@ -567,12 +567,16 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write {} for the wired interface with addresses {}; gateways {}; DNS {}",
         "write {} for {} with DHCP and DNS {}",
         "write {} for the wired interfaces with DHCP and DNS {}",
-        "write {} for {} with DHCP",
+        'write {} with config_{}="dhcp"; dhcpcd configures DHCP on every interface',
         "configure {} of compressed swap in {}",
         "replace the default boot entry with the memory environment ({}) and write {},"
         " which is what lets a disarm take the replacement back",
         "create user {} in {} with a password",
-        "create user {} in {} with no password",
+        "create user {} in {} with a locked password",
+        "download the newest {} stage3 from {} directly, or {} if it does not answer;"
+        " verify it against {}, unpack it into the target and write {}",
+        "download the newest {} stage3 from {} via {}, or {} if it does not answer;"
+        " verify it against {}, unpack it into the target and write {}",
         "download the newest {} stage3 from {} directly, verify it against {},"
         " unpack it into the target and write {}",
         "download the newest {} stage3 from {} via {}, verify it against {},"
@@ -590,9 +594,9 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write {} so repository {} syncs with emerge-webrsync",
         "write {} adding verified binary package host {} at {}",
         "write {} adding unverified binary package host {} at {}",
-        "write {} to run a script from {} and {} commands at the first boot",
+        "write {} to run a script from {} and the first-boot commands: {}",
         "write {} to run a script from {} at the first boot",
-        "write {} to run {} commands at the first boot",
+        "write {} to run the first-boot commands: {}",
         "check this machine has the {} MiB {} needs",
         "unpack the {} kernel and initramfs into {}",
         "write a {} entry for the {} environment",
@@ -607,7 +611,8 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write /etc/portage/make.conf with {}; {} mirrors in the configured order",
         "write /etc/portage/make.conf with {}; {} mirrors in the configured order,"
         " {} appended",
-        "write /etc/kernel/cmdline with root {}; luks {}; arrays {}; keymap {}; parameters {}",
+        "write /etc/kernel/cmdline with root {}; mode rw; luks {}; arrays {};"
+        " keymap {}; parameters {}",
         "write {} into {}",
         "write {} with {}",
         "{}: emerge {}",

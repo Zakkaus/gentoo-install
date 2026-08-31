@@ -204,7 +204,7 @@ class WriteKernelCmdline(Operation):
         arrays = ", ".join(str(device) for device in self.arrays) or "-"
         keymap = self.keymap or "-"
         parameters = " ".join(self.kernel_params) or "-"
-        return "write /etc/kernel/cmdline with root {}; luks {}; arrays {}; keymap {}; parameters {}", (
+        return "write /etc/kernel/cmdline with root {}; mode rw; luks {}; arrays {}; keymap {}; parameters {}", (
             root,
             luks,
             arrays,
@@ -400,7 +400,7 @@ class ConfigureIntelMicrocode(Operation):
     def describe(self) -> str:
         return (
             f"accept {INTEL_MICROCODE} as testing, enable its dist-kernel initramfs hooks, "
-            "and accept its licence"
+            "and accept intel-ucode"
         )
 
     def apply(self, context: Context) -> None:

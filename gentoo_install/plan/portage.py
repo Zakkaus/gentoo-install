@@ -243,13 +243,37 @@ class InstallStage3(Operation):
         fingerprint = RELENG_FINGERPRINT[-16:]
         # `PROXY_BOOTSTRAP` is named because `apply()` writes it, and it holds
         # the proxy password: a file an operator meets by finding it.
+        fallbacks = ", ".join(self.fallbacks)
         if self.proxy.enabled:
+            if self.fallbacks:
+                return (
+                    "download the newest {} stage3 from {} via {}, or {} if it does not answer; verify it against {}, unpack it into the target and write {}",
+                    (
+                        self.variant,
+                        self.mirror,
+                        self.proxy.redacted_url,
+                        fallbacks,
+                        fingerprint,
+                        str(PROXY_BOOTSTRAP),
+                    ),
+                )
             return (
                 "download the newest {} stage3 from {} via {}, verify it against {}, unpack it into the target and write {}",
                 (
                     self.variant,
                     self.mirror,
                     self.proxy.redacted_url,
+                    fingerprint,
+                    str(PROXY_BOOTSTRAP),
+                ),
+            )
+        if self.fallbacks:
+            return (
+                "download the newest {} stage3 from {} directly, or {} if it does not answer; verify it against {}, unpack it into the target and write {}",
+                (
+                    self.variant,
+                    self.mirror,
+                    fallbacks,
                     fingerprint,
                     str(PROXY_BOOTSTRAP),
                 ),

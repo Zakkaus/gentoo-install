@@ -551,16 +551,23 @@ class AppendConfiguration(Operation):
         # Every file it writes 0600, named: the old text passed the dry-run
         # rule because the word `inside` appeared in `inside the initramfs`,
         # not because it named the root password record.
-        if self.launch.root_password:
+        if self.keys:
+            if self.launch.root_password:
+                return (
+                    "put the installer and the configuration in the initramfs, with {} key(s)"
+                    " in authorized_keys and the root password in root-password",
+                    (str(len(self.keys)),),
+                )
             return (
-                "put the installer and the configuration in the initramfs, with {} key(s)"
-                " in authorized_keys and the root password in root-password",
+                "put the installer and the configuration in the initramfs, with {} key(s) in authorized_keys",
                 (str(len(self.keys)),),
             )
-        return (
-            "put the installer and the configuration in the initramfs, with {} key(s) in authorized_keys",
-            (str(len(self.keys)),),
-        )
+        if self.launch.root_password:
+            return (
+                "put the installer and the configuration in the initramfs and the root password in root-password",
+                (),
+            )
+        return "put the installer and the configuration in the initramfs", ()
 
     def required_host_commands(self) -> frozenset[str]:
         commands = {"cpio", "dd", "find", "mkdir", "python3", "rm", "tar"}
@@ -985,16 +992,16 @@ class WriteMemoryEntry(Operation):
         return self.access or bool(self.launch.ssh_key) or bool(self.launch.root_password)
 
     def destinations(self) -> tuple[PurePosixPath, ...]:
-        # Only the systemd-boot entry: the GRUB branch delegates to
-        # `_write_custom`, and a file another path writes is named by that one.
-        if self.target.method is not BootMethod.SYSTEMD_BOOT:
+        if self.target.method is BootMethod.SYSTEMD_BOOT:
+            return (
+                PurePosixPath(str(self.target.esp_mountpoint))
+                / "loader"
+                / "entries"
+                / f"{PLACE}.conf",
+            )
+        if self.target.grub_directory is None:
             return ()
-        return (
-            PurePosixPath(str(self.target.esp_mountpoint))
-            / "loader"
-            / "entries"
-            / f"{PLACE}.conf",
-        )
+        return (PurePosixPath(self.target.grub_directory) / "custom.cfg",)
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         written = self.destinations()

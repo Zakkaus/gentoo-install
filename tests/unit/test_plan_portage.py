@@ -66,6 +66,24 @@ def test_stage3_is_unpacked_with_xattrs_because_capabilities_would_be_lost() -> 
     assert "--preserve-permissions" in argv
 
 
+def test_stage3_description_names_the_regional_fallbacks_it_may_use() -> None:
+    """A count answers nothing: the operator wants to know which addresses the
+    install may reach when the chosen mirror does not answer."""
+    operation = portage.InstallStage3(
+        mirror="https://primary.example/gentoo",
+        variant="systemd",
+        fallbacks=(
+            "https://fallback-one.example/gentoo",
+            "https://fallback-two.example/gentoo",
+        ),
+    )
+
+    said = operation.describe()
+
+    assert "https://primary.example/gentoo" in said
+    assert "https://fallback-one.example/gentoo" in said
+    assert "https://fallback-two.example/gentoo" in said
+
 def test_named_portage_fragments_share_one_path_and_writer() -> None:
     operation = portage.WritePortageConfig(
         kind=portage.PortageConfigKind.USE,

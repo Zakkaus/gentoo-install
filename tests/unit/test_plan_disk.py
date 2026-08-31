@@ -210,7 +210,7 @@ def test_partition_table_kind_and_mbr_start_change_the_dry_run() -> None:
         index=1,
         role=PartitionRole.DATA,
         size=Size.parse("1GiB"),
-        label="",
+        label="gentoo",
         start=Size.parse("1MiB"),
     )
     mbr = replace(partition, table_kind=TableType.MBR)
@@ -222,6 +222,8 @@ def test_partition_table_kind_and_mbr_start_change_the_dry_run() -> None:
     assert "in the gpt table" in gpt_dry_run, gpt_dry_run
     assert "in the mbr table from 1MiB" in mbr_dry_run, mbr_dry_run
     assert "in the mbr table from 2MiB" in later_dry_run, later_dry_run
+    assert "labelled gentoo" in gpt_dry_run, gpt_dry_run
+    assert "labelled gentoo" not in mbr_dry_run, mbr_dry_run
     assert gpt_dry_run != mbr_dry_run
     assert mbr_dry_run != later_dry_run
 

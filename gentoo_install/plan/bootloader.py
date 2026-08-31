@@ -273,7 +273,8 @@ class WriteGrubDefaults(Operation):
         return (
             "write /etc/default/grub with "
             f"GRUB_CMDLINE_LINUX_DEFAULT {default} and "
-            f"GRUB_CMDLINE_LINUX {needed}{listed}"
+            f"GRUB_CMDLINE_LINUX {needed}; GRUB_TIMEOUT={MENU_SECONDS}; "
+            f"GRUB_DISABLE_RECOVERY=true{listed}"
         )
 
     def apply(self, context: Context) -> None:
@@ -415,9 +416,14 @@ class ConfigureZfsBootMenuRemoteAccess(Operation):
     authorized_keys: tuple[str, ...]
 
     def describe(self) -> str:
+        address = self.unlock.address or "DHCP"
+        gateway = self.unlock.gateway or "-"
+        interface = self.unlock.interface or "any interface"
         return (
-            f"write {ZBM_REMOTE_CONFIG} and {ZBM_NETWORK_CONFIG}, authorise keys at "
-            f"{ZBM_AUTHORIZED_KEYS}, and generate dedicated host keys under {ZBM_KEY_DIRECTORY}"
+            f"write {ZBM_REMOTE_CONFIG} and {ZBM_NETWORK_CONFIG}, configure remote unlock "
+            f"at {address} via {interface}, gateway {gateway}, port {self.unlock.port}, and "
+            f"authorise {len(self.authorized_keys)} keys at {ZBM_AUTHORIZED_KEYS}; "
+            f"generate dedicated host keys under {ZBM_KEY_DIRECTORY}"
         )
 
     def apply(self, context: Context) -> None:

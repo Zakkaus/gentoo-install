@@ -512,7 +512,7 @@ class CreateUser(Operation):
         groups = ", ".join(self.groups)
         if self.password_hash:
             return "create user {} in {} with a password", (self.name, groups)
-        return "create user {} in {} with no password", (self.name, groups)
+        return "create user {} in {} with a locked password", (self.name, groups)
 
     def apply(self, context: Context) -> None:
         context.run_in_target(
@@ -698,7 +698,10 @@ class WriteNetworkConfig(Operation):
                 gateways,
                 dns,
             )
-        return "write {} for {} with DHCP", (path, self.interface or "eth0")
+        return (
+            'write {} with config_{}="dhcp"; dhcpcd configures DHCP on every interface',
+            (path, self.interface or "eth0"),
+        )
 
     def apply(self, context: Context) -> None:
         config = NETWORK_BACKENDS[self.networking].for_init(self.init).config
@@ -1089,17 +1092,15 @@ class WriteFirstBoot(Operation):
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         where = _named(self.destinations())
+        commands = "; ".join(self.commands)
         if self.url and self.commands:
             return (
-                "write {} to run a script from {} and {} commands at the first boot",
-                (where, self.url, str(len(self.commands))),
+                "write {} to run a script from {} and the first-boot commands: {}",
+                (where, self.url, commands),
             )
         if self.url:
             return "write {} to run a script from {} at the first boot", (where, self.url)
-        return "write {} to run {} commands at the first boot", (
-            where,
-            str(len(self.commands)),
-        )
+        return "write {} to run the first-boot commands: {}", (where, commands)
 
     def apply(self, context: Context) -> None:
         fetched = context.fetch_text(self.url) if self.url else ""
