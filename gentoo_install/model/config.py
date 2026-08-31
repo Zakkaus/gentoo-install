@@ -439,9 +439,9 @@ class PortageConfig:
     video_cards: tuple[str, ...] = ()
     #: Empty derives L10N from the generated locales.
     l10n: tuple[str, ...] = ()
-    #: `INPUT_DEVICES`. libinput is what every current desktop reads; the
-    #: profile's own value is replaced outright by make.conf, so an empty
-    #: tuple here would leave a machine with no pointer driver.
+    #: `INPUT_DEVICES`. Empty writes no assignment, so `profiles/base/
+    #: make.defaults` line 53, `INPUT_DEVICES="libinput"`, stands: emptying
+    #: this leaves the driver, not a machine without one.
     input_devices: tuple[str, ...] = ("libinput",)
     accept_license: tuple[str, ...] = ("@FREE",)
     #: Detected from /proc/cpuinfo when the interface fills it in. Empty means

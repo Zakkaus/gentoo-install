@@ -313,13 +313,26 @@ def test_a_hybrid_machine_can_name_more_than_one_card() -> None:
     assert required_video_cards(installation, catalog) == ("nvidia", "amdgpu", "radeonsi")
 
 
-def test_input_devices_is_never_left_empty_by_default() -> None:
-    """make.conf replaces the profile's INPUT_DEVICES rather than adding to it,
-    so a machine installed with the row untouched would have no pointer."""
+def test_an_emptied_input_devices_leaves_the_profile_to_answer() -> None:
+    """An assignment in make.conf replaces the profile's value outright.
+
+    The row's own comment said emptying it leaves a machine with no pointer
+    driver. `make_conf` writes the key only when the tuple is not empty, and
+    `profiles/base/make.defaults` line 53 reads `INPUT_DEVICES="libinput"`
+    for every profile, so emptying the row leaves the driver.
+    """
     from gentoo_install.plan.portage import make_conf
 
-    written = dict(make_conf(config(ext4_on_gpt()), (), ()))
+    installation = config(ext4_on_gpt())
+    written = dict(make_conf(installation, (), ()))
     assert written["INPUT_DEVICES"] == "libinput"
+
+    # Emptied: no assignment at all, which is what leaves the profile in force.
+    # An assignment of the empty string would be the loss the comment feared.
+    emptied = replace(
+        installation, portage=replace(installation.portage, input_devices=())
+    )
+    assert "INPUT_DEVICES" not in dict(make_conf(emptied, (), ()))
 
 
 def test_the_confirmation_can_open_the_row_the_values_landed_on() -> None:
