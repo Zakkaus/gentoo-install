@@ -669,7 +669,7 @@
 "write a {} entry for the {} environment" = "{} 用のエントリーを書き込む（{} 環境）"
 "write {}, a {} entry for the {} environment" = "{} を書き込む：{} 用のエントリー、{} 環境"
 "arm one boot into the memory environment with {}" = "{} でメモリー環境への一度きりの起動を設定"
-"replace the default boot entry with the memory environment ({})" = "既定の起動エントリーをメモリー環境に置き換える（{}）"
+"replace the default boot entry with the memory environment ({}) and write {}, which is what lets a disarm take the replacement back" = "既定の起動エントリーをメモリー環境に置き換え（{}）、解除時に置き換えを戻す根拠となる {} を書き込む"
 "take back the armed boot and delete what it placed" = "設定した起動を取り消し、配置したものを削除"
 "download the newest {} stage3 from {} via {}, verify it against {}, unpack it into the target and write {}" = "最新の {} stage3 を {} から {} 経由でダウンロードし、{} で検証してインストール先へ展開し、{} を書き込む"
 "download the newest {} stage3 from {} directly, verify it against {}, unpack it into the target and write {}" = "最新の {} stage3 を {} から直接ダウンロードし、{} で検証してインストール先へ展開し、{} を書き込む"

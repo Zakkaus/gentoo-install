@@ -1223,6 +1223,28 @@ def test_a_bypassed_grub_machine_gets_its_own_saved_entry_back() -> None:
     ) not in theirs.commands, theirs.commands
 
 
+def test_only_a_bypassed_machine_has_its_systemd_boot_default_cleared() -> None:
+    """`--bypass` persisted a default and the disarm cleared the one-shot alone.
+
+    The entry that default names is deleted in the same operation, so the
+    machine chose a kernel that is not there. Armed and taken back through one
+    recorder, because whether the record is there when `_disarm` reads it
+    depends on the order the two operations run in.
+    """
+    target = _target()
+    recorder = _answering()
+    netboot.ReplaceDefaultBoot(target=target).apply(recorder)
+    assert recorder.files[target.place / netboot.BYPASS_RECORD]
+
+    netboot.ClearPreviousArming(target=target).apply(recorder)
+    assert ("bootctl", "set-default", "") in recorder.commands, recorder.commands
+
+    # A machine that was never bypassed keeps the default the operator set.
+    ordinary = _answering()
+    netboot.ClearPreviousArming(target=target).apply(ordinary)
+    assert ("bootctl", "set-default", "") not in ordinary.commands, ordinary.commands
+
+
 def test_disarming_and_clearing_ask_for_the_same_thing() -> None:
     """One way of taking an arming back, or the two drift and the operator
     who answers no is left with a machine armed differently from one whose

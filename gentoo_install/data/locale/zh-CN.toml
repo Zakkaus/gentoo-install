@@ -670,7 +670,7 @@
 "write a {} entry for the {} environment" = "写入 {} 的启动项，用于 {} 环境"
 "write {}, a {} entry for the {} environment" = "写入 {}：{} 的启动项，用于 {} 环境"
 "arm one boot into the memory environment with {}" = "以 {} 预约一次进入内存环境的启动"
-"replace the default boot entry with the memory environment ({})" = "将默认启动项换成内存环境（{}）"
+"replace the default boot entry with the memory environment ({}) and write {}, which is what lets a disarm take the replacement back" = "将默认启动项换成内存环境（{}），并写入 {}，解除武装靠它还原这次替换"
 "take back the armed boot and delete what it placed" = "取消启动预约并删除它放置的文件"
 "download the newest {} stage3 from {} via {}, verify it against {}, unpack it into the target and write {}" = "下载最新的 {} stage3，来源 {}，通过 {}，使用 {} 验证后解包到目标系统，并写入 {}"
 "download the newest {} stage3 from {} directly, verify it against {}, unpack it into the target and write {}" = "下载最新的 {} stage3，直接取自 {}，使用 {} 验证后解包到目标系统，并写入 {}"

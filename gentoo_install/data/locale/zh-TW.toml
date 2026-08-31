@@ -670,7 +670,7 @@
 "write a {} entry for the {} environment" = "寫入 {} 的開機項目，用於 {} 環境"
 "write {}, a {} entry for the {} environment" = "寫入 {}：{} 的開機項目，用於 {} 環境"
 "arm one boot into the memory environment with {}" = "以 {} 預約一次進入記憶體環境的開機"
-"replace the default boot entry with the memory environment ({})" = "將預設開機項目換成記憶體環境（{}）"
+"replace the default boot entry with the memory environment ({}) and write {}, which is what lets a disarm take the replacement back" = "將預設開機項目換成記憶體環境（{}），並寫入 {}，解除武裝靠它還原這次替換"
 "take back the armed boot and delete what it placed" = "取消開機預約並刪除它放置的檔案"
 "download the newest {} stage3 from {} via {}, verify it against {}, unpack it into the target and write {}" = "下載最新的 {} stage3，來源 {}，經由 {}，以 {} 驗證後解開至目標系統，並寫入 {}"
 "download the newest {} stage3 from {} directly, verify it against {}, unpack it into the target and write {}" = "下載最新的 {} stage3，直接取自 {}，以 {} 驗證後解開至目標系統，並寫入 {}"

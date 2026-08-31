@@ -669,7 +669,7 @@
 "write a {} entry for the {} environment" = "{} 항목 작성 ({} 환경)"
 "write {}, a {} entry for the {} environment" = "{} 작성: {} 항목, {} 환경"
 "arm one boot into the memory environment with {}" = "{}로 메모리 환경 일회성 부팅 설정"
-"replace the default boot entry with the memory environment ({})" = "기본 부팅 항목을 메모리 환경으로 교체 ({})"
+"replace the default boot entry with the memory environment ({}) and write {}, which is what lets a disarm take the replacement back" = "기본 부팅 항목을 메모리 환경으로 교체하고 ({}) 해제할 때 되돌릴 근거를 {} 경로에 기록"
 "take back the armed boot and delete what it placed" = "설정한 부팅을 되돌리고 배치한 파일 삭제"
 "download the newest {} stage3 from {} via {}, verify it against {}, unpack it into the target and write {}" = "최신 {} stage3를 {}에서 {}를 통해 내려받고 {}로 검증한 뒤 설치 대상에 풀고 {} 작성"
 "download the newest {} stage3 from {} directly, verify it against {}, unpack it into the target and write {}" = "최신 {} stage3를 {}에서 직접 내려받고 {}로 검증한 뒤 설치 대상에 풀고 {} 작성"

@@ -121,6 +121,10 @@ STAGING: Final[PurePosixPath] = PurePosixPath("/") / PLACE
 #: untouched: the payload and the boot entry are already on the machine.
 DECLINED: Final[str] = "no partition table and no filesystem was changed"
 
+#: Written inside the placed directory by `--bypass` alone, so a disarm can
+#: tell a default this installer replaced from one the operator chose.
+BYPASS_RECORD: Final[str] = "replaced-default"
+
 #: What the entry is called wherever the boot method keeps names.
 ENTRY_LABEL: Final[str] = "gentoo-install memory environment"
 
@@ -362,6 +366,11 @@ def _disarm(context: Context, target: BootTarget) -> None:
     """
     if target.method is BootMethod.SYSTEMD_BOOT:
         context.run(["bootctl", "set-oneshot", ""], check=False)
+        if context.read(target.place / BYPASS_RECORD):
+            # An empty ID unsets the variable, `bootctl(1)`. Only on the record
+            # `--bypass` left: the machine falls back to `loader.conf`, and one
+            # that was never bypassed keeps the default the operator set.
+            context.run(["bootctl", "set-default", ""], check=False)
         return
     if target.grub_directory is not None:
         environment = f"{target.grub_directory}/grubenv"
@@ -1089,12 +1098,19 @@ class ReplaceDefaultBoot(Operation):
     stage: Stage = Stage.BOOTLOADER
     target: BootTarget
 
+    def destinations(self) -> tuple[PurePosixPath, ...]:
+        return (self.target.place / BYPASS_RECORD,)
+
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        return "replace the default boot entry with the memory environment ({})", (
-            self.target.method.value,
+        (record,) = self.destinations()
+        return (
+            "replace the default boot entry with the memory environment ({}) and "
+            "write {}, which is what lets a disarm take the replacement back",
+            (self.target.method.value, str(record)),
         )
 
     def apply(self, context: Context) -> None:
+        context.write(self.target.place / BYPASS_RECORD, f"{self.target.method.value}\n")
         if self.target.method is BootMethod.SYSTEMD_BOOT:
             context.run(["bootctl", "set-default", f"{PLACE}.conf"])
             return

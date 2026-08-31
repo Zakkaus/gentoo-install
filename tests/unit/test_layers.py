@@ -751,6 +751,7 @@ def test_the_dry_run_names_every_file_only_its_owner_may_read() -> None:
         "ConfigureZram",
         "GenerateLocales",
         "GrantSudo",
+        "ReplaceDefaultBoot",
         "SelectLocale",
         "SettleBinhostFeature",
         "SetHardwareClock",
