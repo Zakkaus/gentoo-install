@@ -420,8 +420,8 @@ The following reference names every persisted key. A table path is TOML table no
 
 | `disk` key | Meaning and default or choices |
 | --- | --- |
-| `graph` | Device graph represented by `[[disk.devices]]`; required. |
-| `root` | Root graph-node identifier; required outside conversion; `""` uses the running layout in conversion. |
+| `devices` | The device graph, written as `[[disk.devices]]` tables. Either these or `[disk.simple]`, never both. |
+| `root` | Root graph-node identifier. Required with `[[disk.devices]]`; `[disk.simple]` derives it, and conversion without it uses the running layout. |
 | `mode` | `partition`, `in-place`, `image`, or `dd`; `partition`. |
 | `image` | Sparse image path in image mode; `""`. |
 | `size` | Sparse image size in image mode; unset. |
@@ -433,7 +433,7 @@ The following reference names every persisted key. A table path is TOML table no
 | Template input | Meaning and default or choices |
 | --- | --- |
 | `disk` | Whole-disk selector; required. |
-| `layout` | `whole-disk`, `whole-disk-btrfs`, `whole-disk-zfs`, or `reuse`; `whole-disk`. |
+| `layout` | `whole-disk`, `whole-disk-btrfs`, or `whole-disk-zfs`; `whole-disk`. The menu's `reuse` has no template form: it names partitions that already exist, so a file writes those as `[[disk.devices]]`. |
 | `firmware` | Template firmware; `uefi`. |
 | `table` | Partition-table override; unset derives GPT for UEFI and MBR for BIOS. |
 | `filesystem` | Root filesystem for non-Btrfs and non-ZFS whole-disk layouts; `xfs`. |

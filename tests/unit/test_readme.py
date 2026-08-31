@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import re
 import tomllib
+
+import pytest
 from pathlib import Path
 from typing import Final
 
@@ -394,3 +396,43 @@ def test_the_reference_names_every_persisted_key() -> None:
     assert len(every) > 60, len(every)
     missing = [path for path, leaf in every if f"`{leaf}`" not in said]
     assert missing == [], missing
+
+def test_the_disk_tables_describe_what_the_parser_accepts() -> None:
+    """Three claims in the disk tables were refused by the parser.
+
+    `graph` was named as a `disk` key and `disk has unknown keys: graph` is
+    what a file using it gets; `root` was called required outside conversion
+    and a complete `[disk.simple]` without it parses; `reuse` was listed as a
+    template layout and the parser refuses it by name, telling the operator
+    to write the partitions as devices instead.
+
+    Run rather than read: each row is checked by parsing a file that uses it.
+    """
+    import tomllib
+
+    from gentoo_install.errors import GentooInstallError
+    from gentoo_install.model.parse import parse
+
+    said = (ROOT / REFERENCE).read_text(encoding="utf-8")
+    assert "| `graph` |" not in said, "the disk table names a key the parser refuses"
+    assert "| `devices` |" in said, said[:0]
+
+    header = (
+        'config_version = 1\n[system]\nroot_password_hash = "'
+        "$6$gentooinst$IR3GrdJ862XljQYDqocr4tKniIRDIT.jQNFzIrHE3U75H6B6YSWZoSYoVd5"
+        'edSHpqaYBdiNfXHCoIPRVgb9lT/"\n'
+    )
+    simple = f'{header}[disk.simple]\ndisk = "/dev/disk/by-id/one"\n'
+
+    # No `root`, and it parses: the table must not call it required here.
+    parse(tomllib.loads(simple))
+    root_row = next(line for line in said.splitlines() if line.startswith("| `root` |"))
+    assert "Required with `[[disk.devices]]`" in root_row, root_row
+
+    # `reuse` is refused, so it is not a template layout.
+    with pytest.raises(GentooInstallError, match="reuse"):
+        parse(tomllib.loads(f'{simple}layout = "reuse"\n'))
+    layout_row = next(
+        line for line in said.splitlines() if line.startswith("| `layout` |")
+    )
+    assert "`reuse`" in layout_row and "no template form" in layout_row, layout_row
