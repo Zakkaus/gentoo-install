@@ -44,7 +44,6 @@ FIXTURE_ROOT: Final[Path] = REPOSITORY / "tests"
 COMPILING_CPUS: Final[int] = 10
 COMPILING_WEIGHT: Final[int] = 2
 
-WORKROOT: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/runs"
 LOGS: Final[Path] = Path.home() / "code/gentoo-install/lab/vm/campaign"
 
 #: The most guests the machine may ever hold, whatever memory says. A ceiling
