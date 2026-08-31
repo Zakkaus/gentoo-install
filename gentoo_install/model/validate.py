@@ -290,6 +290,7 @@ def validate(
         *_system_value_problems(config, available_timezones),
         *_package_group_problems(config, available_package_groups),
         *_desktop_profile_problems(config, declared_desktop_profiles),
+        *_group_role_problems(config, declared_desktop_profiles),
         *_l10n_problems(config),
         *_repository_name_problems(config),
         *compat.binhost_subarch_problems(config, supports_v3),
@@ -711,6 +712,43 @@ def _profile_problems(config: InstallConfig) -> list[str]:
     return [f"init is {config.system.init.value} and the profile is {profile}; use {wanted}"]
 
 
+
+
+def _group_role_problems(
+    config: InstallConfig,
+    declared: Mapping[str, str] | _ShippedValuesNotRead,
+) -> list[str]:
+    """A group has to fit the field it was written in.
+
+    `_package_group_problems` checks only that the name is a group at all, so
+    `display_manager = "plasma"` and `desktop = "greetd"` both validate and
+    stop in `Stage.PACKAGES` with the disks partitioned and the packages
+    merged. A group that declares a profile is a desktop and nothing else is:
+    `data/profiles/` is where the six of them live and every other group comes
+    from `data/packages/` with no profile to declare.
+    """
+    if isinstance(declared, _ShippedValuesNotRead):
+        return []
+    problems: list[str] = []
+    packages = config.packages
+    if packages.desktop and packages.desktop not in declared:
+        problems.append(
+            f"packages.desktop is {packages.desktop!r}, which declares no profile, "
+            "so it is not a desktop"
+        )
+    elsewhere = (
+        ("applications", packages.applications),
+        ("graphics", packages.graphics),
+        ("display_manager", (packages.display_manager,)),
+    )
+    problems += [
+        f"packages.{field} names {name!r}, which is a desktop; "
+        "put it in packages.desktop"
+        for field, names in elsewhere
+        for name in names
+        if name and name in declared
+    ]
+    return problems
 
 
 def _desktop_profile_problems(

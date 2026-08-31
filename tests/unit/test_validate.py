@@ -1724,3 +1724,49 @@ def test_a_desktop_paired_with_another_desktops_profile_is_refused() -> None:
     # read at the entry point and a caller that has not read them cannot
     # decide: the TUI validates a graph mid-edit with nothing injected.
     validate(generic)
+
+
+def test_a_group_has_to_fit_the_field_it_was_written_in() -> None:
+    """`_package_group_problems` checks the name is a group, not its role.
+
+    `display_manager = "plasma"` and `desktop = "greetd"` both pass it, and
+    the run then stops in `Stage.PACKAGES` — after the disks are partitioned
+    and the packages merged — with `cannot verify greetd session directories
+    because no desktop package was selected`.
+
+    A group that declares a profile is a desktop and nothing else is: the six
+    live in `data/profiles/` and every other group comes from
+    `data/packages/` with no profile to declare.
+    """
+    from gentoo_install import data
+
+    catalog = data.load_catalog()
+    declared = {name: group.profile for name, group in catalog.items() if group.profile}
+    assert set(declared) == {
+        "console",
+        "gnome",
+        "gnome-full",
+        "plasma",
+        "plasma-full",
+        "xfce",
+    }, sorted(declared)
+
+    base = load(Path("tests/fixtures/vm-desktop.toml"))
+    validate(base, declared_desktop_profiles=declared)
+
+    as_a_login = replace(
+        base, packages=replace(base.packages, display_manager="plasma")
+    )
+    with pytest.raises(ValidationFailed, match="which is a desktop"):
+        validate(as_a_login, declared_desktop_profiles=declared)
+
+    as_a_desktop = replace(
+        base,
+        packages=replace(base.packages, desktop="greetd", display_manager=""),
+    )
+    with pytest.raises(ValidationFailed, match="declares no profile"):
+        validate(as_a_desktop, declared_desktop_profiles=declared)
+
+    # A caller that injected nothing is unaffected, which is what the TUI
+    # needs while a graph is still being edited.
+    validate(as_a_login)
