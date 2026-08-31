@@ -20,6 +20,7 @@ what separates a slow mirror from a dead guest.
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import fcntl
 import hashlib
 import ipaddress
@@ -4975,6 +4976,13 @@ def _leave_on_a_signal() -> None:
     signal.signal(signal.SIGTERM, raised)
     signal.signal(signal.SIGHUP, raised)
     signal.signal(signal.SIGINT, raised)
+    # `kill -USR1 <schedule>` writes every thread's stack to stderr and the
+    # schedule carries on. A campaign that stalls for an hour otherwise says
+    # only what it failed at: on 2026-09-01 it answered `GET /nodes did not
+    # answer` for twenty minutes while a fresh process made the same call in
+    # three seconds and `free_slots` reported two free slots, and there was no
+    # way to ask the running one where its threads were.
+    faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
 
 
 def main(argv: list[str] | None = None) -> int:

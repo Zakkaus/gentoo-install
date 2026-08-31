@@ -6594,3 +6594,33 @@ def test_the_console_connection_is_the_one_that_gets_keepalive() -> None:
         if isinstance(node, ast.Call)
     }
     assert "keep_asking" in called, sorted(called)
+
+
+def test_a_stalled_schedule_can_be_asked_where_its_threads_are() -> None:
+    """A campaign that stalls says what it failed at and nothing about why.
+
+    On 2026-09-01 it answered `GET /nodes did not answer` for twenty minutes
+    while a fresh process made the same call in three seconds and `free_slots`
+    reported two free slots. `kill -USR1` now writes every thread's stack and
+    the schedule carries on, so the next stall is evidence rather than a
+    guess. Run rather than read: whether a handler survives the other three
+    this function installs is not visible in the source.
+    """
+    import subprocess
+    import sys
+
+    program = (
+        "import os, signal, sys, threading, time;"
+        "sys.path.insert(0, '.');"
+        "from tests.vm.cluster import _leave_on_a_signal;"
+        "_leave_on_a_signal();"
+        "threading.Thread(target=time.sleep, args=(30,), daemon=True).start();"
+        "os.kill(os.getpid(), signal.SIGUSR1);"
+        "time.sleep(0.5);"
+        "print('STILL-RUNNING')"
+    )
+    said = subprocess.run(
+        [sys.executable, "-c", program], capture_output=True, text=True, timeout=60
+    )
+    assert "STILL-RUNNING" in said.stdout, said.stdout
+    assert "Thread 0x" in said.stderr or "Current thread" in said.stderr, said.stderr
