@@ -331,7 +331,6 @@ class KernelPackage:
 
     atom: str
     applies_cjktty: bool
-    cjk_use_defaults_on: bool
 
 
 #: The package that provides each kernel choice. Here rather than in `plan/`
@@ -341,27 +340,22 @@ KERNEL_PACKAGES: Final[dict[KernelSource, KernelPackage]] = {
     KernelSource.DIST_BIN: KernelPackage(
         atom="sys-kernel/gentoo-kernel-bin",
         applies_cjktty=False,
-        cjk_use_defaults_on=False,
     ),
     KernelSource.DIST_SOURCE: KernelPackage(
         atom="sys-kernel/gentoo-kernel",
         applies_cjktty=False,
-        cjk_use_defaults_on=False,
     ),
     KernelSource.CJK_BIN: KernelPackage(
         atom="sys-kernel/gentoo-cjk-kernel-bin",
         applies_cjktty=True,
-        cjk_use_defaults_on=True,
     ),
     KernelSource.CJK: KernelPackage(
         atom="sys-kernel/gentoo-cjk-kernel",
         applies_cjktty=True,
-        cjk_use_defaults_on=True,
     ),
     KernelSource.XANMOD: KernelPackage(
         atom="sys-kernel/xanmod-kernel",
         applies_cjktty=True,
-        cjk_use_defaults_on=False,
     ),
 }
 
