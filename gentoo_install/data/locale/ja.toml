@@ -782,3 +782,4 @@
 "the install stopped" = "インストールは停止しました"
 "the install finished" = "インストールが完了しました"
 "{outcome}. send the log to {host}, which is public?" = "{outcome}。ログを {host} に送りますか。公開されます"
+"y|yes" = "y|yes|はい"

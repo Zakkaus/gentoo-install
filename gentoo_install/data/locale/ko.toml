@@ -782,3 +782,4 @@
 "the install stopped" = "설치가 중단되었다"
 "the install finished" = "설치가 끝났다"
 "{outcome}. send the log to {host}, which is public?" = "{outcome}. 로그를 {host} 에 보낼까? 공개된다"
+"y|yes" = "y|yes|예"

@@ -771,7 +771,9 @@ def install(
                 record,
                 stopped,
                 _unattended(arguments),
-                _asked,
+                # Bound to the catalog: `offer_paste` asks in the menu's
+                # language and the answer has to be readable in it too.
+                lambda question: _asked(question, translate),
                 show_the_address,
                 translate,
             )
@@ -925,21 +927,36 @@ def _configuration_from(source: str) -> InstallConfig:
     return load_source(source, getpass.getpass("password for this paste: "))
 
 
-def _asked(question: str) -> bool:
+def _asked(question: str, translate: Catalog | None = None) -> bool:
     """Ask, after throwing away what was typed before the question existed.
 
     The menu is curses and the key that left it is still in the terminal's
     input queue when this runs, so `readline` returned it at once: both
     questions after a failed install were answered by keystrokes aimed at the
     screen before them, and the operator watched two offers go past.
+
+    The question is translated and the answer was not, so an operator reading
+    Chinese had to type an English word to say yes.
     """
     _forget_what_was_typed()
     print(f"{question} [y/N] ", end="")
     sys.stdout.flush()
     try:
-        return sys.stdin.readline().strip().lower() in ("y", "yes")
+        return sys.stdin.readline().strip().lower() in _affirmatives(translate)
     except (EOFError, KeyboardInterrupt):
         return False
+
+
+def _affirmatives(translate: Catalog | None) -> frozenset[str]:
+    """What counts as yes here: `y` and `yes`, and whatever the locale adds.
+
+    Both are kept whatever the language, because the hint printed beside the
+    question names them and nothing else.
+    """
+    # The literal at the call, the way every other catalog key is written: the
+    # check that every shipped key is shown reads them out of the source.
+    said = translate("y|yes") if translate is not None else "y|yes"
+    return frozenset({"y", "yes", *(one.strip().lower() for one in said.split("|") if one.strip())})
 
 
 def _forget_what_was_typed() -> None:
@@ -1017,7 +1034,7 @@ def _offer_a_shell(
         if mode is DiskMode.IN_PLACE
         else translate("enter a root shell in {target} before unmounting?")
     ).format(target=target)
-    if not _asked(question):
+    if not _asked(question, translate):
         return
     opened = machine.runner.run(["chroot", str(target), "/bin/bash", "--login"], check=False)
     if opened.returncode in CHROOT_COULD_NOT_START:
