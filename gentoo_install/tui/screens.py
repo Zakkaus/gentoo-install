@@ -2194,8 +2194,10 @@ def input_devices_screen(
 ) -> Answer[InstallConfig]:
     """`INPUT_DEVICES`, which make.conf replaces outright rather than adds to.
 
-    Emptying it leaves a machine with no pointer driver, so `libinput` is the
-    default rather than something the operator has to know to type.
+    Emptying it writes no assignment at all, so the profile's own value
+    stands. `libinput` is the default here because it is also what
+    `profiles/base/make.defaults` sets, and a row that shows nothing where
+    every machine has one reads as a value that was lost.
     """
     answer = _typed_beside_automatic(
         screen,
