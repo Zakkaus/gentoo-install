@@ -913,16 +913,38 @@ def test_the_cjk_kernel_lifts_the_mask_its_dependency_carries() -> None:
         assert written.strip() == "virtual/dist-kernel"
 
 
-def test_the_stray_kernel_is_deleted_before_the_package_reinstalls_one() -> None:
-    """Deleting last left `/boot` empty: the misnamed image `sys-fs/zfs`
-    leaves is often the only one there, and generate-zbm then answers
-    `Unable to find latest kernel`. `emerge --config` puts the image back
-    under the name the package carries, so the removal has to come first."""
-    from gentoo_install.plan.kernel import RebuildInitramfs
+def test_the_initramfs_is_rebuilt_after_its_modules_and_checked_after_that() -> None:
+    """`assert rebuild >= 0` held nothing: `enumerate` never yields less.
+
+    `RemoveUnbootableKernels`, which the old name referred to, was replaced by
+    `RequireKernelImage` in `#261` and removed in `clean: remove twelve
+    definitions nothing reaches`, so the delete-before-rebuild pair the
+    assertion was written for no longer exists. What does is the order the
+    three surviving operations have to keep: dracut reads the module list
+    from the file `WriteDracutModules` writes, `emerge --config` builds the
+    image from it, and only then is there an image to check for.
+    """
+    from gentoo_install.plan.kernel import (
+        RebuildInitramfs,
+        RequireKernelImage,
+        WriteDracutModules,
+    )
 
     built = kernel.build(config(zfs_root()))
-    rebuild = next(n for n, one in enumerate(built) if isinstance(one, RebuildInitramfs))
-    assert rebuild >= 0
+
+    def at(kind: type) -> int:
+        return next(n for n, one in enumerate(built) if isinstance(one, kind))
+
+    assert at(WriteDracutModules) < at(RebuildInitramfs) < at(RequireKernelImage)
+
+    # And the rebuild names a versioned atom: `emerge --config` over a bare
+    # package with two slots installed answers `Please use a specific atom`.
+    rebuild = built[at(RebuildInitramfs)]
+    assert isinstance(rebuild, RebuildInitramfs)
+    assert rebuild.package, rebuild
+    recorder = Recorder()
+    rebuild.apply(recorder)
+    assert ("emerge", "--config", rebuild.package) in recorder.in_target, recorder.in_target
 
 
 def test_a_zfs_root_keeps_its_kernel_in_the_pool() -> None:
