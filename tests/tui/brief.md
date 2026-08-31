@@ -26,7 +26,7 @@ before typing a replacement. Several may be given at once: `key lab1 down down e
   source file answers it for you and destroys the measurement.
 - Do not pass `--config`, edit a configuration file, or start the installer
   yourself. The session is already running.
-- Do not run any command other than the three above.
+- Do not run any command other than the two above.
 - Do not answer from what a Gentoo install usually needs. If the screen does
   not say which row sets something, that is the finding.
 
