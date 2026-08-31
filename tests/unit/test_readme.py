@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
+from typing import Final
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -316,3 +317,34 @@ def test_no_chinese_readme_calls_arming_a_boot_by_the_weapon_word() -> None:
         said = document(name)
         assert "\u6b66\u88dd" not in said, name
         assert "\u6b66\u88c5" not in said, name
+
+
+#: How each locale says the run does not write there. The verb, not the word
+#: for a disk: every one of these bodies already names a disk in
+#: `/dev/disk/by-id/` and in the sentence about selectors, so matching that
+#: would pass on the wording this rule exists to refuse. A safety claim is
+#: the one place a per-locale table earns its keep, because prose cannot be
+#: compared across five languages and the alternative was no check at all.
+UNWRITTEN: Final[dict[str, str]] = {
+    "README.md": "does not write",
+    "README.zh-TW.md": "\u4e0d\u6703\u5beb\u5165",
+    "README.zh-CN.md": "\u4e0d\u4f1a\u5199\u5165",
+    "README.ja.md": "\u66f8\u304d\u8fbc\u307e\u306a\u3044",
+    "README.ko.md": "\uc4f0\uc9c0 \uc54a\ub294",
+}
+
+
+def test_every_readme_says_where_the_backup_has_to_be() -> None:
+    """Three of the five said the backup must be off the selected disk and
+    two said only `a separate backup`.
+
+    English is the source document and it was one of the weaker two, so the
+    weaker wording was the one being translated from. A backup on a second
+    partition of the disk being wiped satisfies `separate` and is destroyed:
+    `preflight.py` counts a wiped disk as at risk in exactly that sense.
+
+    All five now say the backup is on a disk the run does not write.
+    """
+    for name in READMES:
+        body = fact_bodies(name)["safety-review-backup"]
+        assert UNWRITTEN[name] in body, (name, body)

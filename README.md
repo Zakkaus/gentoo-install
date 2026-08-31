@@ -47,7 +47,7 @@ A real run writes to the selected disks. A configuration-file run has no second 
 
 <!-- fact: safety-review-backup -->
 
-Before a real run, the disk selectors and every destructive operation must be checked in the dry-run output. Stable `/dev/disk/by-id/` selectors are preferable to names such as `/dev/sda`, and required data must have a separate backup.
+Before a real run, the disk selectors and every destructive operation must be checked in the dry-run output. Stable `/dev/disk/by-id/` selectors are preferable to names such as `/dev/sda`, and required data must have a backup on a disk this run does not write.
 
 ## Installation
 
