@@ -15,15 +15,17 @@ from .operations import Context, Operation, Stage
 
 
 class CjkFontconfigLocale(Enum):
-    ZH_CN = ("zh_CN", "zh-cn", "SC", "CN")
-    ZH_TW = ("zh_TW", "zh-tw", "TC", "TW")
-    ZH_HK = ("zh_HK", "zh-hk", "HK", "HK")
-    JA_JP = ("ja_JP", "ja", "JP", "JP")
-    KO_KR = ("ko_KR", "ko", "KR", "KR")
+    # No fontconfig language tag: the file this writes carries no `lang`
+    # test, because every CJK face covers several of them and the order is
+    # what separates them. One was stored here and never read.
+    ZH_CN = ("zh_CN", "SC", "CN")
+    ZH_TW = ("zh_TW", "TC", "TW")
+    ZH_HK = ("zh_HK", "HK", "HK")
+    JA_JP = ("ja_JP", "JP", "JP")
+    KO_KR = ("ko_KR", "KR", "KR")
 
-    def __init__(self, locale: str, language: str, noto: str, source: str) -> None:
+    def __init__(self, locale: str, noto: str, source: str) -> None:
         self.locale = locale
-        self.language = language
         self.noto = noto
         self.source = source
         self.face = f"Noto Sans CJK {noto}"

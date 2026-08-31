@@ -22,12 +22,12 @@ from .layouts import config
 from .recorder import Recorder
 
 
-CJK_RULES: Final[tuple[tuple[str, str, str], ...]] = (
-    ("zh_TW.UTF-8", "zh-tw", "Noto Sans CJK TC"),
-    ("zh_CN.UTF-8", "zh-cn", "Noto Sans CJK SC"),
-    ("zh_HK.UTF-8", "zh-hk", "Noto Sans CJK HK"),
-    ("ja_JP.UTF-8", "ja", "Noto Sans CJK JP"),
-    ("ko_KR.UTF-8", "ko", "Noto Sans CJK KR"),
+CJK_RULES: Final[tuple[tuple[str, str], ...]] = (
+    ("zh_TW.UTF-8", "Noto Sans CJK TC"),
+    ("zh_CN.UTF-8", "Noto Sans CJK SC"),
+    ("zh_HK.UTF-8", "Noto Sans CJK HK"),
+    ("ja_JP.UTF-8", "Noto Sans CJK JP"),
+    ("ko_KR.UTF-8", "Noto Sans CJK KR"),
 )
 
 
@@ -115,10 +115,8 @@ def test_a_contradictory_font_decision_is_refused_in_any_locale(locale: str) -> 
         fonts.build(selected, load_catalog())
 
 
-@pytest.mark.parametrize(("locale", "language", "face"), CJK_RULES)
-def test_the_written_file_is_a_regional_sans_match(
-    locale: str, language: str, face: str
-) -> None:
+@pytest.mark.parametrize(("locale", "face"), CJK_RULES)
+def test_the_written_file_is_a_regional_sans_match(locale: str, face: str) -> None:
     selected = CjkFontconfigLocale.selected(locale)
     assert selected is not None
     content = WriteCjkSansPreference(locale=selected).content()
@@ -132,7 +130,6 @@ def test_the_written_file_is_a_regional_sans_match(
     # cover, and a `lang` test cannot separate them.
     assert preferred[0] == face, preferred
     assert set(preferred) == set(CJK_SANS_ORDER), preferred
-    assert language
 
 
 def test_a_selected_non_noto_sans_leads_the_written_alias() -> None:
@@ -250,3 +247,31 @@ def test_serif_and_sans_defaults_precede_arphic_families() -> None:
     }
     assert matches["serif"].findtext("./edit/string") == "LXGW WenKai TC"
     assert matches["sans-serif"].findtext("./edit/string") == "Noto Sans CJK TC"
+
+
+def test_every_field_of_the_cjk_locale_row_reaches_the_written_file() -> None:
+    """`language` was stored and never read, and its test column only asserted
+    it was non-empty, which a literal cannot fail.
+
+    The written file carries no `lang` test — every CJK face covers several
+    languages and the order is what separates them — so a fontconfig language
+    tag had nothing to do here. Each remaining field is checked against the
+    file the operation writes rather than against a copy of the table.
+    """
+    for locale in CjkFontconfigLocale:
+        content = WriteCjkSansPreference(locale=locale).content()
+        assert locale.face in content, (locale, content)
+        assert locale.noto in content, (locale, content)
+        # `source` names the Source Han family the same row selects.
+        assert locale.source == locale.resolve("{source}"), locale
+        found = CjkFontconfigLocale.selected(f"{locale.locale}.UTF-8")
+        assert found is locale, (locale, found)
+
+    # And nothing outside the enum reads a field the file cannot show: a new
+    # column has to reach `content()` or it is state with no behaviour.
+    stored = {
+        name
+        for name in vars(CjkFontconfigLocale.ZH_TW)
+        if not name.startswith("_") and name not in ("name", "value")
+    }
+    assert stored == {"locale", "noto", "source", "face"}, sorted(stored)
