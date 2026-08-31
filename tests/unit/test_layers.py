@@ -376,9 +376,15 @@ def test_no_definition_in_the_package_is_unreachable() -> None:
     # the ceiling it was named after since the conversion runner was written.
     # A definition its own unit test still names is reachable to this rule, so
     # the wiring of a verdict rule is pinned beside that rule instead.
-    # `tests/unit/` is excluded: pytest calls its tests.
+    # `tests/unit/` is excluded: pytest calls its tests. `tests/tui/` is not
+    # excluded and was left out anyway, so `LOST`, `Report.as_dict` and
+    # `Spec.number` sat there unreachable and unseen.
     for path in sorted(
-        [*(root / "gentoo_install").rglob("*.py"), *(root / "tests" / "vm").rglob("*.py")]
+        [
+            *(root / "gentoo_install").rglob("*.py"),
+            *(root / "tests" / "vm").rglob("*.py"),
+            *(root / "tests" / "tui").rglob("*.py"),
+        ]
     ):
         for node, name in _defined_names(trees[path]):
             if name.startswith("__"):
