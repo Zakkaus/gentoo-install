@@ -327,8 +327,29 @@ def _take_back(context: Context, target: BootTarget) -> None:
     arming writes, the other when the operator changed their mind.
     """
     _disarm(context, target)
+    _remove_the_entry(context, target)
     for gone in (target.place, STAGING):
         context.run(["rm", "--recursive", "--force", str(gone)], check=False)
+
+
+def _remove_the_entry(context: Context, target: BootTarget) -> None:
+    """Delete what `WriteMemoryEntry` wrote, which is outside `target.place`.
+
+    Deleting the kernel and leaving the entry gives a menu whose first choice
+    stops at `error: file not found` for ever, and on `--bypass` that entry is
+    also the default.
+    """
+    if target.method is BootMethod.SYSTEMD_BOOT:
+        entry = PurePosixPath(str(target.esp_mountpoint)) / "loader" / "entries" / f"{PLACE}.conf"
+        context.run(["rm", "--force", str(entry)], check=False)
+        return
+    if target.grub_directory is None:
+        return
+    custom = PurePosixPath(target.grub_directory) / "custom.cfg"
+    written = context.read(custom)
+    kept = _without_previous(written)
+    if kept != written:
+        context.write(custom, kept)
 
 
 def _disarm(context: Context, target: BootTarget) -> None:
