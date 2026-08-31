@@ -507,6 +507,36 @@ source = "rootfs"
 path = "/"
 ```
 
+## Device graph nodes
+
+Every `[[disk.devices]]` table carries `kind` and `id`. `id` names the node for
+the keys that reference it; `disk.root` and every reference below name an `id`.
+A key this table does not list is refused by name, so a typo stops the run
+before a disk is touched.
+
+| `kind` | Its own keys | Refers to |
+| --- | --- | --- |
+| `existing` | `selector` (required), `wipe` | — |
+| `table` | `table` (`gpt`, `mbr`; `gpt`), `create` (`true`), `remove` (entry numbers, from 1) | `disk` |
+| `partition` | `index` (required), `role` (`esp`, `boot`, `bios-boot`, `swap`, `data`; `data`), `size`, `label`, `min`, `max` | `table` |
+| `luks` | `name` (required), `passphrase_file` | `backing` |
+| `raid` | `level` (required), `name` (required), `metadata` | `members` |
+| `volume-group` | `name` (required) | `members` |
+| `logical-volume` | `name` (required), `size` | `group` |
+| `zpool` | `name` (required), `topology` (`stripe`, `mirror`, `raidz`, `raidz2`, `raidz3`; `stripe`), `encrypted`, `passphrase_file` | `vdevs` |
+| `dataset` | `name` (required) | `pool` |
+| `filesystem` | `type` (required), `label`, `create` (`true`) | `device` |
+| `subvolume` | `name` (required), `create` (`true`) | `filesystem` |
+| `swap` | — | `device` |
+| `mountpoint` | `path` (required), `options` | `source` |
+
+`selector` is a device path, and `/dev/disk/by-id/` is the form that survives a
+reboot. `size` accepts a byte count with a suffix such as `512MiB`; `min` and
+`max` bound a partition that takes its share of what is left, and a partition
+with none of the three takes the rest of the disk. `passphrase_file` names a
+file the operator writes before an unattended run; the installer reads it and
+never writes the passphrase anywhere else.
+
 ## Binary packages
 
 Binary packages are optional. Disabling them keeps source builds available. The official binhost and the gentoo-zh binhost are separate options with separate trust configuration. One degradation path has end-to-end evidence: `TESTED.md` records `vm-binhost-fallback` on `e16f57a39199d` installing from source after its host served no package index, with the reason in the journal. That fixture no longer reproduces it — the same host answered on 2026-08-24 — so the path is recorded rather than currently exercised. A missing signature and an untrusted key have no end-to-end evidence and remain unverified.

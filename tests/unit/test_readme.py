@@ -122,6 +122,7 @@ REFERENCE_SECTIONS = (
     "Capabilities",
     "Validation",
     "Configuration files",
+    "Device graph nodes",
     "Binary packages",
     "Exit codes",
 )
