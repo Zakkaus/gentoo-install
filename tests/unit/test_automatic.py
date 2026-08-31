@@ -1816,3 +1816,64 @@ def test_a_graphical_desktop_proposes_the_sound_server_it_needs() -> None:
     )
     again = tui_packages._desktop_proposes(with_audio, config(), at, "plasma")
     assert again.packages.applications.count(tui_packages.AUDIO_GROUP) == 1
+
+
+def test_a_loaded_configuration_answer_survives_a_desktop_choice() -> None:
+    """Provenance starts empty, so a loaded file read as unchosen defaults.
+
+    A configuration saying `networking = "networkmanager-iwd"` came back from
+    the desktop row as `networkmanager-wpa`: `_desktop_proposes` keeps only
+    what `ValueSource.OPERATOR` marks, and loading marked nothing. The saved
+    file is the operator's answer as much as a row they walked.
+
+    A value equal to its section default stays unmarked: the parser fills an
+    omitted key with that default, so by then the file and the default are
+    the same text and nothing can tell them apart.
+    """
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import Networking, SystemConfig
+    from gentoo_install.tui import packages as tui_packages
+    from gentoo_install.tui.context import ValueKind, ValueSource
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    loaded = _replace(
+        config(),
+        system=_replace(config().system, networking=Networking.NETWORKMANAGER_IWD),
+    )
+    at.hydrate_provenance(loaded)
+
+    picked = _replace(loaded, packages=_replace(loaded.packages, desktop="plasma"))
+    after = tui_packages._desktop_proposes(picked, loaded, at, "plasma")
+    assert after.system.networking is Networking.NETWORKMANAGER_IWD, (
+        after.system.networking
+    )
+
+    # And the load screen is what records it: a test that calls
+    # `hydrate_provenance` itself stays green when the call site goes.
+    from tests.unit.fake_screen import FakeScreen
+
+    walked = context()
+    walked.configs_here = ("my-install.toml",)
+    walked.load_config = lambda name: loaded
+    screens.saved_config_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=24, columns=100), config(), walked
+    )
+    assert any(
+        one.kind is ValueKind.NETWORKING and one.source is ValueSource.OPERATOR
+        for one in walked.provenance
+    ), walked.provenance
+
+    # The default is not an answer: a desktop still proposes over it.
+    plain = context()
+    default = config()
+    assert default.system.networking is SystemConfig().networking
+    plain.hydrate_provenance(default)
+    proposed = tui_packages._desktop_proposes(
+        _replace(default, packages=_replace(default.packages, desktop="plasma")),
+        default,
+        plain,
+        "plasma",
+    )
+    assert proposed.system.networking is Networking.NETWORKMANAGER_WPA

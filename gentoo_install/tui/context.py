@@ -23,7 +23,9 @@ from ..model.config import (
     Firmware,
     InstallConfig,
     Overlay,
+    PackagesConfig,
     PortageConfig,
+    SystemConfig,
 )
 from ..model.device import (
     Existing,
@@ -287,6 +289,45 @@ class Context:
         self.layout_was_loaded = True
         self.confirmed.clear()
         self.inspect_disk(disk)
+
+    def hydrate_provenance(self, config: InstallConfig) -> None:
+        """Mark what a loaded file says as the operator's own answers.
+
+        Provenance starts empty, so every value in a loaded configuration read
+        as an unchosen default and the next desktop proposal wrote over it: a
+        file saying `networking = "networkmanager-iwd"` came back from the
+        desktop row as `networkmanager-wpa`.
+
+        A value equal to the dataclass default is left unmarked. The parser
+        fills an omitted key with that default, so the file and the default
+        are the same text by then and nothing here can tell them apart; the
+        proposals may still move those, which is what they are for.
+        """
+        # The section defaults, not a whole `InstallConfig`: that one needs a
+        # disk, and the disk is not what this reads.
+        answered: list[tuple[ValueKind, tuple[str, ...]]] = [
+            (
+                ValueKind.NETWORKING,
+                (config.system.networking.value,)
+                if config.system.networking is not SystemConfig().networking
+                else (),
+            ),
+            (
+                ValueKind.DISPLAY_MANAGER,
+                (config.packages.display_manager,)
+                if config.packages.display_manager != PackagesConfig().display_manager
+                else (),
+            ),
+            (ValueKind.USE_FLAG, config.portage.use),
+            (ValueKind.VIDEO_CARD, config.portage.video_cards),
+            (ValueKind.APPLICATION, config.packages.applications),
+        ]
+        for kind, values in answered:
+            self.provenance.update(
+                ValueProvenance(kind, value, ValueSource.OPERATOR)
+                for value in values
+                if value
+            )
 
     def shown_as(self, selector: str) -> str:
         """What to call a device on screen.
