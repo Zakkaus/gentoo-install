@@ -230,3 +230,34 @@ def test_the_memory_mode_section_does_not_claim_more_than_it_records() -> None:
         assert f"`{flag}`" in section, flag
     # The one no run has exercised is named where the gaps are named.
     assert "`--disarm`" in unrecorded, unrecorded[:200]
+
+
+def test_the_memory_example_carries_the_configuration_arming_needs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The example armed nothing and the sentence beside it said so wrongly.
+
+    It read `bootstrap.sh --ram --ssh-key ... --root-password ...` with no
+    `--config`, under a bullet saying there is no interface on this path. A
+    memory mode arms whatever configuration it was given, so without one the
+    run either opens the menu or refuses.
+    """
+    import os
+    import shlex
+
+    from gentoo_install.cli import EXIT_PREFLIGHT, main, parser
+
+    said = (ROOT / "REFERENCE.md").read_text(encoding="utf-8")
+    block = said[said.index("```sh", said.index("## Memory environment")) :]
+    printed = block[block.index("\n") + 1 : block.index("```", 3)]
+    armed = next(line for line in printed.splitlines() if "--ram" in line)
+
+    written = shlex.split(armed)
+    assert written[0] == "./bootstrap.sh", written
+    arguments = parser().parse_args(written[1:])
+    assert arguments.config is not None, armed
+
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    without = [one for one in written[1:] if one not in ("--config", arguments.config)]
+    assert main([*without, "--no-shell"]) == EXIT_PREFLIGHT
+    assert "an unattended run needs --config FILE" in capsys.readouterr().err

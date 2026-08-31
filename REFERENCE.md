@@ -37,7 +37,7 @@ The menu disables recorded IPv4-only Gentoo mirrors when the live environment ha
 `--ram` and `--lowram` arm one boot into a live environment held in memory, which is what a rented machine with no console and no rescue image needs before its own disk can be installed over. The installer, the chosen configuration and the authorised keys travel inside the initramfs, so the environment comes up running the revision that armed it:
 
 ```sh
-./bootstrap.sh --ram --ssh-key github:zakkaus --root-password 'replace this'
+./bootstrap.sh --config my-install.toml --ram --ssh-key github:zakkaus --root-password 'replace this'
 reboot
 ssh root@the-machine
 ```
@@ -49,7 +49,7 @@ The first screen asks `install now? [yes/no]` and has no timeout, and nothing is
 `--ram` reaches wifi and `--lowram` does not. The Gentoo CJK ISO carries NetworkManager and `linux-firmware`, so `nmcli device wifi connect <SSID> password <PASSWORD>` brings a link up and the install runs after it; the first page says so in Traditional Chinese, Simplified Chinese and English. The Alpine netboot environment has no wireless driver and no supplicant, and its full module set is in a `modloop` that itself has to be fetched, so a machine whose only link is wifi cannot use `--lowram` at all.
 
 **Memory environment.**
-- `--ram` and `--lowram` arm one boot into a live environment held in memory, then ask whether to reboot; there is no interface on this path, because the machine it addresses usually has one SSH session and no console.
+- `--ram` and `--lowram` arm one boot into a live environment held in memory, then ask whether to reboot. Arming carries a configuration into the initramfs, so `--config FILE` is what an unattended arming gives it; without one, a terminal opens the menu to choose a configuration first and a run with no terminal refuses.
 - `--ram` uses the Gentoo CJK ISO, which carries ZFS and needs about 2 GiB of RAM, because its initramfs stops at an emergency shell when memory less the 824 MiB live image falls under 1 GiB.
 - `--lowram` uses the Alpine netboot bundle, which is smaller and has no `zfs.ko`.
 - Neither pins a version: both publishers list the current image with its checksum, which is fetched and verified before anything is armed.
