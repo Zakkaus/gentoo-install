@@ -4760,3 +4760,52 @@ def test_a_repeatable_wait_is_sent_again_after_a_reconnect() -> None:
     # Not the prompt fallback: a repeatable wait never accepts one, because a
     # prompt is exactly what a hangup leaves behind.
     assert not any("root@" in one for one in console.patterns), console.patterns
+
+
+def test_the_follower_says_the_install_grew_and_stays_silent_when_it_did_not(
+    tmp_path: Path,
+) -> None:
+    """A compiling install and a stopped one looked the same on the console.
+
+    `tail -n 0 -F` starts at the end of the file, and the detached install
+    redirects into a file where `tee` into a pty used to line-buffer, so a
+    reconnect during a long compile produced nothing for the watchdog to
+    read: `btrfs-luks` was ended at 55.8 minutes inside
+    `emerge kde-plasma/plasma-meta`, having passed the same fixture at 126.6
+    minutes the round before.
+
+    The size is printed only when it grew, so silence still means a stopped
+    install. Run rather than read: a heartbeat sent regardless would keep the
+    watchdog quiet for an install that had stopped.
+    """
+    results = tmp_path / "results"
+    results.mkdir()
+    follow = cluster.follow_install(results=str(results)).replace("sleep 30", "sleep 1")
+
+    # Growing without newlines, which is what a block-buffered compile does.
+    (results / "install.txt").write_bytes(b"")
+    grower = subprocess.Popen(
+        [
+            "sh",
+            "-c",
+            f"for i in 1 2 3; do printf 'xxxxxxxx' >> {results}/install.txt; sleep 1;"
+            f" done; echo 0 > {results}/install.rc",
+        ]
+    )
+    growing = subprocess.run(
+        ["sh", "-c", follow], capture_output=True, text=True, timeout=60
+    )
+    grower.wait(timeout=10)
+    assert growing.stdout.count(f"{cluster.INSTALL_BYTES}=") >= 2, growing.stdout
+
+    # Stopped: the file never grows and nothing is printed for it.
+    quiet = tmp_path / "quiet"
+    quiet.mkdir()
+    (quiet / "install.txt").write_bytes(b"")
+    silent = cluster.follow_install(results=str(quiet)).replace("sleep 30", "sleep 1")
+    ender = subprocess.Popen(["sh", "-c", f"sleep 4; echo 0 > {quiet}/install.rc"])
+    stopped = subprocess.run(
+        ["sh", "-c", silent], capture_output=True, text=True, timeout=60
+    )
+    ender.wait(timeout=10)
+    assert cluster.INSTALL_BYTES not in stopped.stdout, stopped.stdout
