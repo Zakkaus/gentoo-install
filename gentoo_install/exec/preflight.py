@@ -529,8 +529,6 @@ def inspect(
         )
     targets_machine_firmware = config.disk.mode in (DiskMode.PARTITION, DiskMode.IN_PLACE)
     wants_uefi = config.bootloader.firmware is Firmware.UEFI
-    if targets_machine_firmware and wants_uefi and not machine.uefi:
-        fatal.append(f"the configuration boots by UEFI and this machine booted by BIOS")
     if targets_machine_firmware and not wants_uefi and not installs.bios_target:
         # Fatal, not the warning below: this is not a machine that could boot
         # either way. GRUB builds no BIOS platform for this architecture, so

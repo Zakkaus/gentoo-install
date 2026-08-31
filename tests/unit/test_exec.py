@@ -554,8 +554,14 @@ def test_preflight_collects_every_reason_rather_than_the_first(tmp_path: Path) -
 
 
 def test_a_uefi_configuration_on_a_bios_boot_is_fatal(tmp_path: Path) -> None:
+    """One refusal, not two: the same condition was tested twice and appended
+    a bare restatement beside the message that names the key to set. An
+    operator reading two fatal lines for one mismatch looks for two problems.
+    """
     report = preflight.inspect(config(), described(uefi=False), probe_of(tmp_path))
-    assert any("booted by BIOS" in reason for reason in report.fatal)
+    said = [reason for reason in report.fatal if "booted by BIOS" in reason]
+    assert len(said) == 1, said
+    assert 'firmware = "bios"' in said[0], said[0]
 
 
 def test_a_uefi_boot_without_efivarfs_is_fatal(tmp_path: Path) -> None:
