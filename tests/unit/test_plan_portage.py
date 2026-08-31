@@ -1697,7 +1697,6 @@ def test_an_unreachable_overlay_site_moves_to_the_next_one(
     # spends an alternate, however many alternates it has.
     class MidUpdate(Recorder):
         attempts: int = 0
-        pointed_at: list[str] = []
 
         def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> CommandOutput:
             if "--sync" in argv:

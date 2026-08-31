@@ -38,7 +38,7 @@ from gentoo_install.plan import portage
 from .layouts import config, encrypted_root, ext4_on_gpt, i, zfs_root
 
 
-def runner(tmp_path: Path) -> Runner:
+def runner() -> Runner:
     return Runner(log=lambda line: None)
 
 
@@ -78,7 +78,7 @@ def described(
 
 
 def probe_of(tmp_path: Path) -> Probe:
-    return Probe(runner=runner(tmp_path), work=tmp_path)
+    return Probe(runner=runner(), work=tmp_path)
 
 
 def test_an_unreadable_pre_tree_zfs_ceiling_is_unknown(
@@ -139,7 +139,7 @@ def present() -> InstallConfig:
 
 def test_a_command_that_fails_raises_with_its_output(tmp_path: Path) -> None:
     with pytest.raises(CommandFailed, match="ended with exit 3"):
-        runner(tmp_path).run(["sh", "-c", "echo trouble >&2; exit 3"])
+        runner().run(["sh", "-c", "echo trouble >&2; exit 3"])
 
 
 def test_a_failure_names_the_error_rather_than_the_last_thing_printed(tmp_path: Path) -> None:
@@ -154,19 +154,19 @@ def test_a_failure_names_the_error_rather_than_the_last_thing_printed(tmp_path: 
         "echo ' * nothing to see here'; exit 1"
     )
     with pytest.raises(CommandFailed, match="Kernel not configured"):
-        runner(tmp_path).run(["sh", "-c", script])
+        runner().run(["sh", "-c", script])
 
 
 def test_a_command_that_is_not_installed_says_so(tmp_path: Path) -> None:
     with pytest.raises(CommandFailed, match="not installed"):
-        runner(tmp_path).run(["definitely-not-a-command-on-this-machine"])
+        runner().run(["definitely-not-a-command-on-this-machine"])
 
 
 def test_a_command_that_hangs_without_printing_is_still_killed(tmp_path: Path) -> None:
     """The timeout is a watchdog rather than a check between output lines: a
     silent hang never reaches a per-line check."""
     with pytest.raises(CommandFailed, match="did not finish"):
-        runner(tmp_path).run(["sleep", "30"], timeout=1.0)
+        runner().run(["sleep", "30"], timeout=1.0)
 
 
 def test_output_arrives_line_by_line_rather_than_at_the_end(tmp_path: Path) -> None:
@@ -176,7 +176,7 @@ def test_output_arrives_line_by_line_rather_than_at_the_end(tmp_path: Path) -> N
 
 def test_a_pipeline_streams_between_commands(tmp_path: Path) -> None:
     destination = tmp_path / "image"
-    runner(tmp_path).pipe(
+    runner().pipe(
         ["sh", "-c", "printf prepared-image"],
         ["sh", "-c", f"cat > {destination}"],
     )
@@ -185,7 +185,7 @@ def test_a_pipeline_streams_between_commands(tmp_path: Path) -> None:
 
 def test_a_pipeline_keeps_binary_bytes_out_of_python(tmp_path: Path) -> None:
     destination = tmp_path / "image"
-    runner(tmp_path).pipe(
+    runner().pipe(
         ["sh", "-c", r"printf '\000\001\377'"],
         ["sh", "-c", f"cat > {destination}"],
     )
@@ -193,7 +193,7 @@ def test_a_pipeline_keeps_binary_bytes_out_of_python(tmp_path: Path) -> None:
 
 def test_a_pipeline_source_failure_is_not_hidden_by_dd_success(tmp_path: Path) -> None:
     with pytest.raises(CommandFailed, match="exit 7"):
-        runner(tmp_path).pipe(["sh", "-c", "exit 7"], ["cat"])
+        runner().pipe(["sh", "-c", "exit 7"], ["cat"])
 
 
 def test_a_pipeline_cleans_the_source_when_the_sink_cannot_start(
@@ -234,7 +234,7 @@ def test_a_pipeline_cleans_the_source_when_the_sink_cannot_start(
     monkeypatch.setattr(exec_runner, "_kill_group", remember_kill)
 
     with pytest.raises(PermissionError, match="not executable"):
-        runner(tmp_path).pipe(["source"], ["sink"])
+        runner().pipe(["source"], ["sink"])
 
     assert killed == [source]
     assert source.stdout.closed
@@ -242,7 +242,7 @@ def test_a_pipeline_cleans_the_source_when_the_sink_cannot_start(
 
 
 def test_a_failure_can_be_asked_for_rather_than_raised(tmp_path: Path) -> None:
-    assert runner(tmp_path).run(["false"], check=False).returncode == 1
+    assert runner().run(["false"], check=False).returncode == 1
 
 
 def test_a_target_command_keeps_its_nonzero_status(tmp_path: Path) -> None:
@@ -1048,7 +1048,7 @@ def test_apply_uses_the_approved_passphrase_after_source_disappearance(tmp_path:
     source.unlink()
     machine = apply.Machine(
         config=installation,
-        runner=runner(tmp_path),
+        runner=runner(),
         probe=probe_of(tmp_path),
         work=tmp_path / "work",
         secrets=store,
@@ -1165,9 +1165,9 @@ def test_the_disk_a_mirrored_root_boots_from_is_the_same_on_every_run(tmp_path: 
         def resolve(self, device: DeviceId, selector: str) -> str:
             return selector
 
-    probe = Echoing(runner=runner(tmp_path), work=tmp_path)
+    probe = Echoing(runner=runner(), work=tmp_path)
     machine = Machine(
-        config=layout, runner=runner(tmp_path), probe=probe, work=tmp_path,
+        config=layout, runner=runner(), probe=probe, work=tmp_path,
         mountpoint=Path("/mnt/gentoo"),
     )
     graph = layout.disk.graph
@@ -1245,7 +1245,7 @@ def test_both_command_consumers_use_the_shared_assessment(
     monkeypatch.setattr(
         "gentoo_install.exec.report.shutil.which", lambda command: f"/{command}"
     )
-    probe = OtherGpg(runner=runner(tmp_path), work=tmp_path)
+    probe = OtherGpg(runner=runner(), work=tmp_path)
     assert exec_report.absent(("gpg",), probe) == {"gpg"}
     assert len(calls) == 2
 
@@ -1260,7 +1260,7 @@ def test_the_commands_whose_implementation_matters_are_the_ones_probed(tmp_path:
             asked.extend(wanted)
             return {}
 
-    preflight.check(present(), Watching(runner=runner(tmp_path), work=tmp_path))
+    preflight.check(present(), Watching(runner=runner(), work=tmp_path))
     assert set(asked) == set(preflight.GNU_ONLY)
 
 
@@ -1313,7 +1313,7 @@ def test_a_table_bigger_than_its_disk_is_refused_before_the_old_one_is_erased(
         def disk_bytes(self, disk: str) -> int:
             return 20 * 1024**3
 
-    report = preflight.inspect(oversized, described(), Sized(runner=runner(tmp_path), work=tmp_path))
+    report = preflight.inspect(oversized, described(), Sized(runner=runner(), work=tmp_path))
     assert any("does not fit" in reason for reason in report.fatal)
 
     # The same table on a disk that holds it raises nothing.
@@ -1321,7 +1321,7 @@ def test_a_table_bigger_than_its_disk_is_refused_before_the_old_one_is_erased(
         def disk_bytes(self, disk: str) -> int:
             return 200 * 1024**3
 
-    roomy = preflight.inspect(oversized, described(), Roomy(runner=runner(tmp_path), work=tmp_path))
+    roomy = preflight.inspect(oversized, described(), Roomy(runner=runner(), work=tmp_path))
     assert not any("does not fit" in reason for reason in roomy.fatal)
 
 
@@ -1363,7 +1363,7 @@ def test_hardware_facts_read_cpu_vendor_and_virtualization(
     cpuinfo = tmp_path / "cpuinfo"
     cpuinfo.write_text("vendor_id : GenuineIntel\n", encoding="utf-8")
     monkeypatch.setattr(probe_module, "CPUINFO", cpuinfo)
-    probed = Probe(runner=runner(tmp_path), work=tmp_path)
+    probed = Probe(runner=runner(), work=tmp_path)
 
     def detect(
         argv: Sequence[str],
@@ -2416,7 +2416,7 @@ def test_a_disk_too_small_to_hold_a_gentoo_is_refused_before_it_is_written(
         def path_of(self, device: DeviceId) -> str:
             return "/dev/vda"
 
-    probe = Small(runner=runner(tmp_path), work=tmp_path)
+    probe = Small(runner=runner(), work=tmp_path)
     report = preflight.check(present(), probe)
     assert any("carries /" in one and "under the" in one for one in report.fatal), report.fatal
 
@@ -2462,7 +2462,7 @@ def test_validation_and_preflight_agree_that_a_declared_root_is_too_small(
     preflight_refused = any(
         "carries /" in problem
         for problem in preflight._capacity_problems(
-            installation, Roomy(runner=runner(tmp_path), work=tmp_path)
+            installation, Roomy(runner=runner(), work=tmp_path)
         )
     )
 
@@ -2490,7 +2490,7 @@ def test_a_build_tmpfs_the_machine_cannot_spare_is_refused(tmp_path: Path) -> No
         ) -> probe_module.Machine:
             return replaced(super().machine(wanted, judged), memory_bytes=self.held)
 
-    probe = Sized(runner=runner(tmp_path), work=tmp_path)
+    probe = Sized(runner=runner(), work=tmp_path)
     config = present()
     on_disk = replaced(config, portage=replaced(config.portage, build_in_ram=None))
     assert not [

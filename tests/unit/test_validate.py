@@ -24,6 +24,7 @@ from gentoo_install.model.config import (
     KernelConfig,
     MemoryLaunch,
     MemoryMode,
+    Overlay,
     PackagesConfig,
     PortageConfig,
     SystemConfig,
@@ -420,8 +421,6 @@ def test_image_mode_refuses_a_device_path_as_the_image_file() -> None:
         )
 
 
-def test_partition_mode_is_unaffected() -> None:
-    validate(config())
 def test_a_plain_uefi_install_validates() -> None:
     validate(config())
 
@@ -1406,7 +1405,6 @@ def test_a_positive_non_root_logical_volume_validates() -> None:
     validate(_with_non_root_logical_volume(Size.parse("1GiB")))
 
 
-from gentoo_install.model.config import Bootloader, InitSystem, InstallConfig, Overlay
 def test_an_unknown_zfs_kernel_ceiling_refuses_the_run() -> None:
     with pytest.raises(ValidationFailed, match="sys-fs/zfs kernel ceiling could not be read"):
         validate(config(zfs_root()), zfs_kernel_max=None)

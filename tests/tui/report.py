@@ -16,11 +16,6 @@ from typing import Final
 
 from gentoo_install.i18n import Catalog
 
-#: A screen the cursor entered and left with nothing changed. Named because
-#: it is the one count that means the row's own name failed: the operator
-#: opened it to find out what it was.
-LOST: Final[str] = "lost"
-
 #: The languages the interface offers, so a screen is matched in the one it
 #: was drawn in.
 TAGS: Final[tuple[str, ...]] = ("en", "zh-TW", "zh-CN", "ja", "ko")
@@ -40,15 +35,6 @@ class Report:
     helped: int
     stuck: tuple[str, ...]
     refused: int
-
-    def as_dict(self) -> dict[str, object]:
-        return {
-            "finished": self.finished,
-            "lost": list(self.lost),
-            "helped": self.helped,
-            "stuck": list(self.stuck),
-            "refused": self.refused,
-        }
 
 
 #: What the installer prints when it has run its whole plan. Matched against

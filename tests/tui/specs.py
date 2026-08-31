@@ -17,7 +17,6 @@ from typing import Final
 class Spec:
     """One machine to build, and how to tell whether it was."""
 
-    number: int
     #: What the operator wants, as they would say it.
     wanted: str
     #: What the installed machine must show for the run to have answered the
@@ -31,7 +30,6 @@ PASSWORD: Final[str] = "testtest"
 
 SPECS: Final[dict[int, Spec]] = {
     1: Spec(
-        number=1,
         wanted=(
             "Install Gentoo onto the whole 40 GiB disk. The machine boots with "
             "UEFI and should use GRUB. Use btrfs for the root filesystem. The "
@@ -50,7 +48,6 @@ SPECS: Final[dict[int, Spec]] = {
         ),
     ),
     2: Spec(
-        number=2,
         wanted=(
             "This machine has two disks. Install onto them with the root "
             f"filesystem encrypted, using the passphrase {PASSWORD}. Give "
@@ -68,7 +65,6 @@ SPECS: Final[dict[int, Spec]] = {
         ),
     ),
     3: Spec(
-        number=3,
         wanted=(
             "This machine is already running a system. Replace it with Gentoo "
             "in place, keeping everything under /home. Set the root password "
@@ -80,7 +76,6 @@ SPECS: Final[dict[int, Spec]] = {
         ),
     ),
     4: Spec(
-        number=4,
         wanted=(
             "Move the installer into memory first, then install onto the disk "
             f"from there. Set the root password to {PASSWORD}."
@@ -91,7 +86,6 @@ SPECS: Final[dict[int, Spec]] = {
         ),
     ),
     5: Spec(
-        number=5,
         wanted=(
             "Install onto the whole disk with xfs for the root filesystem and "
             "a 4 GiB swap partition. The machine boots with UEFI and should "
@@ -106,7 +100,6 @@ SPECS: Final[dict[int, Spec]] = {
         ),
     ),
     6: Spec(
-        number=6,
         wanted=(
             "Partition this 40 GiB disk by hand: a 512 MiB EFI partition, a "
             "20 GiB root on ext4, and the rest as /home on ext4. Do not let "
@@ -119,7 +112,6 @@ SPECS: Final[dict[int, Spec]] = {
         ),
     ),
     7: Spec(
-        number=7,
         wanted=(
             "This machine has two disks. Put the root filesystem on ZFS across "
             "both of them as a mirror, so either disk can fail. Hostname lab7, "
@@ -132,7 +124,6 @@ SPECS: Final[dict[int, Spec]] = {
         ),
     ),
     8: Spec(
-        number=8,
         wanted=(
             "An old machine with an MBR partition table and BIOS boot. Install "
             "onto the whole disk with ext4 and OpenRC. Keep it in English, "
@@ -146,7 +137,6 @@ SPECS: Final[dict[int, Spec]] = {
         ),
     ),
     9: Spec(
-        number=9,
         wanted=(
             "Install onto the whole disk with btrfs, and give the machine a "
             "KDE Plasma desktop with a Chinese input method. Hostname lab9, "
