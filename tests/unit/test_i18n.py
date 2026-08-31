@@ -126,6 +126,99 @@ def test_one_english_term_reads_as_one_word_in_a_catalog() -> None:
             assert any(kept in value for value in catalog.values()), (tag, kept)
 
 
+#: The strings the Chinese audit rewrote to fit an eighty-column console.
+#: The keys alone: the value is read from the catalog, because a copy of it
+#: here is a second catalog to keep in step with the first.
+AUDITED_CHINESE_COPY: Final[dict[str, tuple[str, ...]]] = {
+    "zh-TW": (
+        "This selects the service manager and its matching profile.",
+        "{count} hosts bypass",
+        "Leave without installing?",
+        "system.interface must name the OpenRC interface when builtin networking uses static addresses because netifrc has no wildcard match",
+        "a pool is created, never imported, so a member cannot be kept",
+        "the kernel is on a pool created with today's feature flags, and GRUB reads none of them: only a pool made with compatibility=grub2 is",
+        "cjktty patches the kernel VT layer, which no official kernel carries; the gentoo-zh kernels with that patch provide it",
+        "dracut-crypt-ssh authorises /root/.ssh/authorized_keys, so with none the initramfs runs an ssh daemon nobody can log into",
+        "GRUB asks for that passphrase at the physical console, so the machine stops before the initramfs that runs the ssh daemon: a separate /boot outside the container is what a machine unlocked over the network needs",
+        "the cjk kernel builds CONFIG_FONT_CJK_16x16 alone, which pairs with the 8x16 font, because the 32x32 font the patch ships is empty",
+        "sys-boot/zfsbootmenu is in that overlay and in no other repository, so the emerge fails once the disks have already been partitioned",
+        "the pool's own encryption covers its members",
+        "Run once at first boot",
+        "mdadm could not say whether the esp is on an array, and only metadata 0.90 and 1.0 leave a member the firmware can read as plain vfat",
+        "every key is written to /root/.ssh/authorized_keys and sshd is given PermitRootLogin no, so none of them can log in: add a user with sudo, or allow root login",
+        "An SSH server answers the whole network. A firewall is worth installing with it; the Firewall row under Network does that and writes no rules, so the policy stays the operator's.",
+        "Both ship an empty rule set, and the installer writes none: a policy it chose could drop port 22, and a machine reached only over SSH would then need a console to be reached at all.",
+        "Write {path}; {face} will lead sans-serif.",
+        "GRUB and systemd-boot put the ssh helper in the system initramfs, where it calls cryptsetup and cannot load a native ZFS key",
+        "the root password hash is empty, locked, or malformed, and no user password or usable ssh key can log into the installed system",
+        "write {} to run a script from {} and the first-boot commands: {}",
+        "write {} to run a script from {} at the first boot",
+        "write {} to run the first-boot commands: {}",
+        "write {} pointing {} at {}, commit signatures verified",
+        "write {} pointing {} at {}",
+        "write {} so repository {} syncs with emerge-webrsync",
+        "fetch the first ebuild repository snapshot with emerge-webrsync",
+        "sync repository {}",
+        "sync repository {}, {} other sites to fall back on",
+        "accept {} for packages from {} only",
+        "a partition of no size leaves nothing to format",
+        "The service manager, the logger beside it, and the profile that matches them.",
+    ),
+    "zh-CN": (
+        "{count} hosts bypass",
+        "zfs pool member",
+        "replaced by a typed address",
+        "system.interface must name the OpenRC interface when builtin networking uses static addresses because netifrc has no wildcard match",
+        "a pool is created, never imported, so a member cannot be kept",
+        "the kernel is on a pool created with today's feature flags, and GRUB reads none of them: only a pool made with compatibility=grub2 is",
+        "dracut-crypt-ssh authorises /root/.ssh/authorized_keys, so with none the initramfs runs an ssh daemon nobody can log into",
+        "GRUB asks for that passphrase at the physical console, so the machine stops before the initramfs that runs the ssh daemon: a separate /boot outside the container is what a machine unlocked over the network needs",
+        "the cjk kernel builds CONFIG_FONT_CJK_16x16 alone, which pairs with the 8x16 font, because the 32x32 font the patch ships is empty",
+        "sys-boot/zfsbootmenu is in that overlay and in no other repository, so the emerge fails once the disks have already been partitioned",
+        "the pool's own encryption covers its members",
+        "Run once at first boot",
+        "mdadm could not say whether the esp is on an array, and only metadata 0.90 and 1.0 leave a member the firmware can read as plain vfat",
+        "every key is written to /root/.ssh/authorized_keys and sshd is given PermitRootLogin no, so none of them can log in: add a user with sudo, or allow root login",
+        "An SSH server answers the whole network. A firewall is worth installing with it; the Firewall row under Network does that and writes no rules, so the policy stays the operator's.",
+        "Both ship an empty rule set, and the installer writes none: a policy it chose could drop port 22, and a machine reached only over SSH would then need a console to be reached at all.",
+        "Other locales",
+        "The installed system starts in this locale.",
+        "The system language is always generated.",
+        "Write {path}; {face} will lead sans-serif.",
+        "GRUB and systemd-boot put the ssh helper in the system initramfs, where it calls cryptsetup and cannot load a native ZFS key",
+        "the root password hash is empty, locked, or malformed, and no user password or usable ssh key can log into the installed system",
+        "set the system locale to {} in {}",
+        "generate the ssh host keys so the initramfs and sshd present the same host",
+        "a partition of no size leaves nothing to format",
+        "Move the cursor, in a list; a letter in a field",
+        "Ask whether to leave, in a list; a letter in a field",
+        "This page, in a list; a letter in a field",
+        "First or last row, in a list; a letter in a field",
+        "This choice decides whether a new system is built or this one is replaced.",
+        "This medium carries no installed system to replace.",
+        "The system locale, the fonts it needs, and the input method for typing CJK.",
+        "The zone the installed system keeps local time and schedules in.",
+        "Whether a new system is built on a disk or the running system is replaced.",
+        "The service manager, the logger beside it, and the profile that matches them.",
+        "The Portage profile, which sets the default USE flags and package set.",
+        "How packages are built: parallel jobs, optimisation flags and keyword policy.",
+    ),
+}
+
+
+def test_the_audited_chinese_lines_still_fit_an_eighty_column_console() -> None:
+    """Each of these was between 120 and 150 cells and was clipped where it
+    was drawn. The value is read from the catalog rather than repeated here:
+    a copy would be a second catalog, and the next improvement would have to
+    be made twice or the check would refuse it.
+    """
+    for tag, sources in AUDITED_CHINESE_COPY.items():
+        catalog = shipped(tag)
+        for source in sources:
+            said = catalog[source]
+            assert said != source, (tag, source)
+            assert width(said) <= 80, (tag, source, width(said))
+
 #: A wide character and a combining mark, by codepoint: no CJK literal belongs
 #: in the test tree, and these are what the width rule exists for.
 WIDE = "\u78c1\u789f"
