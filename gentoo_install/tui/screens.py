@@ -1595,7 +1595,9 @@ def zram_screen(screen: Screen, config: InstallConfig, context: Context) -> Answ
                 Item(
                     label=share.single_letter(),
                     value=share,
-                    detail=f"{translate(name)} {translate('of this machine')}",
+                    detail=translate("{share} of this machine's memory").format(
+                        share=translate(name)
+                    ),
                 )
             )
     if len(items) == 1:
@@ -1649,7 +1651,9 @@ def build_in_ram_screen(
                 Item(
                     label=share.single_letter(),
                     value=share,
-                    detail=f"{translate(name)} {translate('of this machine')}",
+                    detail=translate("{share} of this machine's memory").format(
+                        share=translate(name)
+                    ),
                 )
             )
     if len(items) == 1:
@@ -2090,12 +2094,17 @@ def firewall_screen(
     translate = context.translate
     # Each call written out, not `translate(detail[choice])`: the catalog test
     # reads literal arguments, and a lookup by variable ships untranslated.
+    # `iptables` and `nftables` are the tools' own names and stay as they are.
+    labels = {Firewall.NONE: translate("none")}
     detail = {
         Firewall.NONE: translate("no packet filter is installed"),
         Firewall.IPTABLES: translate("the older one, for a rule set that already exists"),
         Firewall.NFTABLES: translate("one table for both families, and what a new rule set uses"),
     }
-    items = [Item(label=choice.value, value=choice, detail=detail[choice]) for choice in Firewall]
+    items = [
+        Item(label=labels.get(choice, choice.value), value=choice, detail=detail[choice])
+        for choice in Firewall
+    ]
     menu: Menu[Firewall] = Menu(
         title=translate("Firewall"),
         preamble=(translate("This installs a packet filter but does not write its policy."),),
