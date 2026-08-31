@@ -500,10 +500,13 @@ class InstallZfsBootMenu(Operation):
     serial: tuple[str, int] | None
 
     def describe(self) -> str:
+        # The fallback is named because `apply` overwrites it: firmware that
+        # drops an NVRAM entry starts the removable-media path instead, and on
+        # a reused esp that file belongs to whatever was installed before.
         return (
             f"write {ZBM_CONFIG}, build ZFSBootMenu into {self.esp}/{ZBM_DIRECTORY}, "
-            f"and boot {self.dataset} from it with cmdline "
-            f"{' '.join(self.kernel_params) or 'empty'}"
+            f"copy it over {self.esp}/{FALLBACK_IMAGE}, and boot {self.dataset} "
+            f"from it with cmdline {' '.join(self.kernel_params) or 'empty'}"
         )
 
     def _config(self) -> str:

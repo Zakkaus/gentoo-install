@@ -734,3 +734,25 @@ def test_bios_grub_description_uses_disk_path_despite_mounted_esp() -> None:
     assert recorder.argv_starting(
         "grub-install", f"--target={DEFAULT_ARCHITECTURE.bios_target}"
     ) == (("grub-install", "--target=i386-pc", "/dev/vda"),)
+
+
+def test_the_zbm_description_names_the_fallback_it_overwrites() -> None:
+    """`apply` copies the generated image over the removable-media path.
+
+    `EFI/BOOT/BOOTX64.EFI` is what firmware that dropped its NVRAM entry
+    starts, and on a reused esp it belongs to whatever was installed there
+    before. The description said the image was built under `EFI/zbm` and
+    stopped, so a dry-run never showed the one write that replaces another
+    system's loader.
+    """
+    operation = zfsbootmenu_operation()
+    written = Recorder(replies={"find": "/efi/EFI/zbm/vmlinuz.EFI\n"})
+    operation.apply(written)
+
+    installed = [
+        one
+        for one in written.in_target
+        if one[:1] == ("install",) and one[-1].endswith(bootloader.FALLBACK_IMAGE)
+    ]
+    assert installed, written.commands
+    assert bootloader.FALLBACK_IMAGE in operation.describe(), operation.describe()
