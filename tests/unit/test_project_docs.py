@@ -283,3 +283,28 @@ def test_the_wifi_sentence_is_marked_as_unrecorded_while_it_is() -> None:
 
     said = next(line for line in reference.splitlines() if "nmcli" in line)
     assert "No run in `TESTED.md`" in said, said
+
+
+def test_every_derived_file_names_its_source_where_a_reader_arrives() -> None:
+    """`CREDITS.md` promised a statement at the top of each derived file.
+
+    `tests/vm/cluster.py` carried its shadow provenance beside the constant,
+    3800 lines down, where nobody opening the file sees it. The ledger's own
+    reason is that a reader of the file cannot be assumed to have read the
+    ledger, so the rows are read here and the files checked against them.
+    """
+    said = (ROOT / "CREDITS.md").read_text(encoding="utf-8")
+    table = said[said.index("| File here |") : said.index("## Projects read")]
+    rows = [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in table.splitlines()
+        if line.startswith("| `")
+    ]
+    assert rows, table
+
+    for here, project, *_ in rows:
+        path = ROOT / here.strip("`")
+        assert path.exists(), here
+        opening = "\n".join(path.read_text(encoding="utf-8").splitlines()[:12])
+        name = project.split("[")[-1].split("]")[0] if "[" in project else project
+        assert name in opening, f"{here} does not name {name} at its top"
