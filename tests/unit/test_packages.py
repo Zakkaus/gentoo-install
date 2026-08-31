@@ -698,3 +698,34 @@ def test_the_target_probes_answer_absence_without_hiding_an_escape(
     for probe in (target_is_file, target_is_directory):
         with pytest.raises(CommandFailed, match="cannot inspect"):
             probe(target, PurePosixPath("/usr/escape/anything"))
+
+
+def test_the_session_check_names_the_directories_it_will_look_in() -> None:
+    """An install that stops here has already merged every package.
+
+    `apply()` fails with `<package> was expected to provide a session in
+    <paths>`, and the description named only the package, so the dry-run gave
+    no path to look at on the machine before running it. The paths come from
+    `data/packages/greetd.toml`, and reading them off the built operation is
+    what keeps the description and the catalog from drifting apart.
+    """
+    installation = config()
+    selected = replace(
+        installation,
+        packages=replace(
+            installation.packages, desktop="xfce", display_manager="greetd"
+        ),
+    )
+
+    checks = [
+        one
+        for one in plan_packages.build(selected, load_catalog())
+        if isinstance(one, plan_packages.VerifySessionDirectories)
+    ]
+    assert checks, "no session check was planned for greetd"
+
+    for check in checks:
+        assert check.paths, check
+        said = check.describe()
+        for path in check.paths:
+            assert str(path) in said, (path, said)

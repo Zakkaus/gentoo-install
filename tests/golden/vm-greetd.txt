@@ -79,7 +79,7 @@
   install the greetd group: emerge gui-libs/greetd gui-apps/tuigreet
   verify gui-libs/greetd installed /etc/greetd/config.toml
   verify gui-apps/tuigreet installed /usr/bin/tuigreet with --time, --remember, --remember-session, --sessions, --xsessions
-  verify session directories for xfce-base/xfce4-meta
+  verify xfce-base/xfce4-meta provides a session in /usr/share/wayland-sessions, /usr/share/xsessions
   set the greetd default session command in /etc/greetd/config.toml
   enable greetd at boot
   install the ibus-pinyin group: emerge app-i18n/ibus-libpinyin

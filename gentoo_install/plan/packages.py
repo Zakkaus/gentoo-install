@@ -215,7 +215,13 @@ class VerifySessionDirectories(Operation):
     paths: tuple[PurePosixPath, ...]
 
     def describe(self) -> str:
-        return f"verify session directories for {self.package}"
+        # The paths, because they are what the failure names: an install that
+        # stops here has already merged every package, and the operator's next
+        # step is to look in these directories on the machine.
+        return (
+            f"verify {self.package} provides a session in "
+            f"{', '.join(str(one) for one in self.paths)}"
+        )
 
     def apply(self, context: Context) -> None:
         if not self.package:
