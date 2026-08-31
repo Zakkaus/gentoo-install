@@ -9,6 +9,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 import urllib.request
 from collections.abc import Callable
@@ -4809,3 +4810,54 @@ def test_the_follower_says_the_install_grew_and_stays_silent_when_it_did_not(
     )
     ender.wait(timeout=10)
     assert cluster.INSTALL_BYTES not in stopped.stdout, stopped.stdout
+
+
+def test_the_detached_install_writes_through_a_pty(tmp_path: Path) -> None:
+    """A redirect into a file leaves the install block-buffering.
+
+    Rounds 31 and 32 ended `btrfs-luks` and `vm-desktop` inside `emerge
+    kde-plasma/plasma-meta`, which both had passed under the `tee` this
+    replaced — and `tee` was reading a pty. `vm-cjk-kernel` and `vm-lvm`
+    passed either way, because their work prints constantly; a long C++ link
+    does not, and nothing reached `install.txt` for longer than
+    `INSTALL_IDLE`.
+
+    Measured rather than argued: the same program under a plain redirect has
+    written nothing while it is running, and under `script` its lines are
+    already there. `script -e` carries the child's exit status out, which is
+    what `install.rc` records.
+    """
+    printer = tmp_path / "slow.py"
+    printer.write_text(
+        "import sys, time\n"
+        "for i in range(6):\n"
+        "    sys.stdout.write(f'line {i}\\n')\n"
+        "    time.sleep(1)\n"
+        "sys.exit(7)\n"
+    )
+
+    def written_after(command: str, name: str) -> int:
+        out = tmp_path / name
+        running = subprocess.Popen(["sh", "-c", f"{command} > {out} 2>&1"])
+        time.sleep(3)
+        early = out.stat().st_size if out.exists() else 0
+        running.wait(timeout=30)
+        return early
+
+    plain = written_after(f"{sys.executable} {printer}", "plain.txt")
+    through = written_after(
+        f"script -q -e -c '{sys.executable} {printer}' /dev/null", "pty.txt"
+    )
+    assert plain == 0, plain
+    assert through > 0, through
+
+    # The exit status still reaches `install.rc`.
+    kept = subprocess.run(
+        ["sh", "-c", f"script -q -e -c '{sys.executable} {printer}' /dev/null"],
+        capture_output=True,
+        timeout=60,
+    )
+    assert kept.returncode == 7, kept.returncode
+
+    # And the launcher puts the install inside it.
+    assert "script -q -e -c" in cluster.detached_install("x.toml")

@@ -3205,12 +3205,24 @@ def detached_install(
     a second `starting serial terminal on interface serial0` and a fresh
     `root@livecd ~ #` under it.
 
+    Under `script`, which gives it a pty. A redirect into a file leaves
+    portage block-buffering, so `install.txt` grows in chunks of tens of
+    kilobytes and a long C++ link inside `emerge kde-plasma/plasma-meta`
+    writes nothing for longer than `INSTALL_IDLE`: rounds 31 and 32 ended
+    `btrfs-luks` and `vm-desktop` there, both of which had passed the same
+    merge under the `tee` this replaced, and `tee` was reading a pty. Guests
+    whose work prints constantly, `vm-cjk-kernel` and `vm-lvm`, passed either
+    way, which is what separates the two.
+
     Braced: the console wrapper appends `; printf MARK`, and a bare `&`
     followed by `;` is a syntax error. Guarded on `install.txt`, so a resend
     after a reconnect starts nothing a second time.
     """
+    inside = f"sh {entry} --config fixtures/{fixture_name}"
     body = (
-        f"{{ sh {entry} --config fixtures/{fixture_name}; "
+        # Double quotes: the whole command is already inside the single-quoted
+        # `sh -c` the launcher wraps it in.
+        f'{{ script -q -e -c "{inside}" /dev/null; '
         f"echo $? > {results}/install.rc; }} > {results}/install.txt 2>&1"
     )
     return (
