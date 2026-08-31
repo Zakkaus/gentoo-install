@@ -381,7 +381,7 @@ The following reference names every persisted key. A table path is TOML table no
 
 | `kernel` key | Meaning and default or choices |
 | --- | --- |
-| `source` | Kernel choice: `dist-bin`, `dist-source`, `cjk-bin`, or `cjk`; `dist-bin`. |
+| `source` | Kernel choice: `dist-bin`, `dist-source`, `cjk-bin`, `cjk`, or `xanmod`; `dist-bin`. |
 | `package` | Overrides the package implied by `source`; `""`. |
 | `version` | Version pin; `""` lets Portage choose the newest keyword-allowed version. |
 | `dracut_modules` | Adds dracut modules required by the disk layout; `[]`. |
@@ -393,6 +393,7 @@ The following reference names every persisted key. A table path is TOML table no
 | `dist-source` | `sys-kernel/gentoo-kernel`; not a CJK kernel. |
 | `cjk-bin` | `sys-kernel/gentoo-cjk-kernel-bin`; CJK kernel. |
 | `cjk` | `sys-kernel/gentoo-cjk-kernel`; CJK kernel. |
+| `xanmod` | `sys-kernel/xanmod-kernel`; CJK kernel, built from source. |
 
 | `kernel.remote_unlock` key | Meaning and default |
 | --- | --- |
@@ -516,8 +517,8 @@ A verified binhost runs `getuto`, imports its signing key, locally signs that ke
 | Code | `gentoo-install` |
 | --- | --- |
 | `0` | successful completion |
-| `1` | configuration error |
-| `2` | `argparse` usage error or preflight failure |
+| `1` | configuration error, including an `argparse` usage error |
+| `2` | preflight failure |
 | `3` | integrity failure |
 | `4` | download, external-command, OS or uncategorized installer failure |
 | `5` | operator abort |
