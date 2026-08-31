@@ -1641,3 +1641,37 @@ def _reads_the_constant(
         ):
             return True
     return False
+
+
+#: How many operations still describe themselves in English alone. The overview
+#: draws those rows untranslated, and `docs/design.md` says why the remaining
+#: ones are not worth a catalog key each. A ratchet, not a deadline: it stops
+#: the number growing without anybody deciding to grow it.
+UNTRANSLATED_OPERATIONS: Final[int] = 73
+
+
+def test_the_untranslated_operation_count_does_not_grow() -> None:
+    """`describe_parts()` is what the overview can translate; `describe()` is not.
+
+    Sixty-two operations return a template and seventy-three return a finished
+    English sentence, so a Chinese overview draws those rows in English. The
+    split is deliberate — most of the remainder is package atoms and paths —
+    and this holds the line: writing a new operation with `describe()` alone
+    fails here, and the author either writes a template or raises the number
+    and says in the commit why that one is not worth translating.
+    """
+    plain: list[str] = []
+    translated = 0
+    for module in _modules("plan"):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        for cls in (one for one in ast.walk(tree) if isinstance(one, ast.ClassDef)):
+            names = {one.name for one in cls.body if isinstance(one, ast.FunctionDef)}
+            if "apply" not in names:
+                continue
+            if "describe_parts" in names:
+                translated += 1
+            elif "describe" in names:
+                plain.append(f"{module.name}:{cls.name}")
+
+    assert translated >= 60, translated
+    assert len(plain) <= UNTRANSLATED_OPERATIONS, sorted(plain)
