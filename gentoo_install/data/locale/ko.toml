@@ -24,6 +24,7 @@
 "These flags select the instruction set used to compile packages." = "이 플래그가 패키지 컴파일에 사용할 명령어 집합을 선택합니다."
 "This selects the service that brings interfaces up." = "네트워크 인터페이스를 활성화할 서비스를 선택합니다."
 "This installs a packet filter but does not write its policy." = "패킷 필터를 설치하지만 정책은 작성하지 않습니다."
+"The loaded layout cannot be edited here. Opening this editor replaces it with what the disk holds now." = "불러온 레이아웃은 여기서 편집할 수 없습니다. 이 편집기를 열면 디스크의 현재 내용으로 바뀝니다."
 "This editor controls which partitions are kept, formatted, mounted, or erased." = "이 편집기에서 파티션을 유지, 포맷, 마운트 또는 삭제할지 정합니다."
 "Disks" = "디스크"
 "Proxy" = "프록시"

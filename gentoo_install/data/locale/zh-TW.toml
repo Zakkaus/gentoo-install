@@ -24,6 +24,7 @@
 "These flags select the instruction set used to compile packages." = "這些旗標選擇編譯套件時使用的指令集。"
 "This selects the service that brings interfaces up." = "此選擇決定啟用網路介面的服務。"
 "This installs a packet filter but does not write its policy." = "此選擇會安裝封包過濾套件，但不會寫入政策。"
+"The loaded layout cannot be edited here. Opening this editor replaces it with what the disk holds now." = "載入的分割版面無法在這裡編輯。開啟這個編輯器會用磁碟目前的內容取代它。"
 "This editor controls which partitions are kept, formatted, mounted, or erased." = "此編輯器控制哪些分割區要保留、格式化、掛載或清除。"
 "Disks" = "磁碟"
 "Proxy" = "Proxy"

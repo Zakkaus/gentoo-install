@@ -208,6 +208,11 @@ class Context:
         self.layout = manual.Layout()
         #: Whether the disk comes from that table rather than a template.
         self.manual = False
+        #: Whether the graph in hand was read from a file. `hydrate_disk`
+        #: reduces one to a rough `Choice` and cannot rebuild the editor's
+        #: table from it, so the editor says what opening it costs rather
+        #: than reseeding from the probed disk over a layout nobody saw go.
+        self.layout_was_loaded = False
         #: What the chosen disk holds now, and how big it is. Both come from
         #: `exec/probe.py` and are shown before anything is erased.
         self.existing: tuple[tuple[str, str, str], ...] = ()
@@ -275,6 +280,7 @@ class Context:
         )
         self.manual = False
         self.layout = manual.Layout()
+        self.layout_was_loaded = True
         self.confirmed.clear()
         self.inspect_disk(disk)
 

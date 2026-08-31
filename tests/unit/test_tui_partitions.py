@@ -1862,3 +1862,37 @@ def test_a_mountpoint_that_cannot_be_a_dataset_name_is_refused() -> None:
     graph, root = manual.build(fine)
     assert root
     assert {one.name for one in graph.of_type(ZfsDataset)} == {"ROOT/gentoo", "srv"}
+
+
+def test_a_loaded_layout_is_not_replaced_without_saying_so() -> None:
+    """`hydrate_disk` cannot rebuild this table from a loaded graph.
+
+    It reduces one to a rough automatic `Choice`, sets `manual = False` and
+    empties `layout`, so the editor reseeds from the probed disk and Done
+    writes that over the graph the file held. Nothing said it was going.
+    """
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    at.hydrate_disk(config())
+    assert at.layout_was_loaded
+    assert not at.layout.slices
+
+    # Backing out of the message leaves the loaded graph in hand: the editor
+    # answers BACK and the configuration it was given comes back unchanged.
+    backed = FakeScreen(keys=["q"], lines=30, columns=110)
+    answer = partitions.partitions_screen(backed, config(), at)
+    assert answer.outcome is Outcome.BACK
+    assert at.layout_was_loaded
+    assert not at.layout.slices
+    drawn = "\n".join("\n".join(frame) for frame in backed.frames)
+    assert "cannot be edited here" in drawn, drawn
+
+    # Answering it opens the editor on the probed disk, and the message is not
+    # shown again: it is a warning about one replacement, not a nag.
+    at.layout_was_loaded = True
+    opening = FakeScreen(keys=["\n", "q"], lines=30, columns=110)
+    partitions.partitions_screen(opening, config(), at)
+    assert not at.layout_was_loaded
+    assert at.layout.slices
