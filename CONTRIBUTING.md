@@ -1,6 +1,6 @@
 # Contributing
 
-gentoo-install is written from scratch. Reference installers may be studied for behavior and failure modes, but their code must not be copied.
+gentoo-install is written from scratch. Reference installers are studied for behavior and failure modes, and code is taken from one only under [Derived code](#derived-code): a compatible licence, and the credit that licence asks for.
 
 ## Architecture
 
