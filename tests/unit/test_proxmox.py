@@ -1139,7 +1139,7 @@ def test_the_installer_does_not_start_before_the_guest_has_a_network() -> None:
     from tests.vm import cluster
 
     source = inspect.getsource(cluster.install_one)
-    ran = source.index("install.sh")
+    ran = source.index("detached_install(")
     waited = source.index("wait_for_network")
     assert waited < ran, "the wait has to come before the installer"
 

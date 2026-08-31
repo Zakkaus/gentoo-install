@@ -1535,6 +1535,7 @@ def test_preinstall_console_timeout_is_an_error_with_its_phase(
             timeout: float,
             idle: float = 0.0,
             watch: object | None = None,
+            repeatable: bool = False,
         ) -> None:
             return None
 
