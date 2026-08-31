@@ -4700,14 +4700,25 @@ def test_an_install_outlives_the_shell_that_started_it(tmp_path: Path) -> None:
 
     # In a session of its own, then hung up: that is what reaches the guest's
     # foreground job when `termproxy` drops and `qm terminal` attaches again.
-    shell = subprocess.Popen(
-        ["sh", "-c", f"{launch}; sleep 30"],
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-    )
-    time.sleep(2)
-    os.killpg(os.getpgid(shell.pid), signal.SIGHUP)
-    shell.wait(timeout=10)
+    # SIG_DFL across the fork, because an ignored disposition is inherited and
+    # a shell cannot trap a signal that was ignored when it started: run under
+    # `nohup`, which is what a detached gate uses, the hangup below reached a
+    # shell that could not act on it and this failed with the code working.
+    before = signal.signal(signal.SIGHUP, signal.SIG_DFL)
+    try:
+        # The shell outlives the wait by minutes, so a wait that ends is the
+        # hangup and nothing else: at `sleep 30` against ten seconds, a busy
+        # machine and a shell that ignored the signal looked the same.
+        shell = subprocess.Popen(
+            ["sh", "-c", f"{launch}; sleep 300"],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+        )
+        time.sleep(2)
+        os.killpg(os.getpgid(shell.pid), signal.SIGHUP)
+        shell.wait(timeout=60)
+    finally:
+        signal.signal(signal.SIGHUP, before)
 
     first = subprocess.run(["sh", "-c", follow], capture_output=True, text=True, timeout=60)
     assert "line " in first.stdout, first.stdout
