@@ -170,6 +170,15 @@ def _mirror_fields(config: InstallConfig, translate: Catalog) -> list[Item[str]]
         ),
         next(field.row(config, translate) for field in _ALL_MIRROR_FIELDS if field.key == _BINHOST),
         next(field.row(config, translate) for field in _ALL_MIRROR_FIELDS if field.key == _ZH_SITE),
+        # Beside the overlay it serves, and drawn whatever the channel is:
+        # adding gentoo-zh turns this host on, the installed system configures
+        # and trusts it, and the row that sets it was in `_ALL_MIRROR_FIELDS`
+        # for `_edit_field` to find and in no list the menu drew.
+        next(
+            field.row(config, translate)
+            for field in _ALL_MIRROR_FIELDS
+            if field.key == _ZH_BINHOST
+        ),
     ]
     if "gentoo-zh" in used:
         rows += [field.row(config, translate) for field in _ZH_MIRROR_FIELDS]
