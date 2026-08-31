@@ -444,7 +444,9 @@ assumed, and each contradicted a reading of the source that preceded it:
 What has no record yet: a machine that goes on to install Gentoo from inside
 the environment it came up in; a deliberately failed arming proving the
 machine returns to its own system because the entry is one-shot; and
-`--disarm`, which `REFERENCE.md` documents and no run here has exercised.
+`--disarm`, which `REFERENCE.md` documents and no run here has exercised. No
+record covers wifi either: every machine here reached the network over
+ethernet, so `nmcli` associating a link before an install is untested.
 
 ## The interface alone, from the menu to a booted system
 
