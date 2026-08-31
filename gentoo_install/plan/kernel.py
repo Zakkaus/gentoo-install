@@ -374,7 +374,13 @@ class AcceptFirmwareLicence(Operation):
     stage: Stage = Stage.KERNEL
 
     def describe(self) -> str:
-        return "accept the linux-firmware licence"
+        # Both tokens, because they are not the same statement:
+        # `no-source-code` accepts a blob nobody can rebuild, and a dry-run
+        # that named only the redistribution term hid the stronger half.
+        return (
+            "accept linux-fw-redistributable and no-source-code for "
+            "sys-kernel/linux-firmware, an exception to ACCEPT_LICENSE"
+        )
 
     def apply(self, context: Context) -> None:
         WritePortageConfig(

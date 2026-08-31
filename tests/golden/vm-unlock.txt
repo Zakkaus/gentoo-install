@@ -47,7 +47,7 @@
   drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written
   set sys-kernel/installkernel to dracut
   ask for sys-apps/systemd[cryptsetup], which provides the unlock generator
-  accept the linux-firmware licence
+  accept linux-fw-redistributable and no-source-code for sys-kernel/linux-firmware, an exception to ACCEPT_LICENSE
   ask for dhclient and arping, which the legacy network module requires
   accept sys-kernel/dracut-crypt-ssh as testing and configure remote unlock over ssh on port 2222
   resolve net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-apps/systemd sys-kernel/dracut sys-kernel/linux-firmware sys-kernel/dracut-crypt-ssh sys-apps/iproute2 net-misc/dhcp net-misc/iputils sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages

@@ -21,7 +21,7 @@
   sync repository gentoo, in /gentoo-install.new
   drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written, in /gentoo-install.new
   set sys-kernel/installkernel to dracut, in /gentoo-install.new
-  accept the linux-firmware licence, in /gentoo-install.new
+  accept linux-fw-redistributable and no-source-code for sys-kernel/linux-firmware, an exception to ACCEPT_LICENSE, in /gentoo-install.new
   resolve net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/dosfstools sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub sys-boot/efibootmgr together before installing the requested packages, in /gentoo-install.new
 
 [system]

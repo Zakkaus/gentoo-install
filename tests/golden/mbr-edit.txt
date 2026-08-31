@@ -32,7 +32,7 @@
   sync repository gentoo
   drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written
   set sys-kernel/installkernel to dracut
-  accept the linux-firmware licence
+  accept linux-fw-redistributable and no-source-code for sys-kernel/linux-firmware, an exception to ACCEPT_LICENSE
   resolve net-misc/netifrc net-misc/dhcpcd app-admin/sysklogd sys-process/cronie sys-kernel/installkernel sys-kernel/dracut sys-kernel/linux-firmware sys-fs/e2fsprogs sys-kernel/gentoo-kernel-bin sys-boot/grub together before installing the requested packages
 
 [system]
