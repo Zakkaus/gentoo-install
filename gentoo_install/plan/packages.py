@@ -612,7 +612,17 @@ INPUT_ENVIRONMENT: Final[dict[tuple[str, Session], tuple[str, ...]]] = {
     ),
 }
 
-GNOME_DESKTOP_GROUP: Final[str] = "gnome"
+#: The profile a GNOME desktop group declares. `gnome` and `gnome-full` both
+#: select it and nothing else does, so the table already says which desktops
+#: are GNOME; comparing the group's name matched one of the two and left the
+#: other without the dconf input sources that session reads.
+GNOME_PROFILE: Final[str] = "/desktop/gnome"
+
+
+def is_gnome(catalog: Catalog, desktop: str) -> bool:
+    """Whether that desktop choice is a GNOME session."""
+    group = catalog.get(desktop)
+    return group is not None and group.profile.endswith(GNOME_PROFILE)
 DCONF_PROFILE: Final[PurePosixPath] = PurePosixPath("/etc/dconf/profile/user")
 GNOME_INPUT_SOURCES: Final[PurePosixPath] = PurePosixPath(
     "/etc/dconf/db/local.d/00-gentoo-install-input-sources"
@@ -1066,7 +1076,7 @@ def _operations(
     # After the groups: `rc-update` refuses a service whose package is absent,
     # and both of these arrive as dependencies of the desktop above.
     operations += _session_services(config, catalog)
-    operations += _input_method(config, chosen)
+    operations += _input_method(config, chosen, catalog)
     if config.packages.extra:
         operations.append(
             Emerge(
@@ -1353,7 +1363,9 @@ def _framework_package(chosen: Sequence[Group], framework: str) -> str:
     return ""
 
 
-def _input_method(config: InstallConfig, chosen: tuple[Group, ...]) -> list[Operation]:
+def _input_method(
+    config: InstallConfig, chosen: tuple[Group, ...], catalog: Catalog
+) -> list[Operation]:
     """Configure one selected framework and every engine belonging to it."""
     engines: list[str] = []
     for group in chosen:
@@ -1417,7 +1429,7 @@ def _input_method(config: InstallConfig, chosen: tuple[Group, ...]) -> list[Oper
                     package=RIME_DATA_PACKAGE, schemas=tuple(schemas)
                 )
             )
-    if framework == "ibus" and config.packages.desktop == GNOME_DESKTOP_GROUP:
+    if framework == "ibus" and is_gnome(catalog, config.packages.desktop):
         sources = tuple(group.input_source for group in chosen if group.input_source)
         if sources:
             operations.append(
@@ -1448,7 +1460,7 @@ def input_environment(config: InstallConfig, catalog: Catalog) -> tuple[str, ...
     Derived here rather than restated there: `plan/automatic.py` exists so the
     operator sees what the installer adds, and a second list would drift.
     """
-    for one in _input_method(config, groups(config, catalog)):
+    for one in _input_method(config, groups(config, catalog), catalog):
         if isinstance(one, WriteInputMethodEnvironment):
             return INPUT_ENVIRONMENT[(one.framework, one.session)]
     return ()

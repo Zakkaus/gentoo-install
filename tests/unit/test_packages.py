@@ -793,3 +793,42 @@ def test_the_text_console_is_offered_no_desktop_proposals() -> None:
     )
     assert after.system.networking is before.system.networking, after.system.networking
     assert after.packages.display_manager == "", after.packages.display_manager
+
+
+def test_both_gnome_variants_get_their_input_sources_configured() -> None:
+    """`gnome-full` is GNOME and was compared out of it by name.
+
+    `ConfigureGnomeInputSources` writes `/etc/dconf/profile/user` and the
+    input-source keys IBus needs a GNOME session to read, and the test was
+    `config.packages.desktop == "gnome"`. The full variant declares the same
+    `.../desktop/gnome` profile, proposes the same IBus, and installed a
+    session with no configured input source.
+
+    Read off the profile, like the graphical test beside it: the table
+    already separates GNOME from Plasma from Xfce.
+    """
+    from gentoo_install.plan.packages import ConfigureGnomeInputSources, is_gnome
+
+    catalog = load_catalog()
+    for name in ("gnome", "gnome-full"):
+        assert is_gnome(catalog, name), catalog[name].profile
+    for name in ("plasma", "plasma-full", "xfce", "console"):
+        assert not is_gnome(catalog, name), catalog[name].profile
+
+    installation = config()
+    for name in ("gnome", "gnome-full"):
+        selected = replace(
+            installation,
+            packages=replace(
+                installation.packages,
+                desktop=name,
+                applications=("ibus", "ibus-pinyin"),
+            ),
+        )
+        configured = [
+            one
+            for one in plan_packages.build(selected, catalog)
+            if isinstance(one, ConfigureGnomeInputSources)
+        ]
+        assert configured, name
+        assert configured[0].engines, (name, configured[0])
