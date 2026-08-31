@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""The documents a contributor reads before the code: SECURITY and the code of
-conduct. What they claim about the program is checked against the program."""
+"""The documents that make a claim about the program: SECURITY, CONTRIBUTING,
+CREDITS, REFERENCE, TESTED and the operator brief. Each claim is checked against
+what the program does, not against another document."""
 
 from __future__ import annotations
 
@@ -323,3 +324,23 @@ def test_contributing_does_not_forbid_what_it_later_permits() -> None:
 
     assert "## Derived code" in said, said[:200]
     assert "[Derived code](#derived-code)" in opening, opening
+
+
+def test_the_operator_brief_counts_the_commands_it_lists() -> None:
+    """It listed two subcommands and then prohibited anything but three.
+
+    An operator agent is told to run nothing else, so a third it cannot find
+    is the one instruction it cannot follow. The number is read off the block
+    rather than written twice.
+    """
+    said = (ROOT / "tests/tui/brief.md").read_text(encoding="utf-8")
+    block = said[said.index("```", said.index("## What you may run")) :]
+    listed = [
+        line.split()[3]
+        for line in block[: block.index("```", 3)].splitlines()
+        if line.startswith("python3 -m tests.tui.session ")
+    ]
+    assert listed, block[:200]
+
+    counted = {1: "one", 2: "two", 3: "three", 4: "four"}[len(listed)]
+    assert f"other than the {counted} above" in said, sorted(listed)
