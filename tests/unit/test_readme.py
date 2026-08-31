@@ -437,3 +437,25 @@ def test_the_disk_tables_describe_what_the_parser_accepts() -> None:
         line for line in said.splitlines() if line.startswith("| `layout` |")
     )
     assert "`reuse`" in layout_row and "no template form" in layout_row, layout_row
+
+
+def test_every_readme_says_a_desktop_alone_boots_to_a_text_login() -> None:
+    """The capability list read as though choosing Plasma gave a login screen.
+
+    A machine installed from a configuration naming `desktop = "plasma"` and no
+    display manager reached `graphical.target` with `sddm` on disk, its unit
+    disabled, and drew a text login. The sentence is checked in each language
+    by the word that carries it, because a reader of one file never sees the
+    other four.
+    """
+    # Codepoints, not literals: no file under tests/ holds a wide character.
+    carried = {
+        "README.md": "display manager is a separate choice",
+        "README.zh-TW.md": "\u986f\u793a\u7ba1\u7406\u5668\u662f\u53e6\u4e00\u500b\u9078\u9805",
+        "README.zh-CN.md": "\u663e\u793a\u7ba1\u7406\u5668\u662f\u53e6\u4e00\u4e2a\u9009\u9879",
+        "README.ja.md": "\u30c7\u30a3\u30b9\u30d7\u30ec\u30a4\u30de\u30cd\u30fc\u30b8\u30e3\u30fc\u306f\u5225\u306e\u9805\u76ee",
+        "README.ko.md": "\ub514\uc2a4\ud50c\ub808\uc774 \uad00\ub9ac\uc790\ub294 \ubcc4\ub3c4\uc758 \uc120\ud0dd\uc9c0",
+    }
+    assert set(carried) == set(READMES), sorted(set(READMES) - set(carried))
+    for name, said in carried.items():
+        assert said in document(name), name

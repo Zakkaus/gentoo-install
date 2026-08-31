@@ -16,7 +16,7 @@ The implementation covers normal disk installation, storage and boot configurati
 
 - **Storage.** The device graph covers partition tables, filesystems, LUKS2, LVM, mdraid and ZFS.
 - **Boot and system.** GRUB, systemd-boot and ZFSBootMenu configure UEFI or BIOS as their configurations allow.
-- **Desktop and language.** GNOME, KDE Plasma, Xfce, CJK fonts and input methods are configuration choices.
+- **Desktop and language.** GNOME, KDE Plasma, Xfce, CJK fonts and input methods are configuration choices. The display manager is a separate choice; a desktop chosen without one boots to a text login.
 - **Special modes.** Memory environments, in-place conversion, sparse images and `dd` have separate constraints.
 
 [The reference](REFERENCE.md#capabilities) defines the models, limits and special-mode procedures.
