@@ -116,6 +116,11 @@ PLACE: Final[str] = "gentoo-install-ram"
 #: from the esp, and those are tens of megabytes.
 STAGING: Final[PurePosixPath] = PurePosixPath("/") / PLACE
 
+#: What the decline answers, in the banner's own words. `nothing was changed`
+#: was wrong for the same reason the banner no longer says the disk is
+#: untouched: the payload and the boot entry are already on the machine.
+DECLINED: Final[str] = "no partition table and no filesystem was changed"
+
 #: What the entry is called wherever the boot method keeps names.
 ENTRY_LABEL: Final[str] = "gentoo-install memory environment"
 
@@ -855,7 +860,7 @@ def _start(mode: MemoryMode) -> str:
         "yes|y|install)\n"
         # `sh`, not `exec sh`: this is sourced, so exec removes the login shell.
         + f"    sh {COMMAND} ;;\n"
-        + f"*) printf '%s\\n' 'nothing was changed; run {COMMAND} when ready' ;;\n"
+        + f"*) printf '%s\\n' '{DECLINED}; run {COMMAND} when ready' ;;\n"
         "esac\n"
     )
 

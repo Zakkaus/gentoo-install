@@ -1403,16 +1403,25 @@ def test_the_first_screen_asks_and_leaves_the_login_shell_alive(
     assert "LOGIN-SHELL-ALIVE" in said, said
 
 
-def test_any_other_answer_changes_nothing(
+def test_any_other_answer_installs_nothing_and_says_only_that(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Two answers and no timeout, and everything that is not the install is
-    the rescue shell."""
+    the rescue shell.
+
+    It said `nothing was changed`, which is the claim the banner above it
+    stopped making: the kernel, the initramfs and the boot entry are on the
+    machine before this screen is reached. Both now say the same thing, and
+    the banner is read here rather than repeated.
+    """
     where = _payload_at(tmp_path, monkeypatch)
+    banner = " ".join(netboot.BANNER[MemoryMode.RAM])
+    assert netboot.DECLINED.removesuffix(" was changed") in banner, banner
 
     for answer in ("shell", "", "no", "INSTALL"):
         said = _sourced(where, answer)
-        assert "nothing was changed" in said, (answer, said)
+        assert netboot.DECLINED in said, (answer, said)
+        assert "nothing was changed" not in said, (answer, said)
         assert "BOOTSTRAP" not in said, (answer, said)
         assert "LOGIN-SHELL-ALIVE" in said, (answer, said)
 
