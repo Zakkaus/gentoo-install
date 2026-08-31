@@ -344,3 +344,52 @@ def test_the_operator_brief_counts_the_commands_it_lists() -> None:
 
     counted = {1: "one", 2: "two", 3: "three", 4: "four"}[len(listed)]
     assert f"other than the {counted} above" in said, sorted(listed)
+
+
+def test_the_reference_documents_every_device_node_and_its_keys() -> None:
+    """`[[disk.devices]]` was named as the graph's shape and never described.
+
+    An operator writing one by hand had the thirteen node kinds and their
+    fields in `parse.py` and nowhere else. Both are read out of the parser
+    here: the next kind, and the next key on an existing kind, fails until
+    the table names it.
+    """
+    import ast
+
+    source = (ROOT / "gentoo_install" / "model" / "parse.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    builders: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        pairs = {
+            key.value: value.id
+            for key, value in zip(node.keys, node.values)
+            if isinstance(key, ast.Constant)
+            and isinstance(key.value, str)
+            and isinstance(value, ast.Name)
+        }
+        if "mountpoint" in pairs and "partition" in pairs:
+            builders = pairs
+    assert len(builders) >= 13, sorted(builders)
+
+    accepted: dict[str, set[str]] = {}
+    for function in (one for one in ast.walk(tree) if isinstance(one, ast.FunctionDef)):
+        for call in ast.walk(function):
+            if not isinstance(call, ast.Call) or getattr(call.func, "id", "") != "_reject_unknown":
+                continue
+            names = call.args[-1]
+            if isinstance(names, ast.Set):
+                accepted[function.name] = {
+                    one.value
+                    for one in names.elts
+                    if isinstance(one, ast.Constant) and isinstance(one.value, str)
+                }
+
+    said = (ROOT / "REFERENCE.md").read_text(encoding="utf-8")
+    section = said[said.index("## Device graph nodes") : said.index("## Binary packages")]
+    for kind, builder in sorted(builders.items()):
+        assert f"| `{kind}` |" in section, kind
+        row = next(line for line in section.splitlines() if line.startswith(f"| `{kind}` |"))
+        for key in sorted(accepted.get(builder, set()) - {"kind", "id"}):
+            assert f"`{key}`" in row, (kind, key, row)
