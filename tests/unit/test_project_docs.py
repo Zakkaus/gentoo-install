@@ -28,12 +28,19 @@ def test_a_report_has_somewhere_to_go(name: str) -> None:
 
 
 def test_security_names_what_publishing_actually_removes() -> None:
-    """`SECURITY.md` tells an operator which values `--paste` takes out. The
+    """`SECURITY.md` tells an operator which values publishing takes out. The
     list is `serialise.SECRET` plus the two proxy credentials, and a field
     added to one and not the other leaves the document promising a protection
-    that is not there."""
+    that is not there.
+
+    The paragraph is found by the redaction it describes rather than by a
+    flag name: it was found by `--paste`, which is not an option this
+    installer has, so the document and the test agreed on something the
+    operator cannot type."""
     said = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
-    paragraph = next(part for part in said.split("\n- ") if "--paste" in part)
+    paragraph = next(
+        part for part in said.split("\n- ") if "Publishing a\n  configuration" in part
+    )
 
     # Both tables: `NOT_FOR_A_PASTE` was added without a document guard of its
     # own, which is the same gap the redaction itself was closing.
@@ -69,3 +76,29 @@ def test_the_issue_form_sends_a_vulnerability_somewhere_else() -> None:
     reporter and the issue tracker."""
     config = (ROOT / ".github" / "ISSUE_TEMPLATE" / "config.yml").read_text(encoding="utf-8")
     assert "SECURITY.md" in config, config
+
+
+def test_the_reference_documents_name_only_options_the_parser_has() -> None:
+    """`SECURITY.md` described `--paste`, and no such option exists.
+
+    Publishing a configuration is a menu action and the log offer is the
+    closing question, so an operator reading that line had a flag to type
+    that `--help` does not list. Only these two documents describe this
+    installer's own command line; `CONTRIBUTING.md` and `TESTED.md` name
+    options of `tests/vm/run.py` and of `emerge`.
+    """
+    import re
+
+    from gentoo_install.cli import parser
+
+    offered = {one for action in parser()._actions for one in action.option_strings}
+    offered.add("--help")
+    assert len(offered) > 10, sorted(offered)
+
+    unknown: list[str] = []
+    for name in ("REFERENCE.md", "SECURITY.md"):
+        said = (ROOT / name).read_text(encoding="utf-8")
+        for found in re.finditer(r"--[a-z][a-z0-9-]*", said):
+            if found.group(0) not in offered:
+                unknown.append(f"{name}: {found.group(0)}")
+    assert unknown == [], unknown
