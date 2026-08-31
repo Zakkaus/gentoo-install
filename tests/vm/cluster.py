@@ -2443,11 +2443,10 @@ def install_one(
         stage_passphrases(link, load(job.installed_config or job.fixture))
         link.run(FIND_DRIVER)
         link.run(f"mkdir -p {RESULT_DIR}")
-        # tee, not a redirect: the serial console is the only way to watch a
-        # run that takes half an hour, and it is what the watchdog reads to
-        # tell a slow mirror from a dead guest.
-        # `wait_for`, not `run`: a console dropped mid-install is reopened and
-        # listened to again, never handed the command a second time.
+        # Detached, then followed: the console is the only way to watch a run
+        # that takes half an hour and it is what the watchdog reads, but a
+        # foreground job on `ttyS0` dies of the hangup a dropped `termproxy`
+        # delivers. The follower is repeatable because the install is not it.
         # Again, immediately before the installer: the first measurement is
         # taken a minute earlier and passed on every guest of round 27, whose
         # installers then found no route at all. This one splits that window.
@@ -2466,12 +2465,13 @@ def install_one(
             )
         _note_the_probe(link, "pre-install")
         phase = Phase.INSTALL
+        link.run(detached_install(job.fixture.name), timeout=180.0)
         link.wait_for(
-            f"{{ sh /mnt/driver/install.sh --config fixtures/{job.fixture.name}; "
-            f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
+            follow_install(),
             timeout=RUN_CEILING,
             idle=INSTALL_IDLE,
             watch=watch,
+            repeatable=True,
         )
         # A third time, after the install: a console that still has its routes
         # when the installer saw none puts the loss in the installer's own
@@ -3196,6 +3196,49 @@ def _naming(command: str) -> Iterator[None]:
 INTERRUPT: Final[str] = "\x03"
 
 
+def detached_install(
+    fixture_name: str,
+    *,
+    results: str = RESULT_DIR,
+    entry: str = "/mnt/driver/install.sh",
+) -> str:
+    """The command that starts an install nothing on the console can kill.
+
+    A foreground job on `ttyS0` gets a hangup when `termproxy` drops, and
+    round 30 lost `vm-zfs-encrypted`, `vm-zfs-mirror` and `zfs-zbm` to it an
+    hour in, each inside the same `emerge sys-apps/systemd`: the console holds
+    a second `starting serial terminal on interface serial0` and a fresh
+    `root@livecd ~ #` under it.
+
+    Braced: the console wrapper appends `; printf MARK`, and a bare `&`
+    followed by `;` is a syntax error. Guarded on `install.txt`, so a resend
+    after a reconnect starts nothing a second time.
+    """
+    body = (
+        f"{{ sh {entry} --config fixtures/{fixture_name}; "
+        f"echo $? > {results}/install.rc; }} > {results}/install.txt 2>&1"
+    )
+    return (
+        f"if [ -e {results}/install.txt ]; then echo install already running; "
+        f"else {{ setsid sh -c '{body}' </dev/null >/dev/null 2>&1 & }}; fi"
+    )
+
+
+def follow_install(*, results: str = RESULT_DIR) -> str:
+    """The command that puts a detached install back on the console.
+
+    `-n 0`, so a follower started again after a reconnect prints what has
+    arrived since rather than replaying the 294910 lines `install.txt` holds.
+    The whole file is collected from the guest either way; the console carries
+    it for the watchdog and for a reader.
+    """
+    return (
+        f"tail -n 0 -F {results}/install.txt & follower=$!; "
+        f"while [ ! -e {results}/install.rc ]; do sleep 5; done; "
+        f"sleep 3; kill $follower 2>/dev/null"
+    )
+
+
 class Reconnecting:
     """A console that opens another one when the cluster drops it.
 
@@ -3380,6 +3423,7 @@ class Reconnecting:
         timeout: float,
         idle: float = 0.0,
         watch: Watchdog | None = None,
+        repeatable: bool = False,
     ) -> None:
         """Send a command once and wait for it however long it takes.
 
@@ -3390,6 +3434,10 @@ class Reconnecting:
         command echo starts at a shell prompt. After a reconnect, `reopen`
         requests a fresh prompt, which also proves that the command returned.
 
+        `repeatable` is for a command that owns nothing: the follower of a
+        detached install is sent again, because a prompt after a reconnect
+        says the shell was replaced and not that the install ended.
+
         `idle` is measured from the last byte the guest sent. An install that
         prints for three hours is working and a single ceiling ends it anyway.
         """
@@ -3398,8 +3446,8 @@ class Reconnecting:
 
         def wait_once(deadline: float) -> None:
             nonlocal sent
-            after_reconnect = sent
-            if not sent:
+            after_reconnect = sent and not repeatable
+            if repeatable or not sent:
                 sent = True
                 self.console.send(marked_command(command, token))
             completion = command_done(token)
@@ -4100,12 +4148,13 @@ def convert_and_check(
     link.run(f"printf '%s\\n' {ETC_MARKER} > {ETC_MARKER_PATH}")
     link.run(FIND_DRIVER)
     link.run(f"mkdir -p {RESULT_DIR}")
+    link.run(detached_install(fixture.name), timeout=180.0)
     link.wait_for(
-        f"{{ sh /mnt/driver/install.sh --config fixtures/{fixture.name}; "
-        f"echo $? > {RESULT_DIR}/install.rc; }} 2>&1 | tee {RESULT_DIR}/install.txt",
+        follow_install(),
         timeout=RUN_CEILING,
         idle=INSTALL_IDLE,
         watch=watch,
+        repeatable=True,
     )
     files = collect(guest, link, log)
     # Prefixed: the names are the same as the install that produced this

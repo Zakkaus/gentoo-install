@@ -5,7 +5,10 @@ from typing import Any, cast
 
 import hashlib
 import io
+import os
 import re
+import signal
+import subprocess
 import time
 import urllib.request
 from collections.abc import Callable
@@ -687,7 +690,12 @@ def test_the_network_is_measured_once_more_after_the_install(
             repeatability[command] = repeatable
 
         def wait_for(
-            self, command: str, timeout: float, idle: float, watch: cluster.Watchdog
+            self,
+            command: str,
+            timeout: float,
+            idle: float,
+            watch: cluster.Watchdog,
+            repeatable: bool = False,
         ) -> None:
             events.append(command)
 
@@ -822,7 +830,7 @@ def test_the_converted_machine_is_read_back_the_same_way(monkeypatch: pytest.Mon
 
     code = inspect.getsource(cluster.convert_and_check)
     assert "boot_and_check(" in code
-    assert "install.sh --config fixtures/" in code
+    assert "detached_install(" in code
     assert "wait_for_network(" in code, "the installed system has to reach a mirror too"
 
 
@@ -3299,7 +3307,7 @@ def test_a_cluster_conversion_writes_and_reads_the_home_marker() -> None:
     # The constant, not a second copy of the path: the local runner writes the
     # same file and reads the same marker.
     written = source.index("HOME_MARKER_PATH")
-    converted = source.index("install.sh")
+    converted = source.index("detached_install(")
     assert written < converted, source
     assert source.index("ETC_MARKER_PATH") < converted, source
     assert "HOME_MARKER_CHECK, ETC_MARKER_CHECK" in source, source
@@ -4668,3 +4676,87 @@ def test_the_resolver_setup_reaches_nsswitch_as_well_as_the_file() -> None:
     # next lookup reads, and a resolver written after the switch was rewritten
     # would still be the one in force.
     assert command.index("resolv.conf") < command.index("nsswitch.conf"), command
+
+
+def test_an_install_outlives_the_shell_that_started_it(tmp_path: Path) -> None:
+    """The console's hangup is what round 30 lost three ZFS guests to.
+
+    `termproxy` dropped inside `emerge sys-apps/systemd` and the reconnect's
+    new `qm terminal` hung up the guest's `ttyS0`, killing the foreground
+    install an hour in. Each console holds a second `starting serial terminal
+    on interface serial0` with a fresh `root@livecd ~ #` under it.
+
+    Run rather than read: the launcher is a shell string, and whether its
+    child leaves the session is not visible in the source.
+    """
+    results = tmp_path / "results"
+    results.mkdir()
+    entry = tmp_path / "install.sh"
+    entry.write_text("i=0\nwhile [ $i -lt 6 ]; do echo line $i; i=$((i+1)); sleep 1; done\nexit 7\n")
+
+    launch = cluster.detached_install("x.toml", results=str(results), entry=str(entry))
+    follow = cluster.follow_install(results=str(results))
+
+    # In a session of its own, then hung up: that is what reaches the guest's
+    # foreground job when `termproxy` drops and `qm terminal` attaches again.
+    shell = subprocess.Popen(
+        ["sh", "-c", f"{launch}; sleep 30"],
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+    )
+    time.sleep(2)
+    os.killpg(os.getpgid(shell.pid), signal.SIGHUP)
+    shell.wait(timeout=10)
+
+    first = subprocess.run(["sh", "-c", follow], capture_output=True, text=True, timeout=60)
+    assert "line " in first.stdout, first.stdout
+
+    # Sending the launcher again starts nothing: the install is still running.
+    again = subprocess.run(["sh", "-c", launch], capture_output=True, text=True)
+    assert "install already running" in again.stdout, again.stdout
+
+    # The hangup did not reach it: it ran to its own end and wrote its code.
+    assert (results / "install.rc").read_text().strip() == "7"
+    assert (results / "install.txt").read_text().count("line ") == 6
+    # A follower started after the drop prints what arrived after it attached,
+    # not the log from the top: `install.txt` runs to 294910 lines on a guest.
+    assert "line 0" not in first.stdout, first.stdout
+
+
+def test_a_repeatable_wait_is_sent_again_after_a_reconnect() -> None:
+    """A prompt after a reconnect says the shell was replaced.
+
+    `wait_for` reads one as the command having returned, which is right for a
+    command the reconnect could not have killed and wrong for the follower of
+    a detached install: the follower died with its shell and nothing is
+    printing. `repeatable` sends it again instead.
+    """
+
+    from tests.vm.console import ConsoleClosed
+
+    class Dropping(_MarkerConsole):
+        def __init__(self) -> None:
+            super().__init__(b"", completes=False)
+            self.opens = 0
+
+        def expect(self, pattern: str, timeout: float, idle: float = 0.0) -> bytes:
+            self.patterns.append(pattern)
+            if self.opens < 3:
+                raise ConsoleClosed("dropped")
+            matched = re.search(r"MARK_(\d+)_DONE", pattern)
+            assert matched is not None
+            return f"MARK_{matched.group(1)}_DONE\n".encode()
+
+    console = Dropping()
+
+    def open_console() -> Any:
+        console.opens += 1
+        return console
+
+    link = cluster.Reconnecting(open_console, tries=4)
+    link.wait_for("follow", timeout=60.0, repeatable=True)
+    followers = [one for one in console.sent if "follow" in one]
+    assert len(followers) == 3, console.sent
+    # Not the prompt fallback: a repeatable wait never accepts one, because a
+    # prompt is exactly what a hangup leaves behind.
+    assert not any("root@" in one for one in console.patterns), console.patterns
