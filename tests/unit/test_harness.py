@@ -632,8 +632,8 @@ def test_every_installed_check_is_line_bounded_or_names_why_it_is_not() -> None:
     assert exceptions == {
         ("mounts", "requires every configured mount line"),
         ("kernel", "joins a running release to a boot path"),
-        ("greetd service", "requires enabled and active state lines"),
-        ("greetd service", "requires default service and process lines"),
+        ("greeter service", "requires enabled and active state lines"),
+        ("greeter service", "requires default service and process lines"),
         ("greetd config", "requires constraints across greetd config lines"),
         ("inputmethod", "requires the binary and every environment line"),
         ("authorized keys root", "requires every fingerprint and both modes"),
@@ -837,7 +837,7 @@ def test_an_openrc_machine_is_asked_about_greetd_the_way_openrc_answers() -> Non
     )
 
     asked = next(
-        one for one in checks(under_openrc) if one.name == "greetd service"
+        one for one in checks(under_openrc) if one.name == "greeter service"
     )
 
     assert "systemctl" not in asked.command, asked.command
@@ -854,11 +854,11 @@ def test_greetd_service_check_reads_systemd_state() -> None:
     from tests.vm.installed import InstalledCheck, checks
 
     installation = load(Path("tests/fixtures/vm-greetd.toml"))
-    actual = [one for one in checks(installation) if one.name == "greetd service"]
+    actual = [one for one in checks(installation) if one.name == "greeter service"]
     assert actual == [
         InstalledCheck(
-            "greetd service",
-            "systemctl is-enabled greetd.service; systemctl is-active greetd.service",
+            "greeter service",
+            "systemctl is-enabled greetd.service; systemctl is-active display-manager.service",
             r"(?m)^enabled$\n^active$",
             "requires enabled and active state lines",
         )
@@ -931,7 +931,10 @@ def test_greetd_checks_are_not_requested_without_greetd() -> None:
     installation = replace(
         selected, packages=replace(selected.packages, display_manager="lightdm")
     )
-    assert [one for one in checks(installation) if one.name.startswith("greetd")] == []
+    named = [one.name for one in checks(installation)]
+    assert "greetd config" not in named, named
+    # The service check is every display manager's, so lightdm keeps it.
+    assert "greeter service" in named, named
 
 
 def test_a_guest_waits_until_the_machine_has_room_for_it() -> None:

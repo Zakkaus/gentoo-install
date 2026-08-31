@@ -54,9 +54,10 @@
   accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk off, writing /etc/portage/package.use/cjk-kernel
   unmask virtual/dist-kernel, which the cjk kernel depends on by revision
   ask for app-i18n/fcitx-configtool kcm; sys-libs/minizip-ng compat; kde-plasma/kwin lock; kde-plasma/kwin-x11 lock for the plasma group
+  ask for x11-misc/sddm systemd; sys-auth/pambase systemd for the sddm group
   ask for app-i18n/rime-data extra for the rime-simplified group
   ask for dev-libs/libdbusmenu gtk3 for the flclash group
-  resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-apps/systemd sys-kernel/dracut sys-kernel/linux-firmware sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-kernel/gentoo-cjk-kernel-bin sys-boot/grub sys-boot/efibootmgr kde-plasma/plasma-meta x11-base/xorg-server kde-apps/konsole kde-apps/dolphin app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool app-i18n/fcitx-rime app-i18n/rime-data media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig net-proxy/flclash-bin together before installing the requested packages
+  resolve app-admin/sudo net-misc/openssh sys-process/cronie sys-kernel/installkernel sys-apps/systemd sys-kernel/dracut sys-kernel/linux-firmware sys-fs/cryptsetup sys-fs/btrfs-progs sys-fs/dosfstools sys-kernel/gentoo-cjk-kernel-bin sys-boot/grub sys-boot/efibootmgr kde-plasma/plasma-meta x11-base/xorg-server kde-apps/konsole kde-apps/dolphin x11-misc/sddm app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool app-i18n/fcitx-rime app-i18n/rime-data media-fonts/noto-cjk media-fonts/noto media-libs/fontconfig net-proxy/flclash-bin together before installing the requested packages
 
 [system]
   write /etc/locale.gen with locales en_US.UTF-8, zh_TW.UTF-8 and verify them
@@ -99,6 +100,8 @@
 
 [packages]
   install the plasma group: emerge kde-plasma/plasma-meta x11-base/xorg-server kde-apps/konsole kde-apps/dolphin
+  install the sddm group: emerge x11-misc/sddm
+  enable sddm at boot
   install the fcitx5 group: emerge app-i18n/fcitx app-i18n/fcitx-gtk app-i18n/fcitx-qt app-i18n/fcitx-configtool
   install the rime group: emerge app-i18n/fcitx-rime app-i18n/rime-data
   install the rime-simplified group: emerge app-i18n/fcitx-rime app-i18n/rime-data

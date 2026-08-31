@@ -311,12 +311,18 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
                 r"(?m)^/dev/zram0$",
             )
         )
-    if installation.packages.display_manager == "greetd":
+    # Every display manager, not `greetd` alone: the KDE guest of 2026-09-01
+    # asked for none, so `sddm` arrived as a dependency of `plasma-meta`, its
+    # unit stayed `disabled` under a default target of `graphical.target`, and
+    # the machine drew a text login with the whole desktop installed.
+    if installation.packages.display_manager:
+        greeter = installation.packages.display_manager
         if installation.system.init is InitSystem.SYSTEMD:
             result.append(
                 InstalledCheck(
-                    "greetd service",
-                    "systemctl is-enabled greetd.service; systemctl is-active greetd.service",
+                    "greeter service",
+                    f"systemctl is-enabled {greeter}.service; "
+                    "systemctl is-active display-manager.service",
                     r"(?m)^enabled$\n^active$",
                     "requires enabled and active state lines",
                 )
@@ -324,12 +330,13 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
         else:
             result.append(
                 InstalledCheck(
-                    "greetd service",
-                    "rc-update show default; pgrep -x greetd",
+                    "greeter service",
+                    f"rc-update show default; pgrep -x {greeter}",
                     r"(?ms)(?=.*^display-manager\s+\|\s+default$)(?=.*^[1-9][0-9]*$)",
                     "requires default service and process lines",
                 )
             )
+    if installation.packages.display_manager == "greetd":
         result.append(
             InstalledCheck(
                 "greetd config",
