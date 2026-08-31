@@ -1691,3 +1691,38 @@ def test_a_vfat_label_is_refused_unless_mkfs_can_write_it(
         return
     with pytest.raises(ValidationFailed, match="which mkfs cannot write into one"):
         validate(config(nodes))
+
+
+def test_a_desktop_paired_with_another_desktops_profile_is_refused() -> None:
+    """Nothing refused `desktop = "plasma"` on `.../desktop/systemd`.
+
+    That pairing is in `tests/fixtures/btrfs-luks.toml` and it stalled three
+    cluster rounds at `install the plasma group`: the profile is valid, it
+    matches the init and the repository has it, so every existing rule passed
+    it. `data/profiles/base/plasma.toml` declares the profile its packages are
+    built against, and that is what the config has to name.
+    """
+    from gentoo_install import data
+
+    catalog = data.load_catalog()
+    declared = {name: group.profile for name, group in catalog.items() if group.profile}
+    assert declared, "no shipped group declares a profile"
+
+    base = load(Path("tests/fixtures/vm-desktop.toml"))
+    assert base.packages.desktop in declared, base.packages.desktop
+
+    # The one the fixture was written with, which is the desktop's own.
+    validate(base, declared_desktop_profiles=declared)
+
+    generic = replace(
+        base,
+        portage=replace(base.portage, profile="default/linux/amd64/23.0/desktop/systemd"),
+    )
+    with pytest.raises(ValidationFailed) as refused:
+        validate(generic, declared_desktop_profiles=declared)
+    assert "is built against" in str(refused.value), str(refused.value)
+
+    # Without the mapping the rule is silent, because the shipped names are
+    # read at the entry point and a caller that has not read them cannot
+    # decide: the TUI validates a graph mid-edit with nothing injected.
+    validate(generic)

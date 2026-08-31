@@ -226,6 +226,8 @@ def validate(
     available_timezones: Collection[str] | _ShippedValuesNotRead = _SHIPPED_VALUES_NOT_READ,
     available_package_groups: Collection[str]
     | _ShippedValuesNotRead = _SHIPPED_VALUES_NOT_READ,
+    declared_desktop_profiles: Mapping[str, str]
+    | _ShippedValuesNotRead = _SHIPPED_VALUES_NOT_READ,
     zfs_kernel_max: str | None | _ZfsKernelCeilingNotChecked = (
         _ZFS_KERNEL_CEILING_NOT_CHECKED
     ),
@@ -287,6 +289,7 @@ def validate(
         *_locale_problems(config),
         *_system_value_problems(config, available_timezones),
         *_package_group_problems(config, available_package_groups),
+        *_desktop_profile_problems(config, declared_desktop_profiles),
         *_l10n_problems(config),
         *_repository_name_problems(config),
         *compat.binhost_subarch_problems(config, supports_v3),
@@ -708,6 +711,35 @@ def _profile_problems(config: InstallConfig) -> list[str]:
     return [f"init is {config.system.init.value} and the profile is {profile}; use {wanted}"]
 
 
+
+
+def _desktop_profile_problems(
+    config: InstallConfig,
+    declared: Mapping[str, str] | _ShippedValuesNotRead,
+) -> list[str]:
+    """The desktop group names the profile its packages are built against.
+
+    `tests/fixtures/btrfs-luks.toml` paired `desktop = "plasma"` with the
+    generic `.../desktop/systemd`, and three cluster rounds stalled at
+    `install the plasma group`. Nothing refused it: the profile is valid, it
+    matches the init, and the repository has it.
+
+    The init suffix stays the caller's: `data/profiles/base/plasma.toml`
+    declares `.../desktop/plasma`, and a systemd system wants that path with
+    `/systemd` on the end.
+    """
+    if isinstance(declared, _ShippedValuesNotRead):
+        return []
+    wanted = declared.get(config.packages.desktop, "")
+    if not wanted:
+        return []
+    chosen = config.portage.profile
+    if chosen in (wanted, f"{wanted}/systemd"):
+        return []
+    return [
+        f"desktop is {config.packages.desktop} and the profile is {chosen}; "
+        f"that desktop is built against {wanted}"
+    ]
 
 
 def _repository_profile_problems(
