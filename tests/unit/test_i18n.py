@@ -655,6 +655,32 @@ def test_no_catalog_shows_a_particle_the_writer_had_not_chosen() -> None:
                 continue
             assert not candidates.search(value), f"{catalog.name}: {source}"
 
+def test_korean_placeholders_never_choose_a_particle() -> None:
+    import re
+
+    unresolved = re.compile(
+        r"\{(?:[^{}]+)?\}\s*(?:"
+        r"(?:\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uACFC|\uC640)(?=\s|[.,;:!?]|$)"
+        r"|\uC774(?:\uBA70|\uACE0|\uBBC0)"
+        r"|\(\uC73C\)\uB85C"
+        r")"
+    )
+    for source, value in shipped("ko").items():
+        assert not unresolved.search(value), (source, value)
+
+
+def test_korean_ascii_terms_do_not_detach_postpositions() -> None:
+    import re
+
+    detached = re.compile(
+        r"(?<=[A-Za-z0-9_@/:=+\-])\s+(?:"
+        r"\uC5D0\uC11C|\uC5D0\uB3C4|\uC73C\uB85C|\uC740|\uB294|\uC774|\uAC00|"
+        r"\uC744|\uB97C|\uC640|\uACFC|\uC758|\uC5D0|\uB9CC|\uB3C4|\uB85C"
+        r")(?=\s|[.,;:!?]|$)"
+    )
+    for source, value in shipped("ko").items():
+        assert not detached.search(value), (source, value)
+
 
 #: Every operation template carrying more than one placeholder. The values are
 #: substituted in order, so a translation that moves them to suit its own word
