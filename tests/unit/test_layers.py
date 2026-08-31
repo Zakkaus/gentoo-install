@@ -1483,3 +1483,102 @@ def test_no_description_reads_the_machine_it_describes() -> None:
     # method would leave this passing over nothing at all.
     assert described > 100, described
     assert not offenders, offenders
+
+
+def test_every_module_constant_is_read_where_it_can_be_seen() -> None:
+    """`test_no_definition_in_the_package_is_unreachable` keys on bare names.
+
+    `tests/vm/campaign.py` defined `WORKROOT` and read it nowhere;
+    `tests/vm/run.py` defines its own, so the name-only graph counted the
+    campaign constant as reached. It was also the same path written twice.
+
+    A module-level constant is read here only where a reader can actually see
+    it: in its own module, imported by name from it, or through an attribute
+    on the module — with import aliases resolved, because
+    `from ..model import config as model_config` is how `PERSISTED_SECTIONS`
+    is reached and a check that missed it would report two false ones.
+    """
+    root = Path(__file__).resolve().parents[2]
+    candidates = [
+        path
+        for where in ("gentoo_install", "tests/vm")
+        for path in sorted((root / where).rglob("*.py"))
+    ]
+    # Every test counts as a reader; only the two trees above are searched for
+    # definitions, which is the same boundary the neighbouring rule draws.
+    readers = [
+        path
+        for where in ("gentoo_install", "tests")
+        for path in sorted((root / where).rglob("*.py"))
+    ]
+    trees = {path: ast.parse(path.read_text()) for path in {*candidates, *readers}}
+
+    def aliases_in(tree: ast.Module) -> dict[str, str]:
+        found: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for one in node.names:
+                    found[one.asname or one.name.split(".")[0]] = one.name.split(".")[-1]
+            elif isinstance(node, ast.ImportFrom):
+                for one in node.names:
+                    found[one.asname or one.name] = one.name
+        return found
+
+    def constants_in(tree: ast.Module) -> dict[str, ast.stmt]:
+        found: dict[str, ast.stmt] = {}
+        for node in tree.body:
+            targets: list[ast.Name] = []
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                targets = [node.target]
+            elif isinstance(node, ast.Assign):
+                targets = [one for one in node.targets if isinstance(one, ast.Name)]
+            for target in targets:
+                if target.id.isupper() and not target.id.startswith("_"):
+                    found[target.id] = node
+        return found
+
+    alias_of = {path: aliases_in(tree) for path, tree in trees.items()}
+    orphans: list[str] = []
+    counted = 0
+    for path in candidates:
+        stem = path.stem
+        for name, node in constants_in(trees[path]).items():
+            counted += 1
+            if any(
+                isinstance(one, ast.Name) and one.id == name and isinstance(one.ctx, ast.Load)
+                for one in ast.walk(trees[path])
+            ):
+                continue
+            if any(
+                _reads_the_constant(trees[other], alias_of[other], stem, name)
+                for other in readers
+                if other != path
+            ):
+                continue
+            orphans.append(f"{path.relative_to(root)}:{node.lineno} {name}")
+    # The count guards the walk: a change that stopped matching constants
+    # would leave this passing over an empty set.
+    assert counted > 200, counted
+    assert not orphans, orphans
+
+
+def _reads_the_constant(
+    tree: ast.Module, aliases: dict[str, str], stem: str, name: str
+) -> bool:
+    """Whether one module reads `stem.name`, however it spelled the import."""
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.split(".")[-1] == stem
+            and any(one.name == name for one in node.names)
+        ):
+            return True
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == name
+            and isinstance(node.value, ast.Name)
+            and aliases.get(node.value.id, node.value.id) == stem
+        ):
+            return True
+    return False
