@@ -169,3 +169,38 @@ def test_security_says_when_the_staged_passphrase_goes() -> None:
         if isinstance(node, ast.Attribute) and node.attr == "cleanup_secrets"
     ]
     assert cleaned, ast.dump(tree)[:200]
+
+def test_the_reference_lists_every_kernel_source_and_the_real_exit_codes() -> None:
+    """Two tables in `REFERENCE.md` were written once and not kept.
+
+    The kernel table names four of the five `KernelSource` members: `xanmod`
+    is offered on the Kernel screen and merges `sys-kernel/xanmod-kernel`, so
+    the reference described a choice the installer has as one it does not.
+
+    The exit-code table gave `2` to an argparse usage error. `cli.py`
+    translates the parser's `SystemExit(2)` to `EXIT_CONFIG`, so the process
+    exits `1` and `2` is preflight alone. Both are read off the code here
+    rather than repeated.
+    """
+    import subprocess
+    import sys
+
+    from gentoo_install.cli import EXIT_CONFIG, EXIT_PREFLIGHT
+    from gentoo_install.model.compat import KERNEL_PACKAGES
+
+    said = (ROOT / "REFERENCE.md").read_text(encoding="utf-8")
+
+    assert len(KERNEL_PACKAGES) >= 5, sorted(one.value for one in KERNEL_PACKAGES)
+    for source, package in KERNEL_PACKAGES.items():
+        assert f"`{source.value}`" in said, source.value
+        assert f"`{package.atom}`" in said, package.atom
+
+    # What the parser actually does, not what the table remembers.
+    refused = subprocess.run(
+        [sys.executable, "-m", "gentoo_install", "--an-option-that-does-not-exist"],
+        capture_output=True,
+        cwd=ROOT,
+    )
+    assert refused.returncode == EXIT_CONFIG, refused.returncode
+    assert f"| `{EXIT_CONFIG}` | configuration error" in said, said[:0]
+    assert f"| `{EXIT_PREFLIGHT}` | preflight failure |" in said
