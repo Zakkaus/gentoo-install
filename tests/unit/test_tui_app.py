@@ -275,6 +275,31 @@ def test_install_hands_back_the_configuration() -> None:
     assert "Overview" in seen and "operations:" in seen
 
 
+def test_overview_uses_catalog_templates_for_count_summary() -> None:
+    """The catalog decides the overview summary's order and punctuation."""
+    from gentoo_install.plan.build import build as plan_build
+    from gentoo_install.plan.render import counts
+
+    at = context()
+    at.translate = Catalog("zh-TW")
+    operations = plan_build(config(), at.groups, layout=at.running_layout)
+    stages = at.translate(", ").join(
+        at.translate("{stage}: {count}").format(
+            stage=at.translate(stage.value), count=count
+        )
+        for stage, count in counts(operations).items()
+    )
+    expected = at.translate("{title}: {summary}").format(
+        title=at.translate("Overview"),
+        summary=at.translate("{count} operations: {stages}").format(
+            count=len(operations), stages=stages
+        ),
+    )
+    screen = FakeScreen(keys=["q"], lines=100, columns=300)
+    overview_screen(screen, config(), at)
+    assert expected in screen.last
+
+
 def test_the_install_row_shows_every_operation_before_it_starts() -> None:
     """`overview_screen` was written and never wired: choosing Install went
     straight to partitioning the disk with no list and no confirmation."""
@@ -355,6 +380,19 @@ def test_firewall_dialog_leaving_does_not_commit(leaving: str) -> None:
     )
     assert answer.outcome is (Outcome.BACK if leaving == "KEY_LEFT" else Outcome.CANCELLED)
     assert answer.value is None
+
+
+def test_firewall_choice_labels_are_catalog_entries() -> None:
+    """`none` is a word and is translated; the other two are the tools' names."""
+    at = context()
+    at.translate = Catalog("zh-TW")
+    screen = FakeScreen(keys=["q"], lines=24, columns=120)
+
+    screens.firewall_screen(screen, config(), at)
+
+    assert at.translate("none") in screen.last
+    assert "none" not in screen.last
+    assert "iptables" in screen.last and "nftables" in screen.last
 
 
 def test_invalid_extra_package_dialog_cancellation_reaches_caller() -> None:
@@ -1168,6 +1206,19 @@ def test_a_chinese_system_locale_selects_no_input_method_or_font_group() -> None
     }
     assert not language_packages.intersection(chosen.packages.applications)
 
+
+def test_locale_menu_names_are_taken_from_the_catalog() -> None:
+    at = context()
+    at.translate = Catalog("zh-TW")
+    source = "Chinese (Traditional)"
+    expected = at.translate(source)
+
+    for chooser in (screens.locale_screen, screens.additional_locales_screen):
+        screen = FakeScreen(keys=["q"], lines=24, columns=120)
+        chooser(screen, config(), at)
+        assert expected in screen.last
+        assert source not in screen.last
+
 def test_a_desktop_on_a_cjk_interface_proposes_its_font_and_framework() -> None:
     """The other half: the language installs nothing, and the desktop asks.
     Without a session `media-fonts/noto-cjk` and `media-libs/fontconfig` render
@@ -1952,6 +2003,21 @@ def test_a_swap_partition_and_zram_are_two_rows_and_not_alternatives() -> None:
 
     none = screens.swap_screen(FakeScreen(keys=["KEY_UP", "\n"]), off, at).unwrap()
     assert not none.disk.graph.of_type(Swap)
+
+
+def test_ram_share_detail_is_a_localized_template() -> None:
+    at = context()
+    at.translate = Catalog("zh-TW")
+    for chooser, share in (
+        (screens.zram_screen, "a quarter"),
+        (screens.build_in_ram_screen, "half"),
+    ):
+        expected = at.translate("{share} of this machine's memory").format(
+            share=at.translate(share)
+        )
+        screen = FakeScreen(keys=["q"], lines=24, columns=120)
+        chooser(screen, config(), at)
+        assert expected in screen.last
 
 
 def test_backing_out_of_a_group_keeps_what_was_edited_inside_it() -> None:

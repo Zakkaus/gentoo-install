@@ -84,6 +84,15 @@ def test_every_shipped_catalog_translates_the_same_keys() -> None:
         for key, value in shipped(tag).items():
             assert value and catalog(key) == value, key
 
+def test_locale_menu_labels_are_translated_in_every_catalog() -> None:
+    """Locale rows pass their table labels to the catalog indirectly."""
+    from gentoo_install.tui.screens import LOCALES as SYSTEM_LOCALES
+
+    for tag in ("ja", "ko", "zh-CN", "zh-TW"):
+        catalog = Catalog(tag)
+        for _, label in SYSTEM_LOCALES:
+            assert catalog(label) != label, (tag, label)
+
 
 #: One English term, one rendering per catalog. Written by codepoint because
 #: no CJK literal belongs in the test tree. The pairs are (kept, refused):
@@ -149,10 +158,11 @@ def in_a_table() -> set[str]:
     from gentoo_install.tui.mirror import BINHOSTS, GENTOOZH_CHANNELS, SYNC_METHODS
     from gentoo_install.tui.packages import DISPLAY_MANAGERS, GRAPHICS
     from gentoo_install.tui.screens import (
-        RAM_SHARES,
         INSTALL_MODES,
         KERNELS,
         LICENSES,
+        LOCALES as SYSTEM_LOCALES,
+        RAM_SHARES,
     )
 
     tables = (
@@ -160,6 +170,7 @@ def in_a_table() -> set[str]:
         SYNC_METHODS, GENTOOZH_CHANNELS, BINHOSTS, INSTALL_MODES,
     )
     found = {reason for table in tables for _, reason in table}
+    found |= {label for _, label in SYSTEM_LOCALES}
     # Every key the interface answers, from the one table the help page draws.
     from gentoo_install.tui.widgets import KEY_HELP
 
@@ -216,7 +227,6 @@ def in_a_table() -> set[str]:
     from gentoo_install.plan.operations import Stage
 
     found |= {one.value for one in Stage}
-    found.add("{count} operations")
     # The panel translates `Added.because` through a variable, so the reasons
     # are read from the table that declares them.
     from gentoo_install.plan.automatic import REASONS

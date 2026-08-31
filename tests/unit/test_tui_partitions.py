@@ -251,6 +251,20 @@ def test_the_purpose_menu_names_root() -> None:
     assert {"esp", "boot", "home", "var", "swap"} <= set(labels)
 
 
+
+def test_partition_purpose_picker_uses_the_purpose_labels() -> None:
+    at = opened()
+    at.translate = Catalog("zh-TW")
+    entry = manual.Slice(index=1, role=PartitionRole.DATA, size=None)
+    screen = FakeScreen(keys=["q"], lines=30, columns=120)
+
+    partitions._edit_field(
+        screen, at, entry, manual.purpose_of(entry), partitions._PURPOSE
+    )
+
+    assert at.translate("zfs pool member") in screen.last
+    assert "zfs pool member" not in screen.last
+
 def test_choosing_a_purpose_settles_the_mount_point_and_the_filesystem() -> None:
     """Everything the purpose decides moves together: `swap` has to drop the
     mount point and the filesystem the slice carried as `root`."""
@@ -1151,6 +1165,20 @@ def test_the_array_row_says_what_to_set_before_it_can_be_opened() -> None:
     open_now = next(one for one in partitions._partition_rows(at) if one.label == "RAID array")
     assert open_now.disabled_because == ""
     assert open_now.detail
+
+
+def test_array_title_is_a_catalog_template() -> None:
+    at = opened()
+    at.translate = Catalog("zh-TW")
+    at.layout = mirrored()
+    screen = FakeScreen(keys=["q"], lines=24, columns=120)
+
+    partitions._edit_array(screen, at)
+
+    expected = at.translate("RAID array: {members} members").format(
+        members=len(partitions._array_members(at))
+    )
+    assert expected in screen.last
 
 
 def test_a_level_the_members_cannot_make_is_shown_with_what_it_needs() -> None:

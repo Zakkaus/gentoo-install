@@ -584,7 +584,7 @@ def _edit_array(screen: Screen, context: Context) -> None:
         array = context.layout.array
         items = [field.row((array, members), translate) for field in _ARRAY_FIELDS]
         answer = Menu(
-            title=f"{translate('RAID array')}  {members} {translate('members')}",
+            title=translate("RAID array: {members} members").format(members=members),
             items=items,
             footer=footer(translate),
         ).run(screen)
@@ -952,13 +952,8 @@ def _slice_fields(
     return _slice_field_items(entry, purpose, translate)
 
 
-def _slice_field_items(
-    entry: manual.Slice, purpose: manual.Purpose, translate: Catalog
-) -> list[Item[str]]:
-    """Every field with its value, and why one that does not apply cannot be
-    opened."""
-    no_filesystem = translate("this purpose fixes the filesystem")
-    purpose_labels = {
+def _purpose_label(purpose: manual.Purpose, translate: Catalog) -> str:
+    labels = {
         "root": translate("root"),
         "esp": translate("esp"),
         "boot": translate("boot"),
@@ -970,9 +965,18 @@ def _slice_field_items(
         "bios-boot": translate("bios-boot"),
         "other": translate("other"),
     }
+    return labels[purpose.label]
+
+
+def _slice_field_items(
+    entry: manual.Slice, purpose: manual.Purpose, translate: Catalog
+) -> list[Item[str]]:
+    """Every field with its value, and why one that does not apply cannot be
+    opened."""
+    no_filesystem = translate("this purpose fixes the filesystem")
     return [
         Item(label=translate("Size"), value=_SIZE, detail=_size_of(entry, translate)),
-        Item(label=translate("Purpose"), value=_PURPOSE, detail=purpose_labels[purpose.label]),
+        Item(label=translate("Purpose"), value=_PURPOSE, detail=_purpose_label(purpose, translate)),
         Item(
             label=translate("Filesystem"),
             value=_FILESYSTEM,
@@ -1107,7 +1111,7 @@ def _edit_field_legacy(
             translate("What is this partition for?"),
             [
                 Item(
-                    label=one.label,
+                    label=_purpose_label(one, translate),
                     value=one,
                     disabled_because=(
                         context.zfs_unavailable if one.role is PartitionRole.ZFS else ""

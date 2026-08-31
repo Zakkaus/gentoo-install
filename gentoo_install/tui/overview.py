@@ -24,9 +24,14 @@ _EXPORT: Final[int] = 1
 def _counted(operations: Sequence[Operation], translate: Catalog) -> str:
     """Return the translated operation count and stage breakdown."""
     counted = counts(operations)
-    parts = [f"{translate(stage.value)} {count}" for stage, count in counted.items()]
-    return "{}: {}".format(
-        translate("{count} operations").format(count=sum(counted.values())), ", ".join(parts)
+    stages = translate(", ").join(
+        translate("{stage}: {count}").format(
+            stage=translate(stage.value), count=count
+        )
+        for stage, count in counted.items()
+    )
+    return translate("{count} operations: {stages}").format(
+        count=sum(counted.values()), stages=stages
     )
 
 
@@ -53,6 +58,8 @@ def overview_screen(
     except GentooInstallError as error:
         say(screen, context, str(error).splitlines()[-1].strip())
         return Answer(Outcome.CANCELLED)
+    summary = _counted(operations, translate)
+
     items: list[Item[int]] = []
     # The table the menu asked from, not every table: in `dd` mode the menu
     # asks two rows and this listed the twenty-three of a disk install, so the
@@ -108,7 +115,9 @@ def overview_screen(
     )
     while True:
         menu: Menu[int] = Menu(
-            title=f"{translate('Overview')}: {_counted(operations, translate)}",
+            title=translate("{title}: {summary}").format(
+                title=translate("Overview"), summary=summary
+            ),
             items=items,
             footer=footer(translate, "Choose a row"),
         )
