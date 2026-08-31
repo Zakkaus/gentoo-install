@@ -16,7 +16,7 @@ gentoo-install은 Linux 라이브 환경에서 실행되어 amd64 아키텍처�
 
 - **스토리지.** 장치 그래프는 파티션 테이블, 파일 시스템, LUKS2, LVM, mdraid, ZFS를 다룬다.
 - **부팅과 시스템.** GRUB, systemd-boot, ZFSBootMenu는 구성에 따라 UEFI 또는 BIOS 부팅을 구성한다.
-- **데스크톱과 언어.** GNOME, KDE Plasma, Xfce, CJK 글꼴, 입력기는 구성 선택지다.
+- **데스크톱과 언어.** GNOME, KDE Plasma, Xfce, CJK 글꼴, 입력기는 구성 선택지다. 디스플레이 관리자는 별도의 선택지이며, 데스크톱만 고른 기기는 텍스트 로그인으로 부팅한다.
 - **특수 모드.** 메모리 환경, 인플레이스 변환, 스파스 이미지, `dd`에는 각각의 제약이 있다.
 
 [참조 문서](REFERENCE.md#capabilities)는 모델, 제한, 특수 모드 절차를 정의한다.

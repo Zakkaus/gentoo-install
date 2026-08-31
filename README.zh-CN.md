@@ -16,7 +16,7 @@ gentoo-install 在 Linux live 环境中运行，用于安装 amd64 架构的 Gen
 
 - **存储**。设备图涵盖分区表、文件系统、LUKS2、LVM、mdraid 和 ZFS。
 - **引导与系统**。GRUB、systemd-boot 和 ZFSBootMenu 按配置提供 UEFI 或 BIOS 引导。
-- **桌面与语言**。GNOME、KDE Plasma、Xfce、CJK 字体和输入法都是配置选项。
+- **桌面与语言**。GNOME、KDE Plasma、Xfce、CJK 字体和输入法都是配置选项。显示管理器是另一个选项，选了桌面而没有选它的机器会进入文字登录。
 - **特殊模式**。内存环境、原地转换、稀疏镜像和 `dd` 各有独立限制。
 
 [参考资料](REFERENCE.md#capabilities)说明模型、限制和特殊模式流程。
