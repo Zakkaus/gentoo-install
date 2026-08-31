@@ -199,10 +199,6 @@ class CloudImage:
 
     name: str
     filename: str
-    #: What the image's own package manager is called, for the line
-    #: `bootstrap.sh --missing-commands` prints. Read from the image rather
-    #: than guessed: the launcher already knows every one of these.
-    installer: str
     #: What `--missing-commands` asks for is turned into this command.
     install: str
     #: The firmware the image can boot. `genericcloud` and Fedora Cloud Base
@@ -228,7 +224,6 @@ IMAGES: Final[dict[str, CloudImage]] = {
         CloudImage(
             "fedora",
             "Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2",
-            "dnf",
             "dnf install -y --setopt=install_weak_deps=False",
             Firmware.UEFI,
             {"mkfs.vfat": "dosfstools", "sgdisk": "gdisk", "mkfs.btrfs": "btrfs-progs",
@@ -237,7 +232,6 @@ IMAGES: Final[dict[str, CloudImage]] = {
         CloudImage(
             "debian",
             "debian-12-genericcloud-amd64.qcow2",
-            "apt-get",
             "apt-get update && apt-get install -y --no-install-recommends",
             Firmware.UEFI,
             {"mkfs.vfat": "dosfstools", "sgdisk": "gdisk", "mkfs.btrfs": "btrfs-progs",
@@ -247,7 +241,6 @@ IMAGES: Final[dict[str, CloudImage]] = {
         CloudImage(
             "arch",
             "Arch-Linux-x86_64-cloudimg.qcow2",
-            "pacman",
             "pacman -Sy --noconfirm",
             Firmware.UEFI,
             {"mkfs.vfat": "dosfstools", "sgdisk": "gptfdisk", "mkfs.btrfs": "btrfs-progs",

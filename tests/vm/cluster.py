@@ -544,8 +544,6 @@ class Watchdog:
     strikes: int = 0
     _seen: int = field(default=0, init=False)
     _moved: int = field(default=0, init=False)
-    _counter_before: int = field(default=0, init=False)
-    _counter_after: int = field(default=0, init=False)
     _network: tuple[int, int] = field(default=(0, 0), init=False)
     _disk: tuple[int, int] = field(default=(0, 0), init=False)
     _cpu: float = field(default=0.0, init=False)
@@ -588,8 +586,6 @@ class Watchdog:
             return self._blind < BLIND_SAMPLES
         self._blind = 0
         moved, self._cpu = traffic.moved, traffic.cpu
-        self._counter_before = self._moved
-        self._counter_after = moved
         # Both directions, so a verdict can say which of them stopped. The
         # first sample has no earlier reading to compare against, so it is its
         # own predecessor rather than a jump from zero.

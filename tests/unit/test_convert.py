@@ -629,3 +629,33 @@ def test_the_mount_state_is_read_once_for_each_destination(
     )
 
     assert len(reads) == 1, reads
+
+
+def test_every_field_of_a_cloud_image_row_is_read_somewhere() -> None:
+    """`installer` named each image's package manager and nothing read it.
+
+    Its comment said it was for the line `bootstrap.sh --missing-commands`
+    prints; that reading was replaced because it did not work — the note above
+    `install_tools` records that looking for the installer's own name found
+    nothing and installed nothing — and the column outlived it. A row of a
+    table is state that implies a behaviour, so each of its fields has to have
+    a reader.
+    """
+    import ast
+    from dataclasses import fields
+    from pathlib import Path
+
+    from tests.vm.convert import CloudImage
+
+    root = Path(__file__).resolve().parents[2] / "tests" / "vm"
+    read: set[str] = set()
+    for path in sorted(root.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+                read.add(node.attr)
+
+    columns = [one.name for one in fields(CloudImage)]
+    assert columns, "the table has no column at all"
+    assert [one for one in columns if one not in read] == [], sorted(
+        one for one in columns if one not in read
+    )

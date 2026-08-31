@@ -112,7 +112,7 @@ def checks(installation: InstallConfig) -> tuple[InstalledCheck, ...]:
             "kernel",
             "uname -r; find /boot -maxdepth 4 -type f "
             r"\( -name 'vmlinuz*' -o -name 'kernel-*' -o -name linux -o -name '*.conf' \) | sort",
-            _kernel_pattern(installation),
+            KERNEL_MATCHES_ITS_RELEASE,
             "joins a running release to a boot path",
         ),
         InstalledCheck(
@@ -494,11 +494,6 @@ def _hostname_pattern(installation: InstallConfig) -> str:
 #: (dist-bin), `vmlinuz-<release>` (BIOS), and systemd-boot's
 #: `<machine-id>/<release>/linux` all carry it.
 KERNEL_MATCHES_ITS_RELEASE: Final[str] = r"(?ms)\A\s*(?P<release>[0-9]\S*)$.*^/boot/\S*(?P=release)"
-
-
-def _kernel_pattern(installation: InstallConfig) -> str:
-    """Match a `/boot` file against the release the machine is running."""
-    return KERNEL_MATCHES_ITS_RELEASE
 
 
 def stage_passphrase_commands(installation: InstallConfig) -> tuple[str, ...]:
