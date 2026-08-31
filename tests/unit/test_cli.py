@@ -1392,7 +1392,9 @@ def test_a_failure_after_partitioning_says_the_disk_may_not_boot(
     )
 
     assert code == EXIT_INTEGRITY
-    assert "the selected disk has been written to and may not boot" in capsys.readouterr().err
+    said = capsys.readouterr().err
+    assert "this machine's storage has been written to and it may not boot" in said
+    assert "the partition stage started" in said, said
 
 
 def test_a_failure_before_partitioning_says_nothing_was_written(
@@ -1411,7 +1413,7 @@ def test_a_failure_before_partitioning_says_nothing_was_written(
 
     said = capsys.readouterr().err
     assert code == EXIT_CONFIG
-    assert "nothing was written to the selected disk" in said
+    assert "nothing was written" in said
     assert "may not boot" not in said
 
 
@@ -1475,7 +1477,7 @@ def test_a_body_failure_before_partitioning_says_nothing_was_written(
     said = capsys.readouterr().err
     assert partitioned == []
     assert code == EXIT_INTEGRITY
-    assert "nothing was written to the selected disk" in said
+    assert "nothing was written" in said
     assert "may not boot" not in said
 
 
@@ -3036,3 +3038,50 @@ def test_the_flag_help_says_what_each_flag_actually_controls() -> None:
     driven = argparse.Namespace(menu=True, no_shell=True)
     assert cli._unattended(quiet)
     assert not cli._unattended(driven)
+
+def test_a_conversion_that_replaced_usr_is_not_told_nothing_was_written() -> None:
+    """`operation_started` read `Stage.PARTITION` alone.
+
+    `plan/convert.py` declares `Stage.STAGE3`, `Stage.SYSTEM`,
+    `Stage.BOOTLOADER` and `Stage.FINISH` and never partitions, so a
+    conversion that failed after replacing `/usr` and `/etc` printed `nothing
+    was written to the selected disk`. A run that reuses a layout formats
+    without partitioning and read the same way.
+    """
+    from dataclasses import Field
+
+    from gentoo_install.plan import convert
+    from gentoo_install.plan.operations import Operation, Stage
+
+    def _at_stage(stage: Stage) -> Operation:
+        class One(Operation):
+            def describe(self) -> str:
+                return "one"
+
+            def apply(self, context: object) -> None:
+                return None
+
+        return One(stage=stage)
+
+    declared = {
+        one.__dataclass_fields__["stage"].default
+        for one in vars(convert).values()
+        if isinstance(one, type)
+        and issubclass(one, Operation)
+        and one is not Operation
+        and isinstance(one.__dataclass_fields__.get("stage"), Field)
+        and isinstance(one.__dataclass_fields__["stage"].default, Stage)
+    }
+    assert declared, "the conversion declares no stage at all"
+    assert Stage.PARTITION not in declared, declared
+
+    for stage in declared:
+        state = cli.RunState()
+        state.operation_started(_at_stage(stage))
+        assert state.disk_was_written, stage
+
+    # Preflight is the one stage that writes nothing, and it is what the
+    # menu's return path reads to keep nineteen answers the operator gave.
+    quiet = cli.RunState()
+    quiet.operation_started(_at_stage(Stage.PREFLIGHT))
+    assert not quiet.disk_was_written

@@ -123,8 +123,18 @@ class RunState:
     #: machine whose every screen had been in Chinese.
     language: str = ""
 
+    #: Which stage the last started operation belonged to, so the closing
+    #: message can name the evidence for what it claims.
+    stage_reached: Stage | None = None
+
     def operation_started(self, operation: Operation) -> None:
-        if operation.stage is Stage.PARTITION:
+        self.stage_reached = operation.stage
+        # Every stage after preflight either writes to a device or into a
+        # filesystem mounted from one. Reading `Stage.PARTITION` alone told an
+        # operator whose in-place conversion had already replaced /usr that
+        # nothing was written: the conversion never partitions, and neither
+        # does a run that reuses a layout and only formats.
+        if operation.stage is not Stage.PREFLIGHT:
             self.disk_was_written = True
 
 
@@ -664,11 +674,23 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
 
 
 def _print_machine_state(state: RunState) -> None:
-    """Tell the operator whether a failed run changed the selected disk."""
-    if state.disk_was_written:
-        print("the selected disk has been written to and may not boot", file=sys.stderr)
-    else:
-        print("nothing was written to the selected disk", file=sys.stderr)
+    """Tell the operator whether a failed run changed this machine's storage.
+
+    The stage is named because the claim rests on it: an operator reading
+    `may not boot` decides between rebooting and rescuing, and the two
+    answers differ by which stage the run had reached.
+    """
+    if not state.disk_was_written:
+        print("nothing was written: the run stopped before any operation ran", file=sys.stderr)
+        return
+    if state.stage_reached is None:
+        print("this machine's storage has been written to and it may not boot", file=sys.stderr)
+        return
+    print(
+        f"the {state.stage_reached.value} stage started, so this machine's storage "
+        "has been written to and it may not boot",
+        file=sys.stderr,
+    )
 
 
 def install(
