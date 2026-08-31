@@ -277,7 +277,7 @@ The hash above is an example and must be replaced before execution. Only `disk` 
 
 [`tests/fixtures/vm-binpkg.toml`](tests/fixtures/vm-binpkg.toml) is a complete UEFI and ext4 schema reference. Other files under [`tests/fixtures/`](tests/fixtures/) cover BIOS, LUKS2, LVM, mdraid, ZFS, btrfs subvolumes and desktops. They contain virtual-machine disk selectors and test credentials, so they must not be installed unchanged on a real machine.
 
-Parsing and planning do not probe storage hardware. A machine without the target disk can therefore check a configuration with `--dry-run`.
+Parsing and planning probe storage hardware only for a layout that asks for a share of the disk: a share is a share of a capacity, so `--dry-run` reads that one disk's size rather than printing a number the install would not write. A machine without the target disk can therefore check any configuration with `--dry-run` except one using shares.
 
 The following reference names every persisted key. A table path is TOML table notation, and `[[disk.devices]]` carries the graph nodes.
 
