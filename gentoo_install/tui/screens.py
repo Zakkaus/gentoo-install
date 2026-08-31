@@ -1109,7 +1109,14 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     if not answer.chosen:
         return Answer(answer.outcome)
     chosen = answer.unwrap()
-    changed = replace(config, kernel=replace(config.kernel, source=chosen))
+    # The pin goes with the source it was read from: the version list is
+    # `kernel_versions(package)` for that one package, so keeping `7.1.12`
+    # across a change of source composes `=<new atom>-7.1.12`, which the
+    # keyword check accepts as syntax and the merge refuses as a version.
+    version = config.kernel.version if chosen is config.kernel.source else ""
+    changed = replace(
+        config, kernel=replace(config.kernel, source=chosen, version=version)
+    )
     if chosen in compat.CJK_KERNELS:
         # cjk on with it, the mirror of the branch below: `RequestCjkKernel`
         # reads this flag, so choosing the patched kernel and leaving the flag
