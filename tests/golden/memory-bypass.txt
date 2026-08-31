@@ -9,4 +9,4 @@
 [bootloader]
   unpack the ram kernel and initramfs into /boot/efi/gentoo-install-ram
   write /boot/efi/loader/entries/gentoo-install-ram.conf, a systemd-boot entry for the ram environment
-  replace the default boot entry with the memory environment (systemd-boot)
+  replace the default boot entry with the memory environment (systemd-boot) and write /boot/efi/gentoo-install-ram/replaced-default, which is what lets a disarm take the replacement back

@@ -569,6 +569,8 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write {} for the wired interfaces with DHCP and DNS {}",
         "write {} for {} with DHCP",
         "configure {} of compressed swap in {}",
+        "replace the default boot entry with the memory environment ({}) and write {},"
+        " which is what lets a disarm take the replacement back",
         "create user {} in {} with a password",
         "create user {} in {} with no password",
         "download the newest {} stage3 from {} directly, verify it against {},"
