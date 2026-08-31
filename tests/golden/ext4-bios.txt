@@ -41,7 +41,7 @@
   set the console keymap to us and its font to default8x16 in /etc/conf.d/keymaps and /etc/conf.d/consolefont
   set the hostname to plain in /etc/conf.d/hostname and /etc/hosts
   give the target its own machine id with /proc/sys/kernel/random/uuid into /etc/machine-id
-  write /etc/fstab with UUID from rootpart / ext4 defaults 0 1, UUID from swappart none swap sw 0 0
+  write /etc/fstab with UUID from rootpart / ext4 defaults 0 1; UUID from swappart none swap sw 0 0
   treat the hardware clock as UTC in /etc/conf.d/hwclock
   start a login on ttyS0 at 115200 baud
   set the root password

@@ -139,8 +139,7 @@ def _values(screen: str) -> tuple[str, ...]:
 
 def _refusal(screen: str) -> bool:
     """A field that would not take what was typed."""
-    return _says("Not a package name", screen)
-
+    return _says("Not a package atom", screen)
 
 def _says(source: str, screen: str) -> bool:
     """Whether a screen carries a string, in whatever language it is drawn in.

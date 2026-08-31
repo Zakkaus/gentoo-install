@@ -20,6 +20,7 @@ from gentoo_install.model.config import (
     Keywords,
     MirrorConfig,
     MirrorRegion,
+    Networking,
 )
 from gentoo_install.model import manual
 from gentoo_install.model.templates import Layout
@@ -396,10 +397,10 @@ def test_firewall_choice_labels_are_catalog_entries() -> None:
 
 
 def test_invalid_extra_package_dialog_cancellation_reaches_caller() -> None:
-    answer = tui_packages.extra_packages_screen(
-        FakeScreen(keys=[*"bad!", "\n", "q"]), config(), context()
-    )
+    screen = FakeScreen(keys=[*"bad!", "\n", "q"])
+    answer = tui_packages.extra_packages_screen(screen, config(), context())
     assert answer.outcome is Outcome.CANCELLED
+    assert "Not a package atom" in screen.last
 
 
 def test_extra_package_screen_rejects_operatorless_versioned_atom() -> None:
@@ -962,42 +963,33 @@ def test_the_mirror_row_shows_every_service_and_lets_each_be_chosen() -> None:
         assert label in drawn, label
 
 
-def test_mirror_subselectors_reopen_on_the_values_their_rows_show() -> None:
-    from gentoo_install.model.config import BinhostChannel, GentooZhMirror, Sync
-    from gentoo_install.model.config import Overlay
-    from gentoo_install.model import mirrors
 
+def test_mirror_details_name_done_and_possible_extra_sources() -> None:
     at = context()
+    menu = FakeScreen(keys=["q"], lines=40, columns=120)
+    mirror.mirror_screen(menu, config(), at)
+    assert "Open a row or choose Done" in menu.last
+
+    repositories = FakeScreen(keys=["KEY_LEFT"], lines=40, columns=120)
+    mirror._edit_repositories(repositories, at, config())
+    assert (
+        "Included package groups do not use these; explicitly requested packages may."
+        in repositories.last
+    )
+
     base = config()
-    held = replace(
+    with_addresses = replace(
         base,
         portage=replace(
             base.portage,
-            sync=Sync.WEBRSYNC,
-            binhost=replace(
-                base.portage.binhost,
-                community=BinhostChannel.UNSTABLE,
-            ),
             mirrors=replace(
                 base.portage.mirrors,
-                gentoo_zh=GentooZhMirror.NJU,
+                distfiles=("https://one.example/gentoo", "https://two.example/gentoo"),
             ),
-            overlays=(Overlay(name="gentoo-zh", sync_uri="https://example.invalid"),),
         ),
     )
-
-    sync = FakeScreen(keys=["q"])
-    mirror._edit_mirror(sync, at, held, mirror._SYNC)
-    assert "webrsync" in sync.highlighted[0]
-
-    community = FakeScreen(keys=["q"])
-    mirror._edit_mirror(community, at, held, mirror._ZH_BINHOST)
-    assert "unstable" in community.highlighted[0]
-
-    overlay = FakeScreen(keys=["q"])
-    mirror._edit_mirror(overlay, at, held, mirror._ZH_SITE)
-    expected = at.translate(mirrors.gentoozh(GentooZhMirror.NJU).name)
-    assert expected in overlay.highlighted[0]
+    detail = mirror._mirror_site_row(with_addresses, at.translate).detail
+    assert detail == "replaced by typed distfiles addresses"
 
 
 def test_choosing_a_gentoozh_mirror_is_what_adds_the_overlay() -> None:
@@ -1167,8 +1159,23 @@ def test_language_section_reaches_every_language_setting_from_the_menu() -> None
     ]
     assert language_frames
     drawn = "\n".join("\n".join(frame) for frame in language_frames)
-    for label in ("System language", "Other locales", "Fonts"):
+    for label in ("System locale", "Other locales", "Fonts"):
         assert label in drawn, label
+    language = next(setting for setting in settings.SETTINGS if setting.key == "language")
+    assert language.describes == "The system locale and the fonts it needs."
+
+
+
+def test_address_cannot_open_without_networking() -> None:
+    at = context()
+    address = next(setting for setting in settings.NETWORK if setting.key == "address")
+    disabled = replace(
+        config(),
+        system=replace(config().system, networking=Networking.NONE),
+    )
+    assert address.unavailable(disabled, at) == "no networking"
+    assert address.unavailable(config(), at) == ""
+
 
 def test_console_cjk_has_an_independent_switch_beside_its_font() -> None:
     cjk, font = settings.KERNEL[1:3]
@@ -3696,7 +3703,7 @@ def test_a_reopened_selector_starts_on_what_is_already_set() -> None:
             "Region",
             "Gentoo mirror",
             "Console font",
-            "A ZFS root cannot boot from GRUB. Which bootloader?",
+            "GRUB is not offered for a ZFS root. Which bootloader?",
         }
     )
     # Every module under `tui/`, not one of them: the Mirrors rows moved to

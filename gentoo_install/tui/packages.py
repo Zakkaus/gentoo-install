@@ -1396,11 +1396,11 @@ def _licence_warning(
         return (
             f"{translate('These need a licence accepted before Portage will merge them')}: "
             f"{' '.join(named)}. "
-            + translate("Turn on Accept every license, under Build.")
+            + translate("Set Licenses to *, under Build.")
         )
     return translate(
         "A package whose licence is not accepted stops the install. "
-        "Accept every license, under Build, is off."
+        "Licenses is not set to * under Build."
     )
 
 
@@ -1429,7 +1429,7 @@ def extra_packages_screen(
             return Answer(typed.outcome)
         good, bad = atoms.split(typed.unwrap())
         if bad:
-            informed = say(screen, context, f"{translate('Not a package name')}: {' '.join(bad)}")
+            informed = say(screen, context, f"{translate('Not a package atom')}: {' '.join(bad)}")
             if not informed.chosen:
                 return Answer(informed.outcome)
             continue

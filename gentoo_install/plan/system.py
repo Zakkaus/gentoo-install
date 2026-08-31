@@ -414,7 +414,7 @@ class WriteFstab(Operation):
     entries: tuple[FstabEntry, ...]
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
-        entries = ", ".join(
+        entries = "; ".join(
             f"{entry.source if entry.device is None else f'UUID from {entry.device}'} "
             f"{_fstab_path(entry.path)} {entry.kind} {','.join(entry.options) or 'defaults'} "
             f"{entry.dump} {entry.check}"
@@ -465,7 +465,7 @@ class WriteCrypttab(Operation):
         written = self._written()
         if not written:
             return "write {} empty: the initramfs opens every encrypted device", (where,)
-        entries = ", ".join(
+        entries = "; ".join(
             f"{entry.name} UUID from {entry.backing} "
             f"{'luks,x-initrd.attach' if entry.initrd_attach else 'luks'}"
             for entry in written

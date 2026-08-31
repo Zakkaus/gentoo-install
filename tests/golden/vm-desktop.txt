@@ -49,7 +49,7 @@
   set the console keymap to us and its font to default8x16 in /etc/vconsole.conf
   set the hostname to deskbox in /etc/hostname and /etc/hosts
   give the target its own machine id with systemd-machine-id-setup
-  write /etc/fstab with UUID from rootpart / ext4 defaults 0 1, UUID from esp /efi vfat defaults,umask=0077 0 2
+  write /etc/fstab with UUID from rootpart / ext4 defaults 0 1; UUID from esp /efi vfat defaults,umask=0077 0 2
   treat the hardware clock as UTC in /etc/adjtime
   set the root password
   install sshd: emerge net-misc/openssh

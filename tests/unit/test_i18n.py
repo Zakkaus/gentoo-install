@@ -136,7 +136,7 @@ AUDITED_CHINESE_COPY: Final[dict[str, tuple[str, ...]]] = {
         "Leave without installing?",
         "system.interface must name the OpenRC interface when builtin networking uses static addresses because netifrc has no wildcard match",
         "a pool is created, never imported, so a member cannot be kept",
-        "the kernel is on a pool created with today's feature flags, and GRUB reads none of them: only a pool made with compatibility=grub2 is",
+        "the kernel is on a pool created with today's feature flags, which GRUB cannot read; use a pool created with compatibility=grub2",
         "cjktty patches the kernel VT layer, which no official kernel carries; the gentoo-zh kernels with that patch provide it",
         "dracut-crypt-ssh authorises /root/.ssh/authorized_keys, so with none the initramfs runs an ssh daemon nobody can log into",
         "GRUB asks for that passphrase at the physical console, so the machine stops before the initramfs that runs the ssh daemon: a separate /boot outside the container is what a machine unlocked over the network needs",
@@ -167,10 +167,10 @@ AUDITED_CHINESE_COPY: Final[dict[str, tuple[str, ...]]] = {
     "zh-CN": (
         "{count} hosts bypass",
         "zfs pool member",
-        "replaced by a typed address",
+        "replaced by typed distfiles addresses",
         "system.interface must name the OpenRC interface when builtin networking uses static addresses because netifrc has no wildcard match",
         "a pool is created, never imported, so a member cannot be kept",
-        "the kernel is on a pool created with today's feature flags, and GRUB reads none of them: only a pool made with compatibility=grub2 is",
+        "the kernel is on a pool created with today's feature flags, which GRUB cannot read; use a pool created with compatibility=grub2",
         "dracut-crypt-ssh authorises /root/.ssh/authorized_keys, so with none the initramfs runs an ssh daemon nobody can log into",
         "GRUB asks for that passphrase at the physical console, so the machine stops before the initramfs that runs the ssh daemon: a separate /boot outside the container is what a machine unlocked over the network needs",
         "the cjk kernel builds CONFIG_FONT_CJK_16x16 alone, which pairs with the 8x16 font, because the 32x32 font the patch ships is empty",
@@ -196,7 +196,7 @@ AUDITED_CHINESE_COPY: Final[dict[str, tuple[str, ...]]] = {
         "First or last row, in a list; a letter in a field",
         "This choice decides whether a new system is built or this one is replaced.",
         "This medium carries no installed system to replace.",
-        "The system locale, the fonts it needs, and the input method for typing CJK.",
+        "The system locale and the fonts it needs.",
         "The zone the installed system keeps local time and schedules in.",
         "Whether a new system is built on a disk or the running system is replaced.",
         "The service manager, the logger beside it, and the profile that matches them.",
@@ -1045,3 +1045,26 @@ def test_a_unit_keeps_the_value_it_measures() -> None:
                 before = value.split(unit)[0].rstrip()
                 assert before.endswith("{}"), (tag, source, value)
                 assert before.count("{}") - 1 == wanted, (tag, source, value)
+
+
+
+
+def test_zh_tw_portage_terms_use_the_selected_words() -> None:
+    catalog = shipped("zh-TW")
+    repository_keys = (
+        "write {} pointing {} at {}, commit signatures verified",
+        "write {} pointing {} at {}",
+        "write {} so repository {} syncs with emerge-webrsync",
+        "fetch the first ebuild repository snapshot with emerge-webrsync",
+        "sync repository {}",
+        "sync repository {}, {} other sites to fall back on",
+        "accept {} for packages from {} only",
+    )
+    assert all("\u5132\u5b58\u5eab" in catalog[key] for key in repository_keys)
+    binhost_keys = (
+        "disable inherited binary package host {}",
+        "write {} adding verified binary package host {} at {}",
+        "write {} adding unverified binary package host {} at {}",
+    )
+    assert all("binhost" in catalog[key] for key in binhost_keys)
+    assert catalog["Partitioning"] == "\u5206\u5272"

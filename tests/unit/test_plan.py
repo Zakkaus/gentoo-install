@@ -8,6 +8,7 @@ import pytest
 
 from gentoo_install.data import load_catalog
 from gentoo_install.errors import ConfigError, ValidationFailed
+
 from gentoo_install.model.config import (
     DiskMode,
     DiskConfig,
@@ -249,6 +250,7 @@ def test_render_groups_by_stage_and_summarise_counts_them() -> None:
     text = render(operations)
     assert text.startswith("[partition]\n")
     assert f"{len(operations)} operations" in summarise(operations)
+
 
 
 def test_every_operation_describes_itself_in_one_line() -> None:

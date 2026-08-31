@@ -414,6 +414,15 @@ def _address(config: InstallConfig, context: Context) -> str:
     return said
 
 
+def _address_unavailable(config: InstallConfig, context: Context) -> str:
+    """The address form has no effect when networking is disabled."""
+    return (
+        context.translate("no networking")
+        if config.system.networking is Networking.NONE
+        else ""
+    )
+
+
 def _remote_unlock(config: InstallConfig, context: Context) -> str:
     unlock = config.kernel.remote_unlock
     if not unlock.enabled:
@@ -865,7 +874,7 @@ KERNEL: Final[tuple[Setting, ...]] = (
 
 
 LANGUAGE: Final[tuple[Setting, ...]] = (
-    Setting("locale", "System language", lambda c, x: c.system.locale, screens.locale_screen),
+    Setting("locale", "System locale", lambda c, x: c.system.locale, screens.locale_screen),
     Setting("locales", "Other locales", _other_locales, screens.additional_locales_screen),
     Setting("fonts", "Fonts", _cjk_fonts, cjk_fonts_screen),
 )
@@ -919,7 +928,13 @@ DESKTOP: Final[tuple[Setting, ...]] = (
 #: the managers, so the two rows have to be read together.
 NETWORK: Final[tuple[Setting, ...]] = (
     Setting("network", "Network configuration", _network, screens.networking_screen),
-    Setting("address", "Address", _address, screens.address_screen),
+    Setting(
+        "address",
+        "Address",
+        _address,
+        screens.address_screen,
+        unavailable=_address_unavailable,
+    ),
     Setting("firewall", "Firewall", _firewall, screens.firewall_screen),
 )
 
@@ -984,7 +999,7 @@ SETTINGS: Final[tuple[Setting, ...]] = (
         _summary(LANGUAGE),
         nested('Language and fonts', LANGUAGE),
         rows=LANGUAGE,
-        describes="The system locale, the fonts it needs, and the input method for typing CJK.",
+        describes="The system locale and the fonts it needs.",
         section="System",
     ),
     Setting(

@@ -1747,6 +1747,10 @@ def test_sizes_larger_than_the_disk_are_refused_where_they_are_typed() -> None:
     )
     said = _too_big_for_the_disk(at)
     assert "40" in said and "GiB" in said, said
+    shown = at.shown_as(selector)
+    assert shown in said, said
+    assert selector not in said, said
+
 
     # Negative control: one gibibyte less fits, so the rule is not refusing
     # every table that fills the disk.

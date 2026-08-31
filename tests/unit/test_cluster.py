@@ -4849,7 +4849,11 @@ def test_the_detached_install_writes_through_a_pty(tmp_path: Path) -> None:
 
     def written_after(command: str, name: str) -> int:
         out = tmp_path / name
-        running = subprocess.Popen(["sh", "-c", f"{command} > {out} 2>&1"])
+        environment = dict(os.environ)
+        environment.pop("PYTHONUNBUFFERED", None)
+        running = subprocess.Popen(
+            ["sh", "-c", f"{command} > {out} 2>&1"], env=environment
+        )
         time.sleep(3)
         early = out.stat().st_size if out.exists() else 0
         running.wait(timeout=30)

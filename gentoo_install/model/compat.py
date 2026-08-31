@@ -684,8 +684,8 @@ RULES: tuple[Rule, ...] = (
     Rule(
         Trait.BOOT_ON_ZFS,
         Trait.GRUB,
-        "the kernel is on a pool created with today's feature flags, and GRUB "
-        "reads none of them: only a pool made with compatibility=grub2 is",
+        "the kernel is on a pool created with today's feature flags, which GRUB "
+        "cannot read; use a pool created with compatibility=grub2",
     ),
     Rule(Trait.ROOT_ON_ZFS, Trait.BIOS_BOOT, "ZFSBootMenu is an EFI executable"),
     Rule(Trait.ROOT_ON_ZFS, Trait.LUKS, "use ZFS native encryption instead"),
@@ -723,7 +723,11 @@ RULES: tuple[Rule, ...] = (
         "firmware reads a member as a plain vfat partition, and only 0.90 and 1.0 "
         "keep the superblock at the end of the member",
     ),
-    Rule(Trait.BIOS_BOOT, Trait.GPT_WITHOUT_BIOS_BOOT, "GRUB stage 1.5 needs somewhere to live"),
+    Rule(
+        Trait.BIOS_BOOT,
+        Trait.GPT_WITHOUT_BIOS_BOOT,
+        "GRUB on a BIOS GPT disk needs a BIOS Boot Partition",
+    ),
     Rule(
         Trait.CONSOLE_CJK,
         Trait.KERNEL_WITHOUT_CJKTTY,

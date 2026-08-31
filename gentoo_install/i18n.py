@@ -146,3 +146,28 @@ def truncate(text: str, cells: int) -> str:
         kept.append(character)
         used += step
     return "".join(kept)
+
+
+def wrap_to_cells(text: str, room: int) -> list[str]:
+    """Broken on cells and after a separator, never through a value.
+
+    `textwrap` counts a wide character as one, so a Chinese line folds at the
+    wrong column; and a break inside `zh_TW.UTF-8` names no locale at all.
+    """
+    if room <= 0:
+        return []
+    if not text:
+        return [""]
+    lines: list[str] = []
+    rest = text
+    while rest:
+        if width(rest) <= room:
+            lines.append(rest)
+            break
+        cut = len(truncate(rest, room))
+        at = max(rest.rfind(", ", 0, cut + 1), rest.rfind(" ", 0, cut + 1))
+        if at > 0:
+            cut = at + 1
+        lines.append(rest[:cut].rstrip())
+        rest = rest[cut:].lstrip()
+    return lines

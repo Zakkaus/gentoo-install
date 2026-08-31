@@ -35,6 +35,10 @@ def test_an_extra_package_says_the_licence_will_stop_the_install() -> None:
     # And one it knows nothing about still gets the rule and where to change it.
     unknown = _licence_warning(("dev-util/codex",), off, at)
     assert unknown and "dev-util/codex" not in unknown, unknown
+    assert "Set Licenses to *, under Build." in warned, warned
+    assert "Accept every license" not in warned, warned
+    assert "Licenses is not set to * under Build." in unknown, unknown
+
 
     # With every licence accepted there is nothing to say.
     every = replace(off, portage=replace(off.portage, accept_license=("*",)))

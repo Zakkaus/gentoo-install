@@ -54,7 +54,10 @@ def test_a_zh_tw_desktop_writes_the_regional_sans_rule() -> None:
 
     assert [operation.describe() for operation in operations] == [
         "enable /etc/fonts/conf.d/70-noto-cjk.conf",
-        "write /etc/fonts/conf.d/71-gentoo-install-cjk-sans.conf",
+        (
+            "write /etc/fonts/conf.d/71-gentoo-install-cjk-sans.conf to prefer "
+            "CJK fonts for sans-serif, serif and monospace"
+        ),
     ]
     assert recorder.only("eselect", "fontconfig") == (
         "eselect",
