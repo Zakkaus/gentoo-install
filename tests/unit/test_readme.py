@@ -348,3 +348,49 @@ def test_every_readme_says_where_the_backup_has_to_be() -> None:
     for name in READMES:
         body = fact_bodies(name)["safety-review-backup"]
         assert UNWRITTEN[name] in body, (name, body)
+
+
+def test_the_reference_names_every_persisted_key() -> None:
+    """`REFERENCE.md` opens its key reference with `names every persisted key`.
+
+    `portage.repositories` parses, is written back, and adds
+    `EnableRepository` operations, and it was not in the document. Enumerated
+    from the dataclasses rather than compared against a second list, so the
+    next field added without a row fails this.
+
+    Matched by leaf name, which is the honest limit: `portage.binhost.url`
+    passes on the `url` row that belongs to the first-boot script. A key that
+    shares a name with a documented one is invisible here, and only a reader
+    catches that.
+    """
+    import dataclasses
+
+    from gentoo_install.model import config as model_config
+
+    said = (ROOT / REFERENCE).read_text(encoding="utf-8")
+    assert "names every persisted key" in said, said[:0]
+
+    sections = {
+        "system": model_config.SystemConfig,
+        "portage": model_config.PortageConfig,
+        "packages": model_config.PackagesConfig,
+        "kernel": model_config.KernelConfig,
+        "bootloader": model_config.BootloaderConfig,
+        "proxy": model_config.ProxyConfig,
+    }
+    assert set(sections) <= set(model_config.PERSISTED_SECTIONS), sorted(sections)
+
+    def leaves(holder: type, path: str) -> list[tuple[str, str]]:
+        found: list[tuple[str, str]] = []
+        for field in dataclasses.fields(holder):
+            value = getattr(holder(), field.name)
+            if dataclasses.is_dataclass(value):
+                found += leaves(type(value), f"{path}.{field.name}")
+            else:
+                found.append((f"{path}.{field.name}", field.name))
+        return found
+
+    every = [one for name, holder in sections.items() for one in leaves(holder, name)]
+    assert len(every) > 60, len(every)
+    missing = [path for path, leaf in every if f"`{leaf}`" not in said]
+    assert missing == [], missing
