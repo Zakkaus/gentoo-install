@@ -261,3 +261,25 @@ def test_the_memory_example_carries_the_configuration_arming_needs(
     without = [one for one in written[1:] if one not in ("--config", arguments.config)]
     assert main([*without, "--no-shell"]) == EXIT_PREFLIGHT
     assert "an unattended run needs --config FILE" in capsys.readouterr().err
+
+
+def test_the_wifi_sentence_is_marked_as_unrecorded_while_it_is() -> None:
+    """`REFERENCE.md` stated a wireless install as something that happens.
+
+    Nothing in the Mode 3 records has a wireless adapter, so the sentence was
+    the design speaking. The two documents are held together here: while the
+    records name no `nmcli`, the reference says the gap is a gap and
+    `TESTED.md` lists it among what has no record.
+    """
+    reference = (ROOT / "REFERENCE.md").read_text(encoding="utf-8")
+    tested = (ROOT / "TESTED.md").read_text(encoding="utf-8")
+
+    section = tested[tested.index("## Mode 3") : tested.index("## The interface alone")]
+    gaps = section.index("What has no record yet")
+    recorded, unrecorded = section[:gaps], section[gaps:]
+    if "nmcli" in recorded:
+        return
+    assert "wifi" in unrecorded, unrecorded[:400]
+
+    said = next(line for line in reference.splitlines() if "nmcli" in line)
+    assert "No run in `TESTED.md`" in said, said
