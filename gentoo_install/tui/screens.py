@@ -80,13 +80,18 @@ from .partitions import (
     partitions_screen,
 )
 from .context import (
+    GENTOO_ZH,
     Context,
     ValueKind,
     answers,
     current_menu,
     footer,
+    forget_derived,
+    mark_derived,
     say,
+    was_derived,
     with_gentoo_zh,
+    without_gentoo_zh,
 )
 from .widgets import (
     Accepts,
@@ -1113,6 +1118,8 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         changed = replace(changed, system=replace(changed.system, console_cjk=True))
         # The package is in gentoo-zh and in no other repository, so choosing
         # it is consenting to that overlay rather than having it added quietly.
+        if not any(one.name == GENTOO_ZH for one in config.portage.overlays):
+            mark_derived(context, ValueKind.OVERLAY, GENTOO_ZH)
         return Answer(Outcome.CHOSE, replace(changed, portage=with_gentoo_zh(changed)))
     if config.system.console_cjk:
         # Turned off with the kernel that carried it, and said out loud: the
@@ -1120,7 +1127,7 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
         # kernel, from a row that has no way to clear this.
         say(screen, context, translate("This kernel has no cjktty: console CJK is off."))
         changed = replace(changed, system=replace(changed.system, console_cjk=False))
-    return Answer(Outcome.CHOSE, changed)
+    return Answer(Outcome.CHOSE, _withdrawing_a_derived_overlay(changed, context))
 
 
 
@@ -1918,14 +1925,47 @@ def _pick_keymap(
     )
 
 
+def _withdrawing_a_derived_overlay(config: InstallConfig, context: Context) -> InstallConfig:
+    """Take back gentoo-zh when a choice, not the operator, put it there.
+
+    An overlay selected on the Mirrors screen is the operator's and this does
+    not reach across and take it, which is why the record decides rather than
+    the overlay's presence. Without it the CJK package family stays merged on
+    a machine whose console CJK is off, and the community binary host stays
+    configured and trusted from a row nobody is looking at.
+    """
+    if not was_derived(context, ValueKind.OVERLAY, GENTOO_ZH):
+        return config
+    forget_derived(context, ValueKind.OVERLAY)
+    return replace(config, portage=without_gentoo_zh(config))
+
+
 def console_cjk_screen(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
-    """Flipped where it stands: the row reads `in use` or `not used` already."""
-    return Answer(
-        Outcome.CHOSE,
-        replace(config, system=replace(config.system, console_cjk=not config.system.console_cjk)),
+    """Flipped where it stands: the row reads `in use` or `not used` already.
+
+    Turning it off takes the cjktty kernel with it. `RequestCjkKernel` reads
+    this flag and writes `-cjk`, so leaving that kernel selected merges the
+    whole CJK family with the patch compiled out of the package that exists
+    to carry it.
+    """
+    wanted = not config.system.console_cjk
+    changed = replace(config, system=replace(config.system, console_cjk=wanted))
+    if wanted or config.kernel.source not in compat.CJK_KERNELS:
+        return Answer(Outcome.CHOSE, changed)
+    # The dataclass default, not a second literal: the kernel this row falls
+    # back to is the one a configuration that never chose has.
+    fallback = KernelConfig().source
+    say(
+        screen,
+        context,
+        context.translate("Console CJK is off, so the kernel goes back to {}.").format(
+            KERNEL_PACKAGES[fallback].atom
+        ),
     )
+    changed = replace(changed, kernel=replace(changed.kernel, source=fallback))
+    return Answer(Outcome.CHOSE, _withdrawing_a_derived_overlay(changed, context))
 
 
 def console_font_screen(
@@ -2277,8 +2317,15 @@ def _site_kept_in(site: str, region: MirrorRegion) -> str:
     return ""
 
 
-def with_language(config: InstallConfig, tag: str) -> InstallConfig:
-    """The configuration as the chosen interface language leaves it."""
+def with_language(
+    config: InstallConfig, tag: str, context: Context | None = None
+) -> InstallConfig:
+    """The configuration as the chosen interface language leaves it.
+
+    `context` records that the overlay came from this choice, so the console
+    CJK row can take it back. Without it the addition has no matching
+    withdrawal and the CJK family stays merged with its feature off.
+    """
     chosen = LANGUAGE_DEFAULTS.get(tag)
     if chosen is None:
         return config
@@ -2319,6 +2366,10 @@ def with_language(config: InstallConfig, tag: str) -> InstallConfig:
         return seeded
     # The patched kernel is what puts CJK on the console, and it is in gentoo-zh
     # and nowhere else, so the overlay comes with it or the row is unusable.
+    if context is not None and not any(
+        one.name == GENTOO_ZH for one in config.portage.overlays
+    ):
+        mark_derived(context, ValueKind.OVERLAY, GENTOO_ZH)
     return replace(
         seeded,
         kernel=replace(seeded.kernel, source=KernelSource.CJK_BIN),

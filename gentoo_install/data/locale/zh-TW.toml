@@ -353,6 +353,7 @@
 "manual" = "手動"
 "a partition" = "一個分割區"
 "not set" = "未設定"
+"Console CJK is off, so the kernel goes back to {}." = "主控台 CJK 顯示已關閉，核心改回 {}。"
 "This kernel has no cjktty: console CJK is off." = "這個核心未含 cjktty，主控台 CJK 顯示已關閉。"
 "System logger" = "系統日誌服務"
 "Cron" = "排程"

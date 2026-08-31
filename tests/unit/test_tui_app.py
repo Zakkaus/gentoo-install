@@ -1128,7 +1128,10 @@ def test_console_cjk_has_an_independent_switch_beside_its_font() -> None:
     chinese = screens.with_language(config(), "zh-TW")
     assert cjk.unavailable(chinese, at) == ""
 
-    disabled = screens.console_cjk_screen(FakeScreen(keys=[]), chinese, at).unwrap()
+    # A key, because turning the row off says which kernel it falls back to:
+    # the language chose the patched one and `RequestCjkKernel` reads this
+    # flag, so leaving that kernel here writes `-cjk`.
+    disabled = screens.console_cjk_screen(FakeScreen(keys=["\n"]), chinese, at).unwrap()
     assert not disabled.system.console_cjk
 
 
@@ -4757,3 +4760,61 @@ def test_changing_the_install_mode_takes_back_the_erase_confirmation() -> None:
     assert at.confirmed == set(), at.confirmed
     assert not at.manual
     assert not at.layout.disks
+
+
+def test_turning_console_cjk_off_takes_back_what_turning_it_on_added() -> None:
+    """Adding without a withdrawal is the shape `#1125` already fixed once.
+
+    Choosing a CJK interface language sets `KernelSource.CJK_BIN`, adds
+    `gentoo-zh` and turns the community binary host on. The console CJK row
+    flipped one flag, so the machine kept the whole CJK package family, the
+    overlay and a trusted binary host with the feature off: `RequestCjkKernel`
+    reads that flag and writes `-cjk`.
+    """
+    from gentoo_install.model.config import BinhostChannel, KernelSource
+    from gentoo_install.tui.context import GENTOO_ZH
+
+    at = context()
+    chinese = screens.with_language(config(), "zh-TW", at)
+    assert chinese.kernel.source is KernelSource.CJK_BIN
+    assert any(one.name == GENTOO_ZH for one in chinese.portage.overlays)
+    assert chinese.portage.binhost.community is BinhostChannel.STABLE
+
+    off = screens.console_cjk_screen(FakeScreen(keys=["\n"]), chinese, at).unwrap()
+    assert not off.system.console_cjk
+    assert off.kernel.source is KernelSource.DIST_BIN
+    assert not [one for one in off.portage.overlays if one.name == GENTOO_ZH]
+    assert off.portage.binhost.community is BinhostChannel.OFF
+    validate(off)
+
+    # Back on, and off again, leaves the same machine: the record is what
+    # decides, so a second withdrawal is not a second removal of something
+    # that is no longer there.
+    again = screens.console_cjk_screen(FakeScreen(keys=["\n"]), off, at).unwrap()
+    assert again.system.console_cjk
+
+
+def test_an_overlay_the_operator_chose_survives_the_console_cjk_row() -> None:
+    """An overlay selected on the Mirrors screen is theirs.
+
+    `was_derived` is what separates the two, and the bootloader row already
+    reads it the same way; a withdrawal keyed on the overlay being present
+    would reach across and take it.
+    """
+    from gentoo_install.model.config import KernelSource, Overlay
+    from gentoo_install.tui.context import GENTOO_ZH
+
+    at = context()
+    theirs = replace(
+        config(),
+        system=replace(config().system, console_cjk=True),
+        kernel=replace(config().kernel, source=KernelSource.CJK_BIN),
+        portage=replace(
+            config().portage,
+            overlays=(Overlay(name=GENTOO_ZH, sync_uri="https://example.invalid/zh.git"),),
+        ),
+    )
+
+    off = screens.console_cjk_screen(FakeScreen(keys=["\n"]), theirs, at).unwrap()
+    assert not off.system.console_cjk
+    assert [one for one in off.portage.overlays if one.name == GENTOO_ZH]
