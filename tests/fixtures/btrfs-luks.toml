@@ -45,6 +45,7 @@ kernel_params = ["console=ttyS0,115200"]
 
 [packages]
 desktop = "plasma"
+display_manager = "sddm"
 applications = ["fcitx5", "rime", "rime-simplified", "noto-cjk", "flclash"]
 
 [disk]
