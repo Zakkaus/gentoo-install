@@ -1671,3 +1671,38 @@ def test_the_overview_says_no_disk_has_been_written_yet() -> None:
     drawn = FakeScreen(keys=["q"], lines=120, columns=130)
     overview_screen(drawn, config(ext4_on_gpt()), context())
     assert "nothing has been written to the disks yet" in drawn.last
+
+
+def test_the_gentoo_zh_binary_host_has_a_row_on_the_mirror_screen() -> None:
+    """Adding the overlay turns that host on and the row was never drawn.
+
+    `with_gentoo_zh` moves `binhost.community` from `OFF` to `STABLE`, and the
+    installed system configures and trusts it. `_ZH_BINHOST` was in
+    `_ALL_MIRROR_FIELDS`, which is what `_edit_field` looks in, and in no list
+    `_mirror_fields` drew, so nothing could set it to `off` or `unstable`.
+    """
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.config import BinhostChannel
+    from gentoo_install.tui.context import with_gentoo_zh
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    started = config(ext4_on_gpt())
+    with_overlay = _replace(started, portage=with_gentoo_zh(started))
+    assert with_overlay.portage.binhost.community is BinhostChannel.STABLE
+
+    drawn = FakeScreen(keys=["q"], lines=40, columns=110)
+    mirror.mirror_screen(drawn, with_overlay, context())
+    row = next(
+        (one for one in drawn.last.splitlines() if "gentoo-zh binary packages" in one),
+        "",
+    )
+    assert row, drawn.last
+
+    # The row the menu draws is the one `_edit_field` dispatches on, or it
+    # would be drawn and unreachable rather than reachable and undrawn.
+    assert any(field.key == mirror._ZH_BINHOST for field in mirror._ALL_MIRROR_FIELDS)
+    assert mirror._ZH_BINHOST in [
+        item.value for item in mirror._mirror_fields(with_overlay, context().translate)
+    ]
