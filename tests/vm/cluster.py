@@ -3219,6 +3219,12 @@ def detached_install(
     )
 
 
+#: What the follower prints when `install.txt` has grown since it last
+#: looked. A number the guest computed: the command's own echo carries `%s`
+#: where the answer goes, so it cannot satisfy the pattern by itself.
+INSTALL_BYTES: Final[str] = "INSTALL_BYTES"
+
+
 def follow_install(*, results: str = RESULT_DIR) -> str:
     """The command that puts a detached install back on the console.
 
@@ -3226,10 +3232,24 @@ def follow_install(*, results: str = RESULT_DIR) -> str:
     arrived since rather than replaying the 294910 lines `install.txt` holds.
     The whole file is collected from the guest either way; the console carries
     it for the watchdog and for a reader.
+
+    That start-at-the-end, and a redirect into a file where `tee` into a pty
+    used to line-buffer, made a compiling install and a stopped one look the
+    same on the console: `btrfs-luks` was ended at 55.8 minutes inside
+    `emerge kde-plasma/plasma-meta` having passed the same fixture at 126.6
+    minutes the round before.
+
+    The size is printed only when it has grown. A heartbeat sent regardless
+    would keep the watchdog quiet for an install that had stopped, which is
+    the shape of a check that cannot fail; `%s` carries a number the guest
+    computed, so the line cannot be produced by the command's own echo.
     """
     return (
-        f"tail -n 0 -F {results}/install.txt & follower=$!; "
-        f"while [ ! -e {results}/install.rc ]; do sleep 5; done; "
+        f"tail -n 0 -F {results}/install.txt & follower=$!; seen=0; "
+        f"while [ ! -e {results}/install.rc ]; do sleep 30; "
+        f"grew=$(stat -c%s {results}/install.txt 2>/dev/null || echo 0); "
+        f'if [ "$grew" != "$seen" ]; then '
+        f'printf \'{INSTALL_BYTES}=%s\\n\' "$grew"; seen=$grew; fi; done; '
         f"sleep 3; kill $follower 2>/dev/null"
     )
 
