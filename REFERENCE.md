@@ -351,6 +351,7 @@ The following reference names every persisted key. A table path is TOML table no
 | `mirrors` | Mirror record; defaults shown below. |
 | `binhost` | Binary-host record; defaults shown below. |
 | `overlays` | Overlay records; `[]`. |
+| `repositories` | Repository names enabled with `eselect repository`, beyond the overlays above; `[]`. |
 
 | `portage.mirrors` key | Meaning and default or choices |
 | --- | --- |
