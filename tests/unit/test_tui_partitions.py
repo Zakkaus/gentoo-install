@@ -80,10 +80,6 @@ def opened() -> tui_context.Context:
     return at
 
 
-def index_of(items: list[str], label: str) -> int:
-    return items.index(label)
-
-
 def test_a_purpose_that_is_not_zfs_keeps_the_passphrase_it_was_given() -> None:
     """`Purpose` carries no encryption, so a purpose change must not decide it.
     Clearing the passphrase on the way into `zfs` took an encrypted root away
