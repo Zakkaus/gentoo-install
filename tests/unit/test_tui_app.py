@@ -4850,3 +4850,41 @@ def test_changing_the_kernel_source_drops_the_version_pinned_to_the_old_one() ->
     ).unwrap()
     assert kept.kernel.source is pinned.kernel.source
     assert kept.kernel.version == "7.1.12"
+
+def test_the_interface_language_does_not_widen_a_measured_cn_region() -> None:
+    """Two readers wrote down opposite policies and the reasoned one lost.
+
+    `cli._region` reads where the packets come out and says why in the source:
+    a machine in China reading English is behind the Great Firewall, and one
+    in Taiwan reading Chinese is not. `with_language` then wrote the interface
+    tag's own region over it, so answering English on a Chinese machine sent
+    every stage3 fetch through a mirror set that machine cannot reach.
+    """
+    from gentoo_install import cli
+    from gentoo_install.model.config import MirrorRegion
+
+    measured = replace(
+        config(),
+        portage=replace(
+            config().portage,
+            mirrors=replace(config().portage.mirrors, region=cli._region("CN")),
+        ),
+    )
+    assert measured.portage.mirrors.region is MirrorRegion.CN
+
+    for tag in ("en", "zh-TW", "ja", "ko"):
+        kept = screens.with_language(measured, tag)
+        assert kept.portage.mirrors.region is MirrorRegion.CN, tag
+
+    # Narrowing still works: an unread country takes the global list, and the
+    # language is then the only thing that knows anything.
+    unread = replace(
+        config(),
+        portage=replace(
+            config().portage,
+            mirrors=replace(config().portage.mirrors, region=cli._region("")),
+        ),
+    )
+    assert unread.portage.mirrors.region is MirrorRegion.GLOBAL
+    assert screens.with_language(unread, "zh-CN").portage.mirrors.region is MirrorRegion.CN
+    assert screens.with_language(unread, "zh-TW").portage.mirrors.region is MirrorRegion.GLOBAL
