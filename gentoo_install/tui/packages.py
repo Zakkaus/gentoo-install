@@ -193,12 +193,18 @@ class Effects:
     #: The input framework a desktop proposes. Listed like the fonts, because
     #: it installs packages the operator did not ask for by name.
     input_framework: str = ""
+    #: The sound server a graphical desktop proposes. Plasma reaches PipeWire
+    #: through `kpipewire` whatever this says, and a transitive merge enables
+    #: no unit and adds nobody to the `pipewire` group, so the desktop came up
+    #: silent. Proposed rather than hidden: it is listed here to be confirmed.
+    audio: str = ""
 
     @property
     def has_changes(self) -> bool:
         """Whether the choice has a value to confirm."""
         return bool(
             self.input_framework
+            or self.audio
             or self.fonts
             or self.use_flags
             or self.video_cards
@@ -253,6 +259,12 @@ def derive_effects(
             for name in after.packages.applications
             if name not in before.packages.applications
             and name in cjk_font_groups(context.groups)
+        ),
+        audio=(
+            AUDIO_GROUP
+            if AUDIO_GROUP in after.packages.applications
+            and AUDIO_GROUP not in before.packages.applications
+            else ""
         ),
         withdrawn_use=tuple(
             one.value
@@ -376,6 +388,14 @@ def _desktop_proposes(
     framework = _input_framework_a_desktop_needs(changed, context, desktop)
     if framework:
         changed = select_input_framework(changed, context.groups, framework)
+    audio = _audio_a_desktop_needs(changed, context, desktop)
+    if audio:
+        changed = replace(
+            changed,
+            packages=replace(
+                changed.packages, applications=(*changed.packages.applications, audio)
+            ),
+        )
     return changed
 
 
@@ -398,6 +418,31 @@ def _input_framework_a_desktop_needs(
         return ""
     wanted = DESKTOP_INPUT_FRAMEWORK.get(desktop, "")
     return wanted if wanted in set(input_framework_groups(context.groups)) else ""
+
+
+#: The group that makes a merged PipeWire work: it carries the `pipewire` user
+#: group, the three user units systemd needs started, and `sound-server`, which
+#: is off outside a desktop profile. The packages arrive with Plasma either
+#: way; without this group nothing enables them.
+AUDIO_GROUP: Final[str] = "pipewire"
+
+
+def _audio_a_desktop_needs(config: InstallConfig, context: Context, desktop: str) -> str:
+    """The sound server a graphical desktop proposes, or empty.
+
+    Graphical is read from the profile the desktop group declares: every one
+    of them selects a `.../desktop` profile and `console` selects the plain
+    one. A second column saying `graphical = true` would be a second place to
+    keep the same fact right.
+    """
+    group = context.groups.get(desktop)
+    if group is None or "/desktop" not in group.profile:
+        return ""
+    if AUDIO_GROUP not in context.groups:
+        return ""
+    if AUDIO_GROUP in config.packages.applications:
+        return ""
+    return AUDIO_GROUP
 
 
 def _cjk_fonts_a_desktop_needs(config: InstallConfig, context: Context) -> tuple[str, ...]:
@@ -449,6 +494,8 @@ def settle(
         lines.append(f"{translate('Fonts')}: {' '.join(effects.fonts)}")
     if effects.input_framework:
         lines.append(f"{translate('Input method')}: {effects.input_framework}")
+    if effects.audio:
+        lines.append(f"{translate('Audio')}: {effects.audio}")
     if effects.use_flags:
         lines.append(f"USE: {' '.join(effects.use_flags)}")
     if effects.display_manager_changed:
@@ -574,7 +621,7 @@ def _record_derived(context: Context, after: InstallConfig, effects: Effects) ->
         )
     context.provenance.update(
         ValueProvenance(ValueKind.APPLICATION, value, ValueSource.DERIVED)
-        for value in (*effects.fonts, effects.input_framework)
+        for value in (*effects.fonts, effects.input_framework, effects.audio)
         if value
     )
 
