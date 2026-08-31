@@ -132,3 +132,40 @@ def test_every_fixture_the_record_names_still_exists() -> None:
                 named.add(word)
     assert len(named) > 20, sorted(named)
     assert sorted(named - have) == [], sorted(named - have)
+
+
+def test_security_says_when_the_staged_passphrase_goes() -> None:
+    """The document said the installer does not delete it before the reboot.
+
+    `apply` clears the staged keys in a `finally`, so they are gone when the
+    run ends whether it finished or stopped, and before the root shell it
+    offers. A security document that understates its own protection is still
+    wrong, and the sentence would have stayed wrong if the clean-up were
+    removed.
+    """
+    import ast
+    import inspect
+
+    from gentoo_install.exec import apply as exec_apply
+    from gentoo_install.exec.preflight import SecretStore
+    from gentoo_install.model.device import DeviceId
+
+    said = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    paragraph = next(part for part in said.split("\n- ") if "staged in a file" in part)
+    assert "finally" in paragraph, paragraph
+    assert "0600" in paragraph, paragraph
+
+    # The path the document names is the one the store writes.
+    where = SecretStore(Path("/run/gentoo-install")).path(DeviceId("one"))
+    assert str(where.parent) in paragraph, (where, paragraph)
+
+    # The clean-up is in a `finally`, which is what makes the sentence true.
+    tree = ast.parse(inspect.getsource(exec_apply.apply))
+    cleaned = [
+        node
+        for outer in ast.walk(tree)
+        if isinstance(outer, ast.Try)
+        for node in ast.walk(ast.Module(body=outer.finalbody, type_ignores=[]))
+        if isinstance(node, ast.Attribute) and node.attr == "cleanup_secrets"
+    ]
+    assert cleaned, ast.dump(tree)[:200]

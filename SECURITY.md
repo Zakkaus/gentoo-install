@@ -23,9 +23,12 @@ by one person: a reply comes when there is one to give.
   overlays and packages. Treat one you did not write as you would a shell
   script from the same source.
 - **Passphrases are staged in a file.** A LUKS or ZFS passphrase is written
-  under `/run/gentoo-install/keys/` with mode `0600` for the command that
-  reads it, and `/run` is a tmpfs, so it does not survive the reboot into the
-  installed system. The installer does not delete it before then. Publishing a
+  under `/run/gentoo-install/keys/approved/` with mode `0600` for the command
+  that reads it. `/run` is a tmpfs, so nothing there survives the reboot into
+  the installed system, and the run removes the staged keys before that: the
+  clean-up is in a `finally`, so it happens whether the install finished or
+  stopped, and before the root shell the installer offers. A key that could
+  not be removed is named in the log rather than passed over. Publishing a
   configuration from the menu replaces `password_hash`, `root_password_hash`
   and `passphrase_file` and drops the proxy username and password, so a
   published configuration carries none of them. Publishing is a menu action and the closing
