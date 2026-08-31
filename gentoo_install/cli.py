@@ -512,7 +512,7 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
                 # request fail, and the message would name the network instead.
                 _check_the_clock()
                 # The menu reads every version from the package site.
-                _require_network()
+                _say_what_the_menu_will_not_have()
             chosen = _from_menu(arguments, refused, state)
             if chosen is None:
                 print("cancelled", file=sys.stderr)
@@ -1117,8 +1117,8 @@ def _check_the_clock() -> None:
         )
 
 
-def _require_network() -> None:
-    """Stop at startup rather than halfway through, but only when nothing answers.
+def _say_what_the_menu_will_not_have() -> None:
+    """Say what is unreachable before the menu, and refuse nothing here.
 
     The version rows are read from `packages.gentoo.org` and the install is
     read from a mirror, so the package site being unreachable costs the pinned
@@ -1139,9 +1139,15 @@ def _require_network() -> None:
             file=sys.stderr,
         )
         return
-    raise errors.PreflightFailed(
-        "this machine reaches neither packages.gentoo.org nor any mirror this "
-        f"installer offers, so no install can fetch a stage3: {refused}"
+    # Not a refusal: `mode = "dd"` writes a prepared image from a local path
+    # and fetches nothing, and it is chosen inside the menu this would have
+    # closed. What an install does need is the mirror its own configuration
+    # names, and `_require_mirror` reads that once the menu has answered.
+    print(
+        "warning: this machine reaches neither packages.gentoo.org nor any mirror "
+        f"this installer offers ({refused}); the version rows offer only what the "
+        "keywords allow, and an install that fetches a stage3 will be refused",
+        file=sys.stderr,
     )
 
 
