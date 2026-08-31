@@ -1065,7 +1065,7 @@ def _operations(
             )
     # After the groups: `rc-update` refuses a service whose package is absent,
     # and both of these arrive as dependencies of the desktop above.
-    operations += _session_services(config)
+    operations += _session_services(config, catalog)
     operations += _input_method(config, chosen)
     if config.packages.extra:
         operations.append(
@@ -1193,6 +1193,26 @@ def _required_video_cards(config: InstallConfig, chosen: Sequence[Group]) -> tup
     return tuple(wanted)
 
 
+#: What a desktop group's profile carries and a text one does not. Every
+#: graphical profile selects `default/linux/amd64/23.0/desktop...` and
+#: `console` selects the plain `23.0`, so the table already says which is
+#: which; a `graphical = true` column would be a second place to keep right.
+GRAPHICAL_PROFILE: Final[str] = "/desktop"
+
+
+def draws_a_session(catalog: Catalog, desktop: str) -> bool:
+    """Whether that desktop choice produces a graphical session.
+
+    `console` is a profile-bearing group, so it appears in the Desktop menu
+    and `packages.desktop` is not empty for it. Every reader that tested the
+    name for truth therefore treated a text console as a desktop: `dbus` and
+    `elogind` were merged and enabled for it, and the menu proposed a network
+    manager, CJK fonts and an input framework for a machine with no session.
+    """
+    group = catalog.get(desktop)
+    return group is not None and GRAPHICAL_PROFILE in group.profile
+
+
 #: openrc runs every display manager through one init script, which reads the
 #: name from its conf.d file. `gui-libs/display-manager-init` is what ships
 #: both, and nothing else pulls it in.
@@ -1210,7 +1230,7 @@ SESSION_PACKAGES: Final[tuple[tuple[str, str, str], ...]] = (
 )
 
 
-def _session_services(config: InstallConfig) -> list[Operation]:
+def _session_services(config: InstallConfig, catalog: Catalog) -> list[Operation]:
     """What a graphical session needs running before anything can start one.
 
     Neither package is in a stage3 and neither is in `@system`: they arrive as
@@ -1219,7 +1239,10 @@ def _session_services(config: InstallConfig) -> list[Operation]:
     """
     if config.system.init is InitSystem.SYSTEMD:
         return []
-    if not (config.packages.desktop or config.packages.display_manager):
+    if not (
+        draws_a_session(catalog, config.packages.desktop)
+        or config.packages.display_manager
+    ):
         return []
     return [
         Emerge(

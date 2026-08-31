@@ -729,3 +729,67 @@ def test_the_session_check_names_the_directories_it_will_look_in() -> None:
         said = check.describe()
         for path in check.paths:
             assert str(path) in said, (path, said)
+
+
+def test_the_text_console_is_not_treated_as_a_graphical_session() -> None:
+    """`console` is a profile-bearing group, so `packages.desktop` is not
+    empty for it and every reader that tested the name for truth called it a
+    desktop: `sys-apps/dbus` and `sys-auth/elogind` were merged and enabled
+    for a machine whose own profile comment says `No desktop: a text console`.
+
+    The profile the group declares is what separates them — `console` selects
+    the plain `23.0` and every graphical one a `.../desktop` — so one
+    predicate reads it and the menu and the plan share it.
+    """
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.plan.packages import SESSION_PACKAGES, draws_a_session
+
+    catalog = load_catalog()
+    assert not draws_a_session(catalog, "console"), catalog["console"].profile
+    assert not draws_a_session(catalog, ""), "no desktop is not a session"
+    for name in ("plasma", "gnome", "xfce"):
+        assert draws_a_session(catalog, name), catalog[name].profile
+
+    session = {atom for atom, _, _ in SESSION_PACKAGES}
+    installation = config()
+    openrc = replace(
+        installation,
+        system=replace(installation.system, init=InitSystem.OPENRC),
+        packages=replace(installation.packages, desktop="console", display_manager=""),
+    )
+    merged = {
+        atom
+        for one in plan_packages.build(openrc, catalog)
+        for atom in getattr(one, "packages", ())
+    }
+    assert not (merged & session), sorted(merged & session)
+
+    graphical = replace(
+        openrc, packages=replace(openrc.packages, desktop="xfce")
+    )
+    with_session = {
+        atom
+        for one in plan_packages.build(graphical, catalog)
+        for atom in getattr(one, "packages", ())
+    }
+    assert session <= with_session, sorted(session - with_session)
+
+
+def test_the_text_console_is_offered_no_desktop_proposals() -> None:
+    """The menu proposed a network manager, CJK fonts and an input framework
+    for `console`, because the row tested whether the name was empty and that
+    name is not. A text machine draws none of them."""
+    from gentoo_install.tui import packages as tui_packages
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    at.tag = "zh-TW"
+    before = config()
+    picked = replace(before, packages=replace(before.packages, desktop="console"))
+    after = tui_packages._desktop_proposes(picked, before, at, "console")
+
+    assert after.packages.applications == before.packages.applications, (
+        after.packages.applications
+    )
+    assert after.system.networking is before.system.networking, after.system.networking
+    assert after.packages.display_manager == "", after.packages.display_manager

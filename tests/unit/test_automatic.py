@@ -1734,21 +1734,29 @@ def test_a_desktop_takes_back_the_fonts_and_framework_it_proposed() -> None:
     from tests.unit.fake_screen import FakeScreen
     from tests.unit.test_tui_app import context, down
 
+    from dataclasses import replace as _replace
+
     at = context()
     at.tag = "zh-TW"
     chinese = screens.with_language(config(), "zh-TW", at)
 
-    with_plasma = tui_packages.desktop_screen(
-        FakeScreen(keys=[*down(1), "\n", "\n"], lines=40, columns=110), chinese, at
-    ).unwrap()
+    # `_desktop_proposes` rather than the menu: a row index picked `console`,
+    # which is a profile-bearing group and not a session, so the test was
+    # passing on the very defect the graphical predicate exists to fix.
+    picked = _replace(chinese, packages=_replace(chinese.packages, desktop="plasma"))
+    with_plasma = tui_packages._desktop_proposes(picked, chinese, at, "plasma")
     proposed = set(with_plasma.packages.applications)
     assert proposed, with_plasma.packages.applications
+    tui_packages._record_derived(
+        at, with_plasma, tui_packages.derive_effects(chinese, with_plasma, at)
+    )
 
-    # Back to no desktop: the first row of that menu.
-    none = tui_packages.desktop_screen(
-        FakeScreen(keys=["KEY_UP", "\n", "\n"], lines=40, columns=110), with_plasma, at
-    ).unwrap()
-    assert none.packages.desktop == "", none.packages.desktop
+    none = tui_packages._desktop_proposes(
+        _replace(with_plasma, packages=_replace(with_plasma.packages, desktop="")),
+        with_plasma,
+        at,
+        "",
+    )
     assert not (set(none.packages.applications) & proposed), none.packages.applications
 
 
