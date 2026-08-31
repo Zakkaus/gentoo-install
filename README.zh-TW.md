@@ -47,7 +47,7 @@ gentoo-install 在 Linux live 環境中執行，用於安裝 amd64 架構的 Gen
 
 <!-- fact: safety-review-backup -->
 
-實際執行前，必須在 dry-run 輸出中核對磁碟選擇器與每項破壞性操作。穩定的 `/dev/disk/by-id/` 選擇器優於 `/dev/sda` 之類的名稱；需要保留的資料必須另有備份。
+實際執行前，必須在 dry-run 輸出中核對磁碟選擇器與每項破壞性操作。穩定的 `/dev/disk/by-id/` 選擇器優於 `/dev/sda` 之類的名稱；需要保留的資料必須在這次執行不會寫入的磁碟上另有備份。
 
 ## 安裝
 
