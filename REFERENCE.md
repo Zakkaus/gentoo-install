@@ -543,6 +543,8 @@ Binary packages are optional. Disabling them keeps source builds available. The 
 
 A verified binhost runs `getuto`, imports its signing key, locally signs that key with `lsign`, and enables signature verification. A failed host, missing signature, or untrusted key degrades that binhost to source compilation and records the reason.
 
+A binhost helps a desktop installation far less than a console one. Portage reuses a binary package only when its USE flags match the ones in force, and selecting a desktop switches the profile, which moves flags across the whole dependency graph; most of what the official binhost built no longer matches. Three cluster fixtures were still compiling Qt and WebKit when an eight-hour ceiling ended them on 2026-08-31, and a 16-core Plasma guest with both binhosts enabled compiled the same packages on 2026-09-01. A desktop installation therefore takes source-build time whatever the binhost setting says.
+
 ## Exit codes
 
 | Code | `gentoo-install` |
