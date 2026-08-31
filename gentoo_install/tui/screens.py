@@ -1796,6 +1796,7 @@ def saved_config_screen(
         try:
             loaded = context.load_config(answer.unwrap())
             context.hydrate_disk(loaded)
+            context.hydrate_provenance(loaded)
             fetch.configure_proxy(loaded.proxy)
             return Answer(Outcome.CHOSE, loaded)
         except GentooInstallError as error:
