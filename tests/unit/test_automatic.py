@@ -1750,3 +1750,61 @@ def test_a_desktop_takes_back_the_fonts_and_framework_it_proposed() -> None:
     ).unwrap()
     assert none.packages.desktop == "", none.packages.desktop
     assert not (set(none.packages.applications) & proposed), none.packages.applications
+
+
+def test_a_graphical_desktop_proposes_the_sound_server_it_needs() -> None:
+    """Plasma reaches PipeWire through `kpipewire` whatever the plan says.
+
+    A transitive merge enables no unit and adds nobody to the `pipewire`
+    group, and the ebuild's own postinst says systemd needs both by hand, so
+    the desktop came up silent. `data/packages/pipewire.toml` already carries
+    the group, the three user units and `sound-server`; nothing selected it.
+
+    Every desktop fixture selects `pipewire` explicitly, which is why no
+    cluster round ever saw this: the tested path is the one that opts in.
+
+    Graphical is read from the profile the group declares — `console` selects
+    the plain `23.0` profile and every other one a `.../desktop` profile —
+    rather than from a second column saying so.
+    """
+    from dataclasses import replace as _replace
+
+    from gentoo_install.data import load_catalog
+    from gentoo_install.tui import packages as tui_packages
+    from tests.unit.test_tui_app import context
+
+    catalog = load_catalog()
+    assert tui_packages.AUDIO_GROUP in catalog, sorted(catalog)
+    audio = catalog[tui_packages.AUDIO_GROUP]
+    assert audio.user_groups and audio.user_services, audio
+
+    at = context()
+    desktops = [
+        name
+        for name, group in catalog.items()
+        if name in {"plasma", "plasma-full", "gnome", "gnome-full", "xfce", "console"}
+    ]
+    assert len(desktops) == 6, sorted(desktops)
+
+    for name in desktops:
+        graphical = "/desktop" in catalog[name].profile
+        before = config()
+        chosen = _replace(
+            before, packages=_replace(before.packages, desktop=name)
+        )
+        after = tui_packages._desktop_proposes(chosen, before, at, name)
+        selected = tui_packages.AUDIO_GROUP in after.packages.applications
+        assert selected is graphical, (name, catalog[name].profile)
+
+    # An operator who selected it keeps one entry, not two.
+    with_audio = config()
+    with_audio = _replace(
+        with_audio,
+        packages=_replace(
+            with_audio.packages,
+            desktop="plasma",
+            applications=(tui_packages.AUDIO_GROUP,),
+        ),
+    )
+    again = tui_packages._desktop_proposes(with_audio, config(), at, "plasma")
+    assert again.packages.applications.count(tui_packages.AUDIO_GROUP) == 1
