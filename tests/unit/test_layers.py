@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import subprocess
 import re
+import warnings
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Final
@@ -819,36 +820,87 @@ def test_no_module_imports_a_name_it_never_uses() -> None:
     """Twenty dead imports were in the tree at once, twelve of them left in
     `tui/screens.py` by two moves that took their users away. `mypy` does not
     see them and no lint gate is configured, so an import that survives its
-    last caller reads as a dependency the module still has."""
+    last caller reads as a dependency the module still has.
+
+    Read out of the syntax, not out of the text: searching the rest of the
+    file for the spelling counted a name in a comment or a docstring as a
+    use, and twenty-eight dead imports were in the tree while this passed.
+    `Iterable` in `tests/unit/test_i18n.py` is the case that keeps string
+    expressions in: `cast("Iterable[...]", ...)` is a real use inside a
+    literal, and a rule blind to it deletes an import mypy still needs.
+    """
+    root = Path(__file__).resolve().parents[2]
+    paths = [
+        path
+        for where in ("gentoo_install", "tests")
+        for path in sorted((root / where).rglob("*.py"))
+    ]
+    trees = {path: ast.parse(path.read_text()) for path in paths}
+
+    # A name imported here so another module can import it from here.
+    reexported: dict[str, set[str]] = {}
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                reexported.setdefault(node.module.split(".")[-1], set()).update(
+                    one.name for one in node.names
+                )
+
     dead: list[str] = []
-    # The harness as well as the package: `tests/vm/` carried seven of its own.
-    for path in [*sorted(PACKAGE.rglob("*.py")), *sorted(HARNESS.rglob("*.py"))]:
-        source = path.read_text()
-        tree = ast.parse(source)
-        lines = source.splitlines()
+    counted = 0
+    for path in paths:
+        tree = trees[path]
         imported: dict[str, int] = {}
-        # Every line of the statement, not the line it starts on: a name
-        # inside `from x import (\n    Name,\n)` sits on its own line, and
-        # excluding only the first left it there to be found as its own use.
-        spanned: set[int] = set()
         for node in ast.walk(tree):
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 # `from __future__ import annotations` has no user by design.
                 if isinstance(node, ast.ImportFrom) and node.module == "__future__":
                     continue
-                spanned.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
                 for alias in node.names:
+                    if alias.name == "*":
+                        continue
                     imported[alias.asname or alias.name.split(".")[0]] = node.lineno
-        # The import statements themselves are not uses of what they bind.
-        elsewhere = "\n".join(
-            line for number, line in enumerate(lines, 1) if number not in spanned
-        )
-        dead += [
-            f"{path.relative_to(PACKAGE.parent)}:{line} {name}"
-            for name, line in sorted(imported.items())
-            if not re.search(rf"\b{re.escape(name)}\b", elsewhere)
-        ]
+        used = {
+            one.id
+            for one in ast.walk(tree)
+            if isinstance(one, ast.Name) and isinstance(one.ctx, ast.Load)
+        }
+        used |= {one.attr for one in ast.walk(tree) if isinstance(one, ast.Attribute)}
+        used |= _names_inside_string_expressions(tree)
+        for name, line in sorted(imported.items()):
+            counted += 1
+            if name in used or name in reexported.get(path.stem, set()):
+                continue
+            dead.append(f"{path.relative_to(root)}:{line} {name}")
+    # The count guards the walk: a matcher that stopped matching imports would
+    # leave this passing over an empty set.
+    assert counted > 1000, counted
     assert not dead, dead
+
+
+def _names_inside_string_expressions(tree: ast.Module) -> set[str]:
+    """Every name in a string that parses as an expression.
+
+    Forward references and `cast("Iterable[X]", ...)` both put a real use
+    inside a literal.
+    """
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+            continue
+        try:
+            with warnings.catch_warnings():
+                # Prose parses as an expression often enough to fill the run
+                # with `invalid escape sequence` from strings nobody meant as
+                # code.
+                warnings.simplefilter("ignore", SyntaxWarning)
+                parsed = ast.parse(node.value, mode="eval")
+        except SyntaxError:
+            continue
+        for inner in ast.walk(parsed):
+            if isinstance(inner, ast.Name):
+                found.add(inner.id)
+    return found
 
 
 def test_the_passphrase_minimum_is_one_number() -> None:

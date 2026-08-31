@@ -23,7 +23,6 @@ from gentoo_install.model.config import (
     PackagesConfig,
     User,
     PortageConfig,
-    SystemConfig,
 )
 from gentoo_install.model.device import Node, Partition, PartitionRole
 from gentoo_install.exec.config import load

@@ -264,7 +264,6 @@ def test_a_configuration_url_that_needs_a_password_says_so_not_parses_html() -> 
     the status hands an HTML page to `tomllib` and reports a syntax error at
     line 1 of a configuration the operator never wrote."""
     import urllib.request
-    from io import BytesIO
 
     import pytest
 

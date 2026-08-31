@@ -21,7 +21,6 @@ from ..errors import (
     NothingToBoot,
     ValidationFailed,
 )
-from ..model import compat
 from ..model.compat import CJK_KERNELS, KERNEL_PACKAGES
 from ..model.hardware import HardwareFacts
 from ..model.validate import zfs_kernel_version_problem

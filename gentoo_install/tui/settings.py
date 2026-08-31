@@ -18,7 +18,6 @@ from typing import Callable, Final
 from ..model.architecture import DEFAULT_ARCHITECTURE
 from ..model.config import (
     BASE_PROFILE,
-    Bootloader,
     DiskMode,
     Firewall,
     InitSystem,
@@ -58,7 +57,6 @@ from .packages import (
 )
 from .partitions import partitions_screen
 from .context import Context, Step, ValueKind, ValueSource, footer
-from ..i18n import width
 from .widgets import Answer, Item, Menu, Outcome, Screen, Style, fit
 
 #: Shown for a row the operator has not visited and that has no usable default.

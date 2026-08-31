@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 from tests.tui import session as tui_session
-from tests.tui.screen import Screen
 
 
 class DeadConsole:

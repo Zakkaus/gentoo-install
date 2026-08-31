@@ -3152,7 +3152,6 @@ def test_a_findmnt_that_could_not_run_is_not_read_as_unmounted(tmp_path: Path) -
     """`plan/disk.py` already refuses to read a failed probe as unmounted. This
     is the third reader of the same rule, and reading 2 as `not mounted` mounted
     a second filesystem over one that was already there."""
-    from gentoo_install.plan.disk import Mount
 
     class Broken(Runner):
         def __init__(self) -> None:
