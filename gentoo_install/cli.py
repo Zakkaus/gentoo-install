@@ -506,6 +506,9 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
                 config,
                 available_timezones=load_timezones(),
                 available_package_groups=catalog,
+                declared_desktop_profiles={
+                    name: group.profile for name, group in catalog.items() if group.profile
+                },
             )
         if launch is not None:
             if arguments.config is not None and _needs_network(arguments):
