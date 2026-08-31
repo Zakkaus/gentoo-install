@@ -1016,7 +1016,6 @@ def test_the_kernel_package_table_is_the_only_one() -> None:
     xanmod = compat.KERNEL_PACKAGES[KernelSource.XANMOD]
     assert xanmod.atom == "sys-kernel/xanmod-kernel"
     assert xanmod.applies_cjktty
-    assert not xanmod.cjk_use_defaults_on
 
     # Derived rather than listed: the cjk set has to move when the table does.
     assert compat._CJK_KERNEL_PACKAGES == {
@@ -1414,3 +1413,33 @@ def test_validate_reads_the_cjktty_rule() -> None:
         with _pytest.raises(ValidationFailed) as refused:
             validate.validate(cjk)
     assert "cjktty" in str(refused.value), str(refused.value)
+
+
+def test_every_kernel_package_trait_has_a_reader() -> None:
+    """A column nothing reads is state implying a behaviour nothing implements.
+
+    `cjk_use_defaults_on` recorded whether an ebuild turns its CJK USE flags
+    on by itself. `RequestCjkKernel` writes `cjk` or `-cjk` explicitly for
+    every patched kernel, so the ebuild's own default decided nothing, and
+    only two tests naming the field kept it alive. The five rows carried a
+    trait whose value could not change an install.
+    """
+    import ast
+    from dataclasses import fields
+    from pathlib import Path
+
+    # The whole package, `compat.py` included: `applies_cjktty` is read by
+    # `cjk_kernels()` beside the table, and `CJK_KERNELS` is what `plan/`
+    # takes. A reader in the module that owns the rule is still a reader.
+    root = Path(__file__).resolve().parents[2] / "gentoo_install"
+    read: set[str] = set()
+    for path in sorted(root.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+                read.add(node.attr)
+
+    traits = [one.name for one in fields(compat.KernelPackage)]
+    assert traits, "the table has no column at all"
+    assert [one for one in traits if one not in read] == [], sorted(
+        one for one in traits if one not in read
+    )

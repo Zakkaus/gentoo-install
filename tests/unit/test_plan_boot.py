@@ -720,7 +720,6 @@ def test_the_prebuilt_patched_kernel_is_the_one_a_chinese_interface_takes() -> N
     prebuilt = KERNEL_PACKAGES[KernelSource.CJK_BIN]
     assert prebuilt.atom == "sys-kernel/gentoo-cjk-kernel-bin"
     assert prebuilt.applies_cjktty
-    assert prebuilt.cjk_use_defaults_on
     assert set(CJK_KERNELS) == {
         KernelSource.CJK_BIN,
         KernelSource.CJK,
@@ -745,12 +744,10 @@ def test_a_cjk_kernel_choice_is_read_out_of_the_package_table() -> None:
             KernelSource.DIST_BIN: KernelPackage(
                 atom="sys-kernel/latency-kernel",
                 applies_cjktty=True,
-                cjk_use_defaults_on=False,
             ),
             KernelSource.DIST_SOURCE: KernelPackage(
                 atom="sys-kernel/gentoo-kernel",
                 applies_cjktty=False,
-                cjk_use_defaults_on=False,
             ),
         }
     ) == (KernelSource.DIST_BIN,)
