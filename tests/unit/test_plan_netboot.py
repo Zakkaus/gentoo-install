@@ -1194,6 +1194,35 @@ def test_taking_an_arming_back_leaves_a_grub_machine_its_own_entries() -> None:
     assert "memtest86+" in recorder.files[custom], recorder.files[custom]
 
 
+def test_a_bypassed_grub_machine_gets_its_own_saved_entry_back() -> None:
+    """`--bypass` runs `grub-set-default`, and taking it back left it.
+
+    The entry it names is deleted in the same operation, so GRUB then chose a
+    kernel that is not there. Guarded by the whole line rather than unset
+    outright: on a machine that was never bypassed, `saved_entry` is the
+    operator's own default.
+    """
+    target = _target(BootMethod.BIOS_GRUB)
+    environment = f"{target.grub_directory}/grubenv"
+
+    ours = _answering()
+    ours.answering = lambda argv: (
+        f"saved_entry={netboot.ENTRY_LABEL}\n" if argv[-1] == "list" else None
+    )
+    netboot.ClearPreviousArming(target=target).apply(ours)
+    assert ("grub-editenv", environment, "unset", "saved_entry") in ours.commands, ours.commands
+
+    theirs = _answering()
+    theirs.answering = lambda argv: "saved_entry=Debian GNU/Linux\n" if argv[-1] == "list" else None
+    netboot.ClearPreviousArming(target=target).apply(theirs)
+    assert (
+        "grub-editenv",
+        environment,
+        "unset",
+        "saved_entry",
+    ) not in theirs.commands, theirs.commands
+
+
 def test_disarming_and_clearing_ask_for_the_same_thing() -> None:
     """One way of taking an arming back, or the two drift and the operator
     who answers no is left with a machine armed differently from one whose

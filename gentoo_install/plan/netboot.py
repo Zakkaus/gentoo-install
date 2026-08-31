@@ -364,10 +364,16 @@ def _disarm(context: Context, target: BootTarget) -> None:
         context.run(["bootctl", "set-oneshot", ""], check=False)
         return
     if target.grub_directory is not None:
-        context.run(
-            ["grub-editenv", f"{target.grub_directory}/grubenv", "unset", "next_entry"],
-            check=False,
-        )
+        environment = f"{target.grub_directory}/grubenv"
+        context.run(["grub-editenv", environment, "unset", "next_entry"], check=False)
+        # Only when it names this installer's entry: `--bypass` wrote it with
+        # `grub-set-default`, and unsetting it unconditionally would throw away
+        # a default the operator chose on a machine that was never bypassed.
+        # The whole line, so a failure's message on stdout cannot match it and
+        # the exit code does not have to be read here.
+        listed = context.run(["grub-editenv", environment, "list"], check=False)
+        if f"saved_entry={ENTRY_LABEL}" in str(listed).splitlines():
+            context.run(["grub-editenv", environment, "unset", "saved_entry"], check=False)
 
 
 @dataclass(frozen=True, kw_only=True)
