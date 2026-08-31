@@ -1150,6 +1150,50 @@ def test_the_placed_directory_goes_with_the_arming() -> None:
     ), recorder.commands
 
 
+def test_taking_an_arming_back_removes_the_entry_it_wrote() -> None:
+    """The kernel went and the entry stayed, on every path and not only
+
+    `--bypass`. `WriteMemoryEntry` writes outside `target.place`, which is all
+    `_take_back` deleted, so the menu kept a first choice that stops at
+    `error: file not found` and on `--bypass` that choice was the default.
+    """
+    target = _target()
+    written = netboot.WriteMemoryEntry(
+        mode=MemoryMode.RAM, target=target, launch=_launch()
+    ).destinations()
+    assert written, "systemd-boot writes an entry file and this reads its name"
+
+    recorder = _answering()
+    netboot.ClearPreviousArming(target=target).apply(recorder)
+
+    assert any(
+        one[0] == "rm" and str(written[0]) in one for one in recorder.commands
+    ), recorder.commands
+
+
+def test_taking_an_arming_back_leaves_a_grub_machine_its_own_entries() -> None:
+    """The marker block goes and everything the operator wrote stays.
+
+    Armed and then taken back through the same recorder, because whether the
+    rewritten file still holds somebody else's `menuentry` is not visible in
+    either function on its own.
+    """
+    target = _target(BootMethod.BIOS_GRUB)
+    custom = PurePosixPath(str(target.grub_directory)) / "custom.cfg"
+    theirs = "menuentry 'memtest86+' {\n    linux16 /boot/memtest\n}\n"
+
+    recorder = _answering()
+    recorder.files[custom] = theirs
+    netboot.WriteMemoryEntry(mode=MemoryMode.RAM, target=target, launch=_launch()).apply(recorder)
+    assert netboot.CUSTOM_BEGIN in recorder.files[custom]
+
+    netboot.ClearPreviousArming(target=target).apply(recorder)
+
+    assert netboot.CUSTOM_BEGIN not in recorder.files[custom], recorder.files[custom]
+    assert netboot.ENTRY_LABEL not in recorder.files[custom], recorder.files[custom]
+    assert "memtest86+" in recorder.files[custom], recorder.files[custom]
+
+
 def test_disarming_and_clearing_ask_for_the_same_thing() -> None:
     """One way of taking an arming back, or the two drift and the operator
     who answers no is left with a machine armed differently from one whose
