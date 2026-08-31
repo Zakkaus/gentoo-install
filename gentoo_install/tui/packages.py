@@ -338,7 +338,21 @@ def _desktop_proposes(
             system=replace(changed.system, networking=SystemConfig().networking),
         )
     if not desktop:
-        return changed
+        # What the previous desktop proposed goes with it. CJK fonts and an
+        # input framework render nothing without a session, and choosing no
+        # desktop after Plasma left `media-fonts/noto-cjk` and fcitx5 merged
+        # on a machine with nothing to draw them.
+        return replace(
+            changed,
+            packages=replace(
+                changed.packages,
+                applications=tuple(
+                    name
+                    for name in changed.packages.applications
+                    if not _has_derived(context, ValueKind.APPLICATION, name)
+                ),
+            ),
+        )
     login = LOGIN_SCREEN.get(desktop, "")
     if login and not changed.packages.display_manager and login in context.groups:
         changed = replace(
@@ -372,10 +386,15 @@ def _input_framework_a_desktop_needs(
 
     Nothing when the interface is not CJK and nothing when the operator has
     already chosen one: this proposes, it does not overrule.
+
+    A framework the previous desktop proposed is not the operator's, so it
+    does not block this one. Plasma proposes fcitx and GNOME ibus, and
+    without this Plasma's answer stood after the desktop changed to GNOME.
     """
     if context.tag not in CJK_INTERFACES:
         return ""
-    if _selected_input_framework(config, context.groups):
+    chosen = _selected_input_framework(config, context.groups)
+    if chosen and not _has_derived(context, ValueKind.APPLICATION, chosen):
         return ""
     wanted = DESKTOP_INPUT_FRAMEWORK.get(desktop, "")
     return wanted if wanted in set(input_framework_groups(context.groups)) else ""
@@ -522,6 +541,7 @@ def _record_derived(context: Context, after: InstallConfig, effects: Effects) ->
         ValueKind.VIDEO_CARD,
         ValueKind.NETWORKING,
         ValueKind.DISPLAY_MANAGER,
+        ValueKind.APPLICATION,
     }
     context.provenance = {
         one
@@ -552,6 +572,11 @@ def _record_derived(context: Context, after: InstallConfig, effects: Effects) ->
                 ValueSource.DERIVED,
             )
         )
+    context.provenance.update(
+        ValueProvenance(ValueKind.APPLICATION, value, ValueSource.DERIVED)
+        for value in (*effects.fonts, effects.input_framework)
+        if value
+    )
 
 
 def _record_operator(context: Context, kind: ValueKind, values: Sequence[str]) -> None:

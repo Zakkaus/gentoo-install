@@ -1719,3 +1719,34 @@ def test_the_gentoo_zh_binary_host_has_a_row_on_the_mirror_screen() -> None:
     assert mirror._ZH_BINHOST in [
         item.value for item in mirror._mirror_fields(with_overlay, context().translate)
     ]
+
+
+def test_a_desktop_takes_back_the_fonts_and_framework_it_proposed() -> None:
+    """Adding without a withdrawal, on the row that decides a whole session.
+
+    A CJK interface with Plasma proposes `noto-cjk` and fcitx5 because a
+    desktop is what renders them. Choosing no desktop afterwards left both in
+    `packages.applications`, so a machine with no session merged the fonts and
+    the input framework anyway — the display manager and the network manager
+    already had this undo and the applications did not.
+    """
+    from gentoo_install.tui import packages as tui_packages
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context, down
+
+    at = context()
+    at.tag = "zh-TW"
+    chinese = screens.with_language(config(), "zh-TW", at)
+
+    with_plasma = tui_packages.desktop_screen(
+        FakeScreen(keys=[*down(1), "\n", "\n"], lines=40, columns=110), chinese, at
+    ).unwrap()
+    proposed = set(with_plasma.packages.applications)
+    assert proposed, with_plasma.packages.applications
+
+    # Back to no desktop: the first row of that menu.
+    none = tui_packages.desktop_screen(
+        FakeScreen(keys=["KEY_UP", "\n", "\n"], lines=40, columns=110), with_plasma, at
+    ).unwrap()
+    assert none.packages.desktop == "", none.packages.desktop
+    assert not (set(none.packages.applications) & proposed), none.packages.applications

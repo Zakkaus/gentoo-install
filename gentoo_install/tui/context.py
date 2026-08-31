@@ -54,6 +54,10 @@ class ValueKind(Enum):
     DISPLAY_MANAGER = "display manager"
     OVERLAY = "overlay"
     COMMUNITY_BINHOST = "community binhost"
+    #: A package group a desktop proposed. Recorded so choosing no desktop
+    #: takes back what the desktop asked for: CJK fonts and an input framework
+    #: render nothing without a session.
+    APPLICATION = "application"
 
 
 class ValueSource(Enum):
