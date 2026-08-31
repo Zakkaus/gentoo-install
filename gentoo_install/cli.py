@@ -149,7 +149,10 @@ def parser() -> argparse.ArgumentParser:
     parsed.add_argument(
         "--dry-run",
         action="store_true",
-        help="print the operations the configuration produces and exit without touching anything",
+        help=(
+            "print the operations the configuration produces and exit without "
+            "applying any of them"
+        ),
     )
     parsed.add_argument("--mirror", default=DEFAULT_MIRROR, help="where to fetch stage3 from")
     parsed.add_argument(

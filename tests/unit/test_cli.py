@@ -3084,3 +3084,28 @@ def test_a_conversion_that_replaced_usr_is_not_told_nothing_was_written() -> Non
     quiet = cli.RunState()
     quiet.operation_started(_at_stage(Stage.PREFLIGHT))
     assert not quiet.disk_was_written
+
+
+def test_the_dry_run_help_promises_only_what_a_dry_run_keeps() -> None:
+    """It said a dry run exits `without touching anything`, and it can set the RTC.
+
+    A dry run with no configuration opens the menu, which reads versions over
+    HTTPS, so `_needs_network` is true and `_check_the_clock` runs before the
+    read: a machine more than a day out has `hwclock --set` and
+    `hwclock --hctosys` run on it. Both facts are read off the code here, so
+    the day either of them changes this stops holding the promise to the
+    weaker wording.
+    """
+    import inspect
+
+    arguments = cli.parser().parse_args(["--dry-run"])
+    assert arguments.config is None
+    assert cli._needs_network(arguments), "a dry run with no config reads the network"
+    assert "hwclock" in inspect.getsource(cli._check_the_clock)
+
+    said = next(
+        one.help for one in cli.parser()._actions if "--dry-run" in one.option_strings
+    )
+    assert said is not None
+    assert "anything" not in said, said
+    assert "without applying any of them" in said, said
