@@ -77,7 +77,7 @@ def test_a_screen_that_outlasts_answering_it_counts_as_stuck(tmp_path: Path) -> 
 
 
 def test_asking_for_help_and_being_refused_are_counted(tmp_path: Path) -> None:
-    refused = frame("Extra packages", (("Not a package name: code", ""),))
+    refused = frame("Extra packages", (("Not a package atom: code", ""),))
     one = read(
         session(tmp_path / "asked", [frame("Disk", DISK), refused], ["help", "type:code"])
     )
@@ -131,8 +131,8 @@ def test_a_translated_screen_is_counted_the_same_as_an_english_one(tmp_path: Pat
     """
     from gentoo_install.i18n import Catalog
 
-    rejected = Catalog("zh-TW")("Not a package name")
-    assert rejected != "Not a package name", "the catalog has no translation to test against"
+    rejected = Catalog("zh-TW")("Not a package atom")
+    assert rejected != "Not a package atom", "the catalog has no translation to test against"
     refused = read(session(tmp_path / "zh", [frame("Extra packages", ((rejected, ""),))], ["type:code"]))
     assert refused.refused == 1, refused
 

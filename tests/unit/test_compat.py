@@ -499,9 +499,23 @@ def test_two_broken_rules_are_both_reported() -> None:
 
 
 def test_the_reason_reads_as_one_sentence_the_interface_can_show() -> None:
-    described = violations(zfs_on_grub())[0].describe()
-    assert described.startswith("root on ZFS excludes GRUB: ")
-    assert "feature flags" in described
+    described = next(
+        rule.describe()
+        for rule in violations(a_kernel_on_zfs_under_grub())
+        if rule.when is Trait.BOOT_ON_ZFS and rule.excludes is Trait.GRUB
+    )
+    assert described == (
+        "/boot on ZFS excludes GRUB: the kernel is on a pool created with today's "
+        "feature flags, which GRUB cannot read; use a pool created with compatibility=grub2"
+    )
+
+    bios = next(
+        rule.describe()
+        for rule in violations(bios_on_gpt_without_a_bios_boot_partition())
+        if rule.excludes is Trait.GPT_WITHOUT_BIOS_BOOT
+    )
+    assert bios.endswith("GRUB on a BIOS GPT disk needs a BIOS Boot Partition")
+
 
 
 def test_the_interface_learns_what_a_choice_excludes_before_it_is_made() -> None:

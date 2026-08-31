@@ -111,7 +111,7 @@ def mirror_screen(screen: Screen, config: InstallConfig, context: Context) -> An
             title=translate("Mirrors"),
             preamble=(translate("These sources provide the Gentoo tree, distfiles, overlays, and binary packages."),),
             items=_mirror_fields(current, translate),
-            footer=footer(translate),
+            footer=footer(translate, "Open a row or choose Done"),
             cursor=cursor,
         )
         answer = menu.run(screen)
@@ -236,7 +236,7 @@ def _mirror_site_row(config: InstallConfig, translate: Catalog) -> Item[str]:
     # come from: a screen naming a site that nothing fetches from contradicts
     # itself.
     if chosen.distfiles:
-        detail = translate("replaced by a typed address")
+        detail = translate("replaced by typed distfiles addresses")
     return Item(label=translate("Gentoo mirror"), value=_SITE, detail=detail)
 
 
@@ -388,7 +388,9 @@ def _edit_repositories(
         title=translate("Other overlays"),
         value=", ".join(config.portage.repositories),
         placeholder=translate("names separated by commas, as on overlays.gentoo.org"),
-        detail=translate("no package this installer merges comes from these"),
+        detail=translate(
+            "Included package groups do not use these; explicitly requested packages may."
+        ),
         footer=footer(translate),
     ).run(screen)
     if not typed.chosen:

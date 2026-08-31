@@ -947,6 +947,37 @@ def entries_for_both() -> tuple[system.CrypttabEntry, ...]:
     )
 
 
+def test_file_previews_separate_records_from_their_options() -> None:
+    fstab = system.WriteFstab(
+        entries=(
+            system.FstabEntry(
+                path=PurePosixPath("/"),
+                kind="ext4",
+                options=("defaults", "noatime"),
+                dump=0,
+                check=1,
+                device=i("root"),
+            ),
+            system.FstabEntry(
+                path=PurePosixPath("/home"),
+                kind="ext4",
+                options=(),
+                dump=0,
+                check=2,
+                device=i("home"),
+            ),
+        )
+    )
+    fstab_preview = fstab.describe()
+    assert "defaults,noatime" in fstab_preview
+    assert "; UUID from home /home ext4 defaults 0 2" in fstab_preview
+
+    crypttab = system.WriteCrypttab(entries=entries_for_both(), init=InitSystem.SYSTEMD)
+    crypttab_preview = crypttab.describe()
+    assert "luks,x-initrd.attach; data UUID from crypt2 luks" in crypttab_preview
+
+
+
 def test_an_openrc_storage_service_is_enabled_after_its_package_is_merged() -> None:
     """`rc-update add lvm boot` exits 1 with `service does not exist` until
     sys-fs/lvm2 is installed, and that happens with the kernel stack."""

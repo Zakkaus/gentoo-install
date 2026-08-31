@@ -23,7 +23,7 @@ from typing import (
     TypeVar,
 )
 
-from ..i18n import CUT, clip, truncate, width
+from ..i18n import CUT, clip, width, wrap_to_cells
 
 #: Re-exported: every widget cuts through `clip`, and the mark it leaves is
 #: what tells a cut value from a whole one.
@@ -1103,29 +1103,6 @@ def left_pane_width(rows: Iterable[tuple[str, str]], columns: int = TWO_PANE_COL
     return min(max(LEFT_PANE_MINIMUM, wanted), max(LEFT_PANE_MINIMUM, columns // 2))
 
 
-def wrap_to_cells(text: str, room: int) -> list[str]:
-    """Broken on cells and after a separator, never through a value.
-
-    `textwrap` counts a wide character as one, so a Chinese line folds at the
-    wrong column; and a break inside `zh_TW.UTF-8` names no locale at all.
-    """
-    if room <= 0:
-        return []
-    if not text:
-        return [""]
-    lines: list[str] = []
-    rest = text
-    while rest:
-        if width(rest) <= room:
-            lines.append(rest)
-            break
-        cut = len(truncate(rest, room))
-        at = max(rest.rfind(", ", 0, cut + 1), rest.rfind(" ", 0, cut + 1))
-        if at > 0:
-            cut = at + 1
-        lines.append(rest[:cut].rstrip())
-        rest = rest[cut:].lstrip()
-    return lines
 
 
 def fit(parts: list[str], room: int) -> str:

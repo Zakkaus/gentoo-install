@@ -49,7 +49,7 @@
   set the console keymap to us and its font to default8x16 in /etc/vconsole.conf
   set the hostname to homekeybox in /etc/hostname and /etc/hosts
   give the target its own machine id with systemd-machine-id-setup
-  write /etc/fstab with UUID from cryptroot / btrfs defaults,compress=zstd:1,subvol=@ 0 1, UUID from esp /efi vfat defaults,umask=0077 0 2, UUID from cryptroot /home btrfs defaults,compress=zstd:1,subvol=@home 0 2
+  write /etc/fstab with UUID from cryptroot / btrfs defaults,compress=zstd:1,subvol=@ 0 1; UUID from esp /efi vfat defaults,umask=0077 0 2; UUID from cryptroot /home btrfs defaults,compress=zstd:1,subvol=@home 0 2
   treat the hardware clock as UTC in /etc/adjtime
   create user zakk in users, wheel, audio, video, render, usb, input with a password
   write SHA256:wBQUIpTF0DPsPEUeafUC1YRHr0N0LIdt+LtbxepvlkQ into /home/zakk/.ssh/authorized_keys

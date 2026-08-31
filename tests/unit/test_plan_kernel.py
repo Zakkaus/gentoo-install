@@ -143,6 +143,13 @@ def test_the_unlock_operation_describes_the_keyword_it_writes() -> None:
         ).system_initramfs
         is False
     )
+    zfsbootmenu = next(
+        one
+        for one in kernel.build(load(Path("tests/fixtures/zbm-unlock.toml")))
+        if isinstance(one, kernel.ConfigureRemoteUnlock)
+    )
+    assert "omit the crypt-ssh dracut module from the system initramfs" in zfsbootmenu.describe()
+
 
 
 def test_grub_remote_unlock_keeps_the_system_dracut_path() -> None:

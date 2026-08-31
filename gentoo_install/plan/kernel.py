@@ -441,7 +441,10 @@ class ConfigureRemoteUnlock(Operation):
         # `package.accept_keywords` fragment a real run puts on the disk.
         keyworded = f"accept {REMOTE_UNLOCK_PACKAGE} as testing"
         if not self.system_initramfs:
-            return f"{keyworded} and write {REMOTE_UNLOCK_CONFIG} to omit ssh from the system initramfs"
+            return (
+                f"{keyworded} and write {REMOTE_UNLOCK_CONFIG} to omit the crypt-ssh "
+                "dracut module from the system initramfs"
+            )
         return f"{keyworded} and configure remote unlock over ssh on port {self.port}"
 
     def apply(self, context: Context) -> None:

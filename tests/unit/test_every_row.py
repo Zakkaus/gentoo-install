@@ -18,6 +18,7 @@ from dataclasses import replace
 import pytest
 
 from gentoo_install.model.config import InstallConfig
+from gentoo_install.model import mirrors
 from gentoo_install.tui import settings
 from gentoo_install.tui.context import Context
 from gentoo_install.tui.settings import UNSET, Setting
@@ -150,9 +151,11 @@ def test_every_required_row_can_be_answered_from_the_menu() -> None:
 
 
 def test_leaving_a_row_alone_changes_nothing() -> None:
-    """`q` out of every screen and the configuration has to come back as it
-    was. A screen that writes on the way out edits what the operator declined
-    to edit."""
+    """Escape leaves a row unchanged, except the documented mirror default.
+
+    Opening Mirrors shows its default site, then leaving commits that preview;
+    every other row must retain the configuration it was given.
+    """
     at = context()
     at.columns = 100
     before = config(ext4_on_gpt())
@@ -160,8 +163,23 @@ def test_leaving_a_row_alone_changes_nothing() -> None:
         screen, answer = leave(row, before, at)
         if not screen.frames:
             continue  # A toggle: flipping is what it is for.
-        if answer.outcome is Outcome.CHOSE:
-            assert answer.value == before, row.key
+        if answer.outcome is not Outcome.CHOSE:
+            continue
+        if row.key == "mirror":
+            chosen_mirrors = before.portage.mirrors
+            expected = replace(
+                before,
+                portage=replace(
+                    before.portage,
+                    mirrors=replace(
+                        chosen_mirrors,
+                        site=mirrors.gentoo_sites(chosen_mirrors.region)[0].key,
+                    ),
+                ),
+            )
+            assert answer.value == expected
+            continue
+        assert answer.value == before, row.key
 
 
 def test_a_row_that_cannot_be_opened_says_why() -> None:

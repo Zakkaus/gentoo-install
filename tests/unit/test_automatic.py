@@ -1079,7 +1079,7 @@ def test_a_typed_distfiles_address_replaces_the_chosen_mirror() -> None:
     shown = next(one for one in again.last.splitlines() if "Distfiles address" in one)
     assert "10.31.0.2" in shown, shown
     site = next(one for one in again.last.splitlines() if "Gentoo mirror" in one)
-    assert "replaced by a typed address" in site, site
+    assert "replaced by typed distfiles addresses" in site, site
 
 
 def test_password_login_does_not_let_root_in_by_itself() -> None:

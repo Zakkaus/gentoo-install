@@ -74,7 +74,7 @@ def _known(kind: str) -> FilesystemType | None:
 def _zfs_bootloader(
     screen: Screen, config: InstallConfig, context: Context
 ) -> Answer[InstallConfig]:
-    """A ZFS root cannot use GRUB, so this asks which of the two that remain.
+    """GRUB is not offered for a ZFS root, so this asks which of the two remain.
 
     ZFSBootMenu lives in the gentoo-zh overlay and in no other repository, so
     choosing it is also consenting to that overlay. Adding it silently is what
@@ -82,7 +82,7 @@ def _zfs_bootloader(
     """
     translate = context.translate
     answer = Menu(
-        title=translate("A ZFS root cannot boot from GRUB. Which bootloader?"),
+        title=translate("GRUB is not offered for a ZFS root. Which bootloader?"),
         preamble=(translate("The bootloader determines how the ZFS root is found at startup."),),
         items=[
             Item(
@@ -784,7 +784,11 @@ def _too_big_for_the_disk(context: Context) -> str:
         if claimed > usable.bytes:
             return translate(
                 "{disk} can hand out {usable} and these sizes come to {claimed}"
-            ).format(disk=disk.selector, usable=usable, claimed=Size(claimed))
+            ).format(
+                disk=context.shown_as(disk.selector),
+                usable=usable,
+                claimed=Size(claimed),
+            )
     return ""
 
 

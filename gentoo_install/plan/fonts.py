@@ -102,7 +102,10 @@ class WriteCjkSansPreference(Operation):
     preferences: tuple[FontPreference, ...] = ()
 
     def describe(self) -> str:
-        return f"write {CJK_SANS_PREFERENCE}"
+        return (
+            f"write {CJK_SANS_PREFERENCE} to prefer CJK fonts for sans-serif, serif "
+            "and monospace"
+        )
 
     def apply(self, context: Context) -> None:
         context.write(CJK_SANS_PREFERENCE, self.content())
