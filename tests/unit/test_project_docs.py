@@ -308,3 +308,18 @@ def test_every_derived_file_names_its_source_where_a_reader_arrives() -> None:
         opening = "\n".join(path.read_text(encoding="utf-8").splitlines()[:12])
         name = project.split("[")[-1].split("]")[0] if "[" in project else project
         assert name in opening, f"{here} does not name {name} at its top"
+
+
+def test_contributing_does_not_forbid_what_it_later_permits() -> None:
+    """Its first paragraph said reference code must not be copied.
+
+    Eighty lines down it sets out when code may be taken and what crediting
+    it costs, and `CREDITS.md` records one such derivation. A contributor who
+    reads only the opening turns down reuse the project allows, so the
+    opening sends them to the section that decides it.
+    """
+    said = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    opening = said[: said.index("## Architecture")]
+
+    assert "## Derived code" in said, said[:200]
+    assert "[Derived code](#derived-code)" in opening, opening
