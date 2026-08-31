@@ -783,3 +783,4 @@
 "the install stopped" = "安裝已停止"
 "the install finished" = "安裝已完成"
 "{outcome}. send the log to {host}, which is public?" = "{outcome}。要把日誌送到 {host} 嗎？那是公開的"
+"y|yes" = "y|yes|是|好"

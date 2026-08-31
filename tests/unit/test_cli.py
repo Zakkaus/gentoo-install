@@ -22,6 +22,7 @@ from gentoo_install.exec.probe import BootMethod, Probe as RealProbe
 from gentoo_install.exec.runner import Result, Runner
 from gentoo_install.cli import EXIT_CONFIG, EXIT_INTEGRITY, EXIT_OK, EXIT_PREFLIGHT, main
 from gentoo_install.errors import CommandFailed, ConfigError, IntegrityError
+from gentoo_install.plan.operations import CommandOutput
 from gentoo_install.model.config import DiskConfig, DiskMode, ImageFormat, MemoryLaunch, MemoryMode
 from gentoo_install.model.hardware import CpuVendor, HardwareFacts
 from gentoo_install.model.device import DeviceGraph, DeviceId, StorageFacts, StorageLayout
@@ -743,7 +744,7 @@ def test_the_closing_questions_are_asked_in_the_menu_language(
 
     asked: list[str] = []
 
-    def say_no(question: str) -> bool:
+    def say_no(question: str, translate: object = None) -> bool:
         asked.append(question)
         return False
 
@@ -809,7 +810,7 @@ def test_a_conversion_is_offered_a_shell_in_the_root_it_converted(
     # The two unattended guards have their own test above; this one is about
     # what the question and the chroot name once it is asked.
     monkeypatch.setattr(cli, "_unattended", lambda arguments: False)
-    def say_yes(question: str) -> bool:
+    def say_yes(question: str, translate: object = None) -> bool:
         asked.append(question)
         return True
 
@@ -2994,7 +2995,7 @@ def test_a_shell_that_never_started_is_not_recorded_as_one_that_opened(
     from gentoo_install.exec.runner import Result
 
     interactive_stdin(monkeypatch)
-    monkeypatch.setattr(cli, "_asked", lambda question: True)
+    monkeypatch.setattr(cli, "_asked", lambda question, translate=None: True)
 
     def run_a_shell(code: int) -> list[str]:
         said: list[str] = []
@@ -3154,3 +3155,98 @@ def test_the_dry_run_help_promises_only_what_a_dry_run_keeps() -> None:
     assert said is not None
     assert "anything" not in said, said
     assert "without applying any of them" in said, said
+
+
+def test_a_translated_question_takes_the_answer_its_reader_would_type() -> None:
+    """The question was translated and `y`/`yes` was all it accepted.
+
+    An operator reading the Chinese offer of a root shell had to answer in
+    English or lose the mounted target. Each catalog's own affirmative is read
+    here rather than written twice, and `y` and `yes` stay accepted in every
+    language because the hint printed beside the question names them.
+    """
+    from gentoo_install.i18n import Catalog
+
+    # The catalog key, as `cli` writes it at the call.
+    AFFIRMATIVE = "y|yes"
+    assert cli._affirmatives(None) == frozenset({"y", "yes"})
+
+    for tag in ("zh-TW", "zh-CN", "ja", "ko"):
+        catalog = Catalog(tag)
+        said = catalog(AFFIRMATIVE)
+        assert said != AFFIRMATIVE, f"{tag} has no affirmative of its own"
+        taken = cli._affirmatives(catalog)
+        assert {"y", "yes"} <= taken, (tag, sorted(taken))
+        for word in said.split("|"):
+            assert word.strip().lower() in taken, (tag, word)
+
+
+def _recorded(seen: list[list[str]], argv: object) -> CommandOutput:
+    """Record the command and answer the way the real runner does."""
+    seen.append([str(one) for one in cast(Sequence[str], argv)])
+    return CommandOutput("", 0)
+
+
+def test_the_closing_questions_take_the_answer_they_asked_for(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Both closing questions reach `_asked`, and only one of them was bound.
+
+    `_offer_a_shell` calls it directly and `offer_paste` is handed it as a
+    callback, so a catalog passed to the first alone leaves the second asking
+    in Chinese and taking English. Driven through both callers rather than
+    through `_asked`, because what is being checked is who passes what.
+    """
+    import argparse
+    import io
+    from types import SimpleNamespace
+
+    from gentoo_install.exec import report
+    from gentoo_install.exec.apply import Machine
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.exec import fetch
+    from gentoo_install.exec.report import RunFile
+
+    catalog = Catalog("zh-TW")
+    yes = catalog("y|yes").split("|")[-1]
+    assert not yes.isascii(), yes
+
+    monkeypatch.setattr(cli, "_unattended", lambda arguments: False)
+    monkeypatch.setattr(cli, "_forget_what_was_typed", lambda: None)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(f"{yes}\n"))
+
+    ran: list[list[str]] = []
+    machine = cast(
+        Machine,
+        SimpleNamespace(
+            runner=SimpleNamespace(
+                run=lambda argv, **k: _recorded(ran, argv)
+            )
+        ),
+    )
+    cli._offer_a_shell(
+        argparse.Namespace(no_shell=False, menu=True, target=tmp_path, lang=""),
+        machine,
+        lambda one: None,
+        False,
+        tmp_path,
+        DiskMode.PARTITION,
+        catalog,
+    )
+    assert ran and ran[0][0] == "chroot", ran
+
+    # The callback half: the log is published rather than left behind.
+    monkeypatch.setattr(sys, "stdin", io.StringIO(f"{yes}\n"))
+    said: list[str] = []
+    (tmp_path / RunFile.LOG.value).write_text("a log\n", encoding="utf-8")
+    monkeypatch.setattr(fetch, "upload", lambda *a, **k: "https://example/1")
+    report.offer_paste(
+        tmp_path,
+        said.append,
+        False,
+        False,
+        lambda question: cli._asked(question, catalog),
+        lambda one: None,
+        catalog,
+    )
+    assert not any("by hand" in one for one in said), said
