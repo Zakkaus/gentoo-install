@@ -24,6 +24,7 @@
 "These flags select the instruction set used to compile packages." = "これらのフラグでパッケージのコンパイルに使う命令セットを選びます。"
 "This selects the service that brings interfaces up." = "インターフェースを起動するサービスを選びます。"
 "This installs a packet filter but does not write its policy." = "パケットフィルターをインストールしますが、ポリシーは書きません。"
+"The loaded layout cannot be edited here. Opening this editor replaces it with what the disk holds now." = "読み込んだレイアウトはここでは編集できません。このエディタを開くと、ディスクの現在の内容で置き換わります。"
 "This editor controls which partitions are kept, formatted, mounted, or erased." = "このエディターでパーティションを保持、フォーマット、マウント、消去するか決めます。"
 "Disks" = "ディスク"
 "Proxy" = "プロキシ"

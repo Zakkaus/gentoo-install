@@ -222,6 +222,21 @@ def partitions_screen(
     """
     translate = context.translate
     if not context.layout.holds(context.choice.disk) or not context.layout.slices:
+        if context.layout_was_loaded:
+            # The loaded graph reduces to a `Choice`, and nothing rebuilds this
+            # table from it, so the seed below is the probed disk and pressing
+            # Done writes it over what the file held. Said before that happens.
+            told = say(
+                screen,
+                context,
+                translate(
+                    "The loaded layout cannot be edited here. "
+                    "Opening this editor replaces it with what the disk holds now."
+                ),
+            )
+            if not told.chosen:
+                return Answer(Outcome.BACK)
+            context.layout_was_loaded = False
         # Seeded from what is on the disk when there is anything, and from the
         # template that was chosen when there is not: opening this row after
         # picking zfs used to show an ext4 root and discard the choice.
