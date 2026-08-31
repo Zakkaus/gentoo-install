@@ -3353,3 +3353,45 @@ def test_a_description_names_only_the_files_that_run_writes() -> None:
         proxy=ProxyConfig(kind=ProxyKind.HTTP, host="127.0.0.1", port=3128)
     )
     assert "dirmngr.conf" in over_http.describe_parts()[0]
+
+
+def test_the_overlay_distfiles_need_the_overlay() -> None:
+    """`gentoo_zh_distfiles` defaults on and nothing checked for the overlay.
+
+    A minimal configuration selects no overlay, so nothing on the machine can
+    want those sources, and `WriteMakeConf` still appended five gentoo-zh
+    hosts to `GENTOO_MIRRORS` in the installed system: an operator's own
+    `make.conf` naming hosts they never chose and nothing would fetch from.
+    """
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model import mirrors
+    from gentoo_install.model.config import Overlay
+
+    plain = config()
+    assert plain.portage.mirrors.gentoo_zh_distfiles, "the flag's default moved"
+    assert not plain.portage.overlays, plain.portage.overlays
+    assert portage._appended_distfiles(plain.portage) == ()
+
+    with_overlay = _replace(
+        plain.portage,
+        overlays=(
+            Overlay(
+                name=mirrors.GENTOO_ZH_OVERLAY, sync_uri="https://example.invalid/zh.git"
+            ),
+        ),
+    )
+    appended = portage._appended_distfiles(with_overlay)
+    assert appended == mirrors.gentoozh_distfiles(with_overlay.mirrors.gentoo_zh)
+    assert appended, appended
+
+    # And the flag still turns them off with the overlay present.
+    assert (
+        portage._appended_distfiles(
+            _replace(
+                with_overlay,
+                mirrors=_replace(with_overlay.mirrors, gentoo_zh_distfiles=False),
+            )
+        )
+        == ()
+    )

@@ -978,13 +978,26 @@ def test_choosing_a_gentoozh_mirror_is_what_adds_the_overlay() -> None:
 def test_the_gentoozh_distfiles_are_appended_and_never_ranked() -> None:
     """They hold the overlay's own sources, so ranking them with the main
     mirrors would order one repository by how fast the other answers."""
-    from gentoo_install.model.config import GentooZhMirror
+    from gentoo_install.model import mirrors as model_mirrors
+    from gentoo_install.model.config import GentooZhMirror, Overlay
     from gentoo_install.plan.portage import _appended_distfiles
 
-    off = replace(config().portage, mirrors=MirrorConfig(gentoo_zh_distfiles=False))
+    # With the overlay: without it nothing wants those sources and the
+    # appending is skipped, which is what this fixture is about ordering.
+    selected = (
+        Overlay(
+            name=model_mirrors.GENTOO_ZH_OVERLAY, sync_uri="https://example.invalid/zh.git"
+        ),
+    )
+    off = replace(
+        config().portage,
+        overlays=selected,
+        mirrors=MirrorConfig(gentoo_zh_distfiles=False),
+    )
     assert _appended_distfiles(off) == ()
     on = replace(
         config().portage,
+        overlays=selected,
         mirrors=MirrorConfig(gentoo_zh=GentooZhMirror.NJU, gentoo_zh_distfiles=True),
     )
     appended = _appended_distfiles(on)

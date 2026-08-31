@@ -892,7 +892,9 @@ def traits_of(
         found.add(Trait.CONSOLE_CJK)
     if config.portage.binhost.community is not BinhostChannel.OFF:
         found.add(Trait.COMMUNITY_BINHOST)
-    if not any(overlay.name == "gentoo-zh" for overlay in config.portage.overlays):
+    if not any(
+        overlay.name == mirrors.GENTOO_ZH_OVERLAY for overlay in config.portage.overlays
+    ):
         found.add(Trait.NO_GENTOOZH_OVERLAY)
     # Not under remote unlock: dracut-crypt-ssh reads /root/.ssh/authorized_keys
     # and nothing else, so a key that only the initramfs uses is what was asked

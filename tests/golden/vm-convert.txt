@@ -7,7 +7,7 @@
   seed the target's resolv.conf from the install medium, in /gentoo-install.new
 
 [portage]
-  write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, FEATURES; 3 mirrors in the configured order, 5 appended, in /gentoo-install.new
+  write /etc/portage/make.conf with MAKEOPTS, INPUT_DEVICES, ACCEPT_LICENSE, L10N, FEATURES; 3 mirrors in the configured order, in /gentoo-install.new
   write no proxy configuration, so every client connects directly, in /gentoo-install.new
   create /etc/portage/package.use/zz-autounmask, /etc/portage/package.accept_keywords/zz-autounmask, /etc/portage/package.license/zz-autounmask, which emerge writes its decisions into, in /gentoo-install.new
   disable inherited binary package host gentoo, in /gentoo-install.new
