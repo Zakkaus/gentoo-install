@@ -353,6 +353,7 @@
 "manual" = "手動"
 "a partition" = "パーティション"
 "not set" = "未設定"
+"Console CJK is off, so the kernel goes back to {}." = "コンソールの CJK 表示を無効にしたため、カーネルを {} に戻します。"
 "This kernel has no cjktty: console CJK is off." = "cjktty がないため、コンソールの CJK 表示は無効"
 "System logger" = "システムログ"
 "Cron" = "cron"

@@ -1352,15 +1352,15 @@ def _from_menu(
             context.tag = "en"
             if state is not None:
                 state.language = "en"
-            return app.run(display, screens.with_language(start, "en"), context)
+            return app.run(display, screens.with_language(start, "en", context), context)
         # Asked before the menu: the environment says which language the
         # operator reads, not whether this terminal can draw it.
         if not arguments.lang:
             context.translate = Catalog(screens.language_screen(display, context))
             context.tag = context.translate.tag
-            chosen = screens.with_language(start, context.tag)
+            chosen = screens.with_language(start, context.tag, context)
         else:
-            chosen = screens.with_language(start, context.translate.tag)
+            chosen = screens.with_language(start, context.translate.tag, context)
         if state is not None:
             state.language = context.translate.tag
         if refused:
