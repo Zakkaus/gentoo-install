@@ -438,14 +438,49 @@ def test_a_mirror_that_answers_is_enough_to_open_the_menu(
     assert "packages.gentoo.org did not answer" in warned, warned
     assert "Errno 101" in warned, warned
 
-    # Negative control: with the mirror unreachable too, the same machine is
-    # refused before the menu, so the warning above is the degradation and not
-    # a check that stopped running.
+    # Negative control: with the mirror unreachable too, the machine still
+    # reaches the menu and says what it will not have there, so the warning
+    # above is the degradation and not a check that stopped running.
     online(monkeypatch, False, said="Errno 101 Network is unreachable")
     assert main([]) == EXIT_PREFLIGHT
-    refused = capsys.readouterr().err
-    assert "the menu was reached" not in refused, refused
-    assert "neither packages.gentoo.org" in refused, refused
+    offline = capsys.readouterr().err
+    assert "the menu was reached" in offline, offline
+    assert "neither packages.gentoo.org" in offline, offline
+
+
+def test_the_offline_refusal_happens_once_the_menu_has_answered(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Refusing before the menu closed the one option that needs no network.
+
+    `mode = "dd"` streams a prepared image from a local path, and it is chosen
+    inside the menu. The refusal did not go away with the early check: it is
+    `_require_mirror`, which reads the mirror the answered configuration names
+    and which has always exempted that mode.
+    """
+    interactive_stdin(monkeypatch)
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+
+    # The third spelling: `online` answers `online` and `why_offline`, and the
+    # mirror check asks this one, so a run left with the real function reaches
+    # the network from a test.
+    monkeypatch.setattr(
+        fetch, "why_mirror_unreachable", lambda *a, **k: "Errno 101 Network is unreachable"
+    )
+
+    fetching = load(FIXTURES / "btrfs-luks.toml")
+    monkeypatch.setattr(cli, "_from_menu", lambda *a, **k: fetching)
+    online(monkeypatch, False, said="Errno 101 Network is unreachable")
+    assert main(["--dry-run"]) == EXIT_PREFLIGHT
+    said = capsys.readouterr().err
+    assert "cannot reach" in said, said
+
+    prepared = load(FIXTURES / "vm-dd-raw.toml")
+    assert prepared.disk.mode is DiskMode.DD
+    monkeypatch.setattr(cli, "_from_menu", lambda *a, **k: prepared)
+    online(monkeypatch, False, said="Errno 101 Network is unreachable")
+    assert main(["--dry-run", "--work", str(tmp_path / "work")]) == EXIT_OK
+    assert "operations:" in capsys.readouterr().out
 
 
 def test_the_two_offline_answers_are_still_given_without_a_network(
@@ -2922,19 +2957,29 @@ def test_a_mirror_of_the_region_opens_the_menu_when_the_default_one_is_blocked(
     )
 
     assert cli._a_mirror_that_answers() == "https://mirrors.ustc.edu.cn/gentoo"
-    cli._require_network()
+    cli._say_what_the_menu_will_not_have()
     assert "mirrors.ustc.edu.cn" in capsys.readouterr().err
 
 
-def test_no_mirror_of_the_region_answering_still_refuses(
-    monkeypatch: pytest.MonkeyPatch,
+def test_no_mirror_answering_says_so_and_still_opens_the_menu(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """It refused here, and `mode = "dd"` is chosen inside the menu it closed.
+
+    That mode streams a prepared image from a local path and fetches nothing,
+    so a machine with the image and no network could not reach the one option
+    it could have run. What an install does need is the mirror its own
+    configuration names, and `_require_mirror` reads that after the menu.
+    """
     online(monkeypatch, False, said="HTTP Error 503")
     monkeypatch.setattr(fetch, "egress_country", lambda *a, **k: "CN")
     monkeypatch.setattr(fetch, "mirror_online", lambda *a, **k: False)
 
-    with pytest.raises(errors.PreflightFailed, match="nor any mirror"):
-        cli._require_network()
+    cli._say_what_the_menu_will_not_have()
+
+    said = capsys.readouterr().err
+    assert "nor any mirror" in said, said
+    assert "HTTP Error 503" in said, said
 
 
 def test_a_shell_that_never_started_is_not_recorded_as_one_that_opened(
