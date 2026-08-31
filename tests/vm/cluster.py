@@ -1,4 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
+# Derived from shadow (https://github.com/shadow-maint/shadow), `po/zh_TW.po`
+# and `po/zh_CN.po`, BSD GPL-2: the wordings `login` prints when it refuses a
+# password. Modified here in August 2026, transcribed as codepoints.
 """Run the install fixtures on the Proxmox cluster, unattended.
 
 One process, many guests. Each guest is a thread that builds a machine, drives
