@@ -288,13 +288,15 @@ cluster fixture left it with the row above.
 
 ## Mode 3: boot into RAM, then install or write an image
 
-Implemented and wired into `cli.py`, and every path in it has a record:
-machines rebooted into both environments it arms, and an image written and
-read back. `--ram` fetches the Gentoo CJK ISO, `--lowram` the
-Alpine netboot archive; both place a kernel where the machine's own bootloader
-reads one, deliver the configuration and the installer's own tree in a cpio
-appended to the initramfs, and arm a single boot. `--bypass` replaces the
-default entry instead of arming one boot.
+Implemented and wired into `cli.py`. What has a record: machines rebooted
+into both environments it arms, and an image written and read back. What has
+none is named at the end of this section, and `--disarm` is one of them.
+
+`--ram` fetches the Gentoo CJK ISO, `--lowram` the Alpine netboot archive; both
+place a kernel where the machine's own bootloader reads one, deliver the
+configuration and the installer's own tree in a cpio appended to the initramfs,
+and arm a single boot. `--bypass` replaces the default entry instead of arming
+one boot.
 
 `dd` writes a prepared image over a whole disk from inside that environment,
 streamed rather than staged, and is offered only on a live medium or in a
@@ -440,8 +442,9 @@ assumed, and each contradicted a reading of the source that preceded it:
 | Does an appended segment reach the initramfs at all? | Only from a four-byte boundary. Alpine's `initramfs-lts` is 27951899 bytes, 3 mod 4, and a guest booted with the segment appended to it printed no sign of the payload; one zero byte in front of the same segment answered `Loading user settings from /gentoo-install.apkovl.tar.gz: ok.` |
 
 What has no record yet: a machine that goes on to install Gentoo from inside
-the environment it came up in, and a deliberately failed arming proving the
-machine returns to its own system because the entry is one-shot.
+the environment it came up in; a deliberately failed arming proving the
+machine returns to its own system because the entry is one-shot; and
+`--disarm`, which `REFERENCE.md` documents and no run here has exercised.
 
 ## The interface alone, from the menu to a booted system
 

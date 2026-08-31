@@ -204,3 +204,29 @@ def test_the_reference_lists_every_kernel_source_and_the_real_exit_codes() -> No
     assert refused.returncode == EXIT_CONFIG, refused.returncode
     assert f"| `{EXIT_CONFIG}` | configuration error" in said, said[:0]
     assert f"| `{EXIT_PREFLIGHT}` | preflight failure |" in said
+
+
+def test_the_memory_mode_section_does_not_claim_more_than_it_records() -> None:
+    """Two sentences in one section contradicted each other.
+
+    It opened with `every path in it has a record` and closed with `What has
+    no record yet:` naming two of them. `--disarm` is a real option and
+    appeared nowhere in the file at all. This is the document `README.md`
+    points at for the verification boundary, so an over-claim here is the
+    expensive kind.
+    """
+    from gentoo_install.cli import parser
+
+    said = (ROOT / "TESTED.md").read_text(encoding="utf-8")
+    section = said[said.index("## Mode 3") : said.index("## The interface alone")]
+
+    assert "every path in it has a record" not in section, section[:200]
+    unrecorded = section[section.index("What has no record yet") :]
+
+    memory = {"--ram", "--lowram", "--bypass", "--disarm"}
+    offered = {one for action in parser()._actions for one in action.option_strings}
+    assert memory <= offered, sorted(memory - offered)
+    for flag in sorted(memory):
+        assert f"`{flag}`" in section, flag
+    # The one no run has exercised is named where the gaps are named.
+    assert "`--disarm`" in unrecorded, unrecorded[:200]
