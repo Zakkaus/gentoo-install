@@ -4818,3 +4818,35 @@ def test_an_overlay_the_operator_chose_survives_the_console_cjk_row() -> None:
     off = screens.console_cjk_screen(FakeScreen(keys=["\n"]), theirs, at).unwrap()
     assert not off.system.console_cjk
     assert [one for one in off.portage.overlays if one.name == GENTOO_ZH]
+
+
+def test_changing_the_kernel_source_drops_the_version_pinned_to_the_old_one() -> None:
+    """A pin is read from one package's version list and composed onto another.
+
+    `kernel_version_screen` offers `context.kernel_versions(package)`, so
+    `7.1.12` is a version of the package that was selected then. Keeping it
+    across a change of source composes `=<new atom>-7.1.12`, and `compat.py`
+    checks that atom for syntax alone, so the run reaches `Stage.KERNEL` after
+    partitioning, formatting, mounting and unpacking stage3.
+    """
+    from gentoo_install.model.config import KernelSource
+
+    at = context()
+    pinned = replace(
+        config(),
+        kernel=replace(config().kernel, source=KernelSource.DIST_BIN, version="7.1.12"),
+    )
+
+    # One step down from `dist-bin` is another source, so the pin has to go.
+    moved = screens.kernel_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n", "\n"], lines=30, columns=100), pinned, at
+    ).unwrap()
+    assert moved.kernel.source is not pinned.kernel.source
+    assert moved.kernel.version == "", moved.kernel.version
+
+    # Choosing the source it already has changes nothing, so the pin stays.
+    kept = screens.kernel_screen(
+        FakeScreen(keys=["\n", "\n"], lines=30, columns=100), pinned, at
+    ).unwrap()
+    assert kept.kernel.source is pinned.kernel.source
+    assert kept.kernel.version == "7.1.12"
