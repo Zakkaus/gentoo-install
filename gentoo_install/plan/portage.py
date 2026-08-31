@@ -2089,8 +2089,18 @@ def _distfiles(portage: PortageConfig) -> tuple[str, ...]:
 
 def _appended_distfiles(portage: PortageConfig) -> tuple[str, ...]:
     """gentoo-zh's own distfiles, when they were asked for. They hold the
-    sources of that overlay's packages and no main mirror carries them."""
+    sources of that overlay's packages and no main mirror carries them.
+
+    The overlay decides as well as the flag: without it nothing on the machine
+    can want those sources, and the flag's default is on, so a minimal
+    configuration wrote five hosts into the installed `make.conf` that its
+    operator never chose and nothing would ever fetch from.
+    """
     if not portage.mirrors.gentoo_zh_distfiles:
+        return ()
+    if not any(
+        overlay.name == mirrors.GENTOO_ZH_OVERLAY for overlay in portage.overlays
+    ):
         return ()
     return mirrors.gentoozh_distfiles(portage.mirrors.gentoo_zh)
 

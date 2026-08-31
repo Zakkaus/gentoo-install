@@ -303,13 +303,20 @@ def gentoozh_binhost(
     return f"{gentoozh(chosen).distfiles}/{where}/{subarch}"
 
 
+#: The overlay's name, spelled once. It is the key `overlay_sync_uris` reads,
+#: the one `compat` looks for among the selected overlays, the one the TUI
+#: adds and removes, and the one that decides whether its distfiles belong in
+#: `GENTOO_MIRRORS`. Four modules kept the same literal.
+GENTOO_ZH_OVERLAY: Final[str] = "gentoo-zh"
+
+
 def overlay_sync_uris(name: str, chosen: GentooZhMirror) -> tuple[str, ...]:
     """Every site carrying that overlay, the chosen one first.
 
     Only gentoo-zh has a mirror set. `gig` is published from one host, so an
     install that cannot reach it has nowhere else to look and stops there.
     """
-    if name != "gentoo-zh":
+    if name != GENTOO_ZH_OVERLAY:
         return ()
     ordered = sorted(GENTOOZH_SITES, key=lambda site: site.key != chosen.value)
     return tuple(site.git for site in ordered if site.git)

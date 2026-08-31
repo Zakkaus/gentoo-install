@@ -453,7 +453,7 @@ DROP: Final[str] = "drop"
 #: Named once: this module composes its address, the bootloader screen adds it
 #: and the mirror screen removes it, and a literal in each is a fourth place to
 #: keep the same string right.
-GENTOO_ZH: Final[str] = "gentoo-zh"
+GENTOO_ZH: Final[str] = mirrors.GENTOO_ZH_OVERLAY
 
 
 def with_gentoo_zh(config: InstallConfig) -> PortageConfig:
