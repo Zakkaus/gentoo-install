@@ -21,13 +21,10 @@ from ..model import manual
 from ..model.config import (
     Bootloader,
     DiskConfig,
-    Firmware,
     InstallConfig,
 )
 from ..model.device import (
-    Filesystem,
     FilesystemType,
-    Partition,
     PartitionRole,
     RaidLevel,
     RaidMetadata,

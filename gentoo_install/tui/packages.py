@@ -37,12 +37,10 @@ from .context import (
     ValueSource,
     current_menu,
     footer,
-    pick,
     say,
 )
 from .widgets import (
     Answer,
-    Confirm,
     Item,
     Menu,
     MultipleChoiceMenu,

@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Protocol
 
-from .console import ConsoleClosed, ConsoleTimeout, SerialConsole
+from .console import ConsoleClosed, ConsoleTimeout
 from .monitor import keys_for
 from .websocket import Framed, WebSocket, WebSocketError
 

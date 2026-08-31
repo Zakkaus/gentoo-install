@@ -12,7 +12,6 @@ from typing import Any, Final, Sequence
 from gentoo_install.model.config import (
     Binhost,
     BinhostChannel,
-    Firmware,
     InitSystem,
     InstallConfig,
     Keywords,

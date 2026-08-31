@@ -566,7 +566,6 @@ def test_the_handshake_accept_must_match_the_key_that_was_sent(
     import ssl
     from typing import cast
 
-    from tests.vm import websocket
 
     key_bytes = b"0123456789abcdef"
     key = base64.b64encode(key_bytes)
@@ -1630,7 +1629,6 @@ def test_each_encrypted_boot_path_answers_its_own_number_of_prompts(
     One scripted console per encrypted layout, and a BIOS one whose prompt is
     on the VGA console and never reaches the serial port at all.
     """
-    from dataclasses import replace
 
     from gentoo_install.exec.config import load
     from gentoo_install.model.config import Firmware as BootFirmware

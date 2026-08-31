@@ -18,7 +18,7 @@ from dataclasses import replace
 import pytest
 
 from gentoo_install.model.config import InstallConfig
-from gentoo_install.tui import app, settings
+from gentoo_install.tui import settings
 from gentoo_install.tui.context import Context
 from gentoo_install.tui.settings import UNSET, Setting
 from gentoo_install.tui.widgets import Answer, Outcome

@@ -11,7 +11,6 @@ import pytest
 
 from gentoo_install.model.config import InstallConfig
 from gentoo_install.plan import disk as plan_disk
-from gentoo_install.plan import portage as plan_portage
 from gentoo_install.plan.bootloader import InstallGrub
 from gentoo_install.plan.build import build
 from gentoo_install.plan.convert import SwapDirectories

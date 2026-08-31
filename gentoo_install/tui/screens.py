@@ -46,8 +46,6 @@ from ..model.config import (
 from ..model.device import (
     DeviceGraph,
     DeviceId,
-    Partition,
-    Swap,
     FilesystemType,
     PartitionRole,
     TableType,

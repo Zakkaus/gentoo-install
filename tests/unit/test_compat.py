@@ -884,7 +884,6 @@ def test_a_mirror_with_no_ipv6_is_refused_on_an_ipv6_only_machine() -> None:
     """Four of the mirrors publish no AAAA record and one publishes an AAAA it
     does not answer on. An IPv6-only machine reaches none of them, and finding
     that out when the stage3 does not arrive is an hour lost."""
-    from dataclasses import replace as _replace
 
     from gentoo_install.data import load_catalog
     from gentoo_install.i18n import Catalog
