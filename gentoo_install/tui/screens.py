@@ -2349,6 +2349,16 @@ def with_language(
     # from 0:33:01 to 1:39:38 of a 1:43:48 install. The CJK console comes from
     # `console_cjk` and the cjktty kernel, not from those fonts.
     applications = config.packages.applications
+    # `cli.py`'s `_region` reads where the packets come out and writes down
+    # why: a machine in China reading English is behind the Great Firewall and
+    # one in Taiwan reading Chinese is not. The interface language is a weaker
+    # signal than that measurement, so it may narrow to `CN` and never widen
+    # away from it. An operator who disagrees says so on the Mirrors screen.
+    region = (
+        MirrorRegion.CN
+        if config.portage.mirrors.region is MirrorRegion.CN
+        else chosen.mirror_region
+    )
     seeded = replace(
         config,
         system=replace(
@@ -2366,8 +2376,8 @@ def with_language(
             # `global` resolves to `distfiles.gentoo.org` and nothing says so.
             mirrors=replace(
                 config.portage.mirrors,
-                region=chosen.mirror_region,
-                site=_site_kept_in(config.portage.mirrors.site, chosen.mirror_region),
+                region=region,
+                site=_site_kept_in(config.portage.mirrors.site, region),
             ),
         ),
     )
