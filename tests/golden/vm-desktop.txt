@@ -36,7 +36,7 @@
   sync repository gentoo
   drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written
   set sys-kernel/installkernel to dracut
-  accept the linux-firmware licence
+  accept linux-fw-redistributable and no-source-code for sys-kernel/linux-firmware, an exception to ACCEPT_LICENSE
   ask for app-i18n/fcitx-configtool kcm; sys-libs/minizip-ng compat; kde-plasma/kwin lock; kde-plasma/kwin-x11 lock for the plasma group
   ask for app-i18n/rime-data extra for the rime-simplified group
   ask for media-video/pipewire sound-server for the pipewire group

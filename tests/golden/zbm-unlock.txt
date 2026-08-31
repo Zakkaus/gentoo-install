@@ -46,7 +46,7 @@
   drop getbinpkg from FEATURES in /etc/portage/make.conf when no binary package host was written
   set sys-kernel/installkernel to dracut, writing BOOT_ROOT=/boot to /etc/kernel/install.conf.d/50-gentoo-install.conf
   verify kernel version - against the target sys-fs/zfs ceiling
-  accept the linux-firmware licence
+  accept linux-fw-redistributable and no-source-code for sys-kernel/linux-firmware, an exception to ACCEPT_LICENSE
   ask for dhclient and arping, which the legacy network module requires
   accept sys-kernel/dracut-crypt-ssh as testing and write /etc/dracut.conf.d/zz-gentoo-install-crypt-ssh.conf to omit ssh from the system initramfs
   accept sys-kernel/gentoo-cjk-kernel-bin as testing, with cjk on, writing /etc/portage/package.use/cjk-kernel

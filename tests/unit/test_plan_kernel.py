@@ -327,3 +327,36 @@ def test_the_unlock_initramfs_omits_systemd_so_its_queue_runs_first() -> None:
     assert not [
         one for one in kernel.build(plain) if isinstance(one, kernel.RequestLegacyNetworkTools)
     ]
+
+
+def test_the_firmware_licence_description_names_every_token_it_writes() -> None:
+    """`no-source-code` is not the same statement as redistribution.
+
+    The description said `accept the linux-firmware licence` while `apply`
+    wrote both tokens, so a dry-run read by someone deciding whether to
+    install a blob nobody can rebuild showed the weaker half alone. The
+    default `ACCEPT_LICENSE` is `@FREE`, which makes this an exception to the
+    policy rather than an instance of it, and the description says so.
+    """
+    from gentoo_install.model.config import PortageConfig
+    from gentoo_install.plan.kernel import AcceptFirmwareLicence
+
+    operation = AcceptFirmwareLicence()
+    written = Recorder()
+    operation.apply(written)
+
+    lines = [
+        text
+        for path, text in written.files.items()
+        if path.name == "linux-firmware"
+    ]
+    assert lines, written.files
+    tokens = [one for one in lines[0].split() if one.startswith(("linux-fw", "no-source"))]
+    assert tokens, lines[0]
+
+    said = operation.describe()
+    for token in tokens:
+        assert token in said, (token, said)
+    # And it is an exception, not the policy: the default is @FREE.
+    assert "@FREE" in PortageConfig().accept_license, PortageConfig().accept_license
+    assert "ACCEPT_LICENSE" in said, said
