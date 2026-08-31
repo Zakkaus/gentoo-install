@@ -29,7 +29,7 @@ from ..plan.packages import Catalog as Groups
 from ..plan.packages import FRAMEWORK_GROUPS
 from ..plan.packages import FONT_CONFIGURATION_DISABLED, FONT_CONFIGURATION_ENABLED
 from ..plan.packages import INPUT_CONFIGURATION_DISABLED, INPUT_CONFIGURATION_ENABLED
-from ..plan.packages import driver_conflict, framework_conflict
+from ..plan.packages import draws_a_session, driver_conflict, framework_conflict
 from .context import (
     Context,
     ValueKind,
@@ -349,7 +349,10 @@ def _desktop_proposes(
             changed,
             system=replace(changed.system, networking=SystemConfig().networking),
         )
-    if not desktop:
+    if not draws_a_session(context.groups, desktop):
+        # `console` as well as no desktop: it is a profile-bearing group, so
+        # it reaches this row with a name, and a text machine was proposed a
+        # network manager, CJK fonts and an input framework it cannot draw.
         # What the previous desktop proposed goes with it. CJK fonts and an
         # input framework render nothing without a session, and choosing no
         # desktop after Plasma left `media-fonts/noto-cjk` and fcitx5 merged
@@ -430,13 +433,10 @@ AUDIO_GROUP: Final[str] = "pipewire"
 def _audio_a_desktop_needs(config: InstallConfig, context: Context, desktop: str) -> str:
     """The sound server a graphical desktop proposes, or empty.
 
-    Graphical is read from the profile the desktop group declares: every one
-    of them selects a `.../desktop` profile and `console` selects the plain
-    one. A second column saying `graphical = true` would be a second place to
-    keep the same fact right.
+    Graphical is `draws_a_session`, which reads the profile the group
+    declares rather than whether its name is empty.
     """
-    group = context.groups.get(desktop)
-    if group is None or "/desktop" not in group.profile:
+    if not draws_a_session(context.groups, desktop):
         return ""
     if AUDIO_GROUP not in context.groups:
         return ""
