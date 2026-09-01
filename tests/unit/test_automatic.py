@@ -948,10 +948,11 @@ def test_choosing_a_chinese_interface_installs_no_package_group() -> None:
             seeded.packages.applications,
         )
         assert seeded.packages.desktop == "", (tag, seeded.packages.desktop)
-        # The language itself still arrives, and the CJK console with it:
-        # that comes from the cjktty kernel, not from a font package.
+        # The language itself still arrives. The CJK console does not: it
+        # needs the cjktty kernel, and since 2026-09-01 that is asked for on
+        # the console row rather than decided by which language is read.
         assert seeded.system.locale.startswith("zh_"), seeded.system.locale
-        assert seeded.system.console_cjk
+        assert not seeded.system.console_cjk
         assert seeded.system.timezone.startswith("Asia/"), seeded.system.timezone
 
 
@@ -1738,7 +1739,7 @@ def test_a_desktop_takes_back_the_fonts_and_framework_it_proposed() -> None:
 
     at = context()
     at.tag = "zh-TW"
-    chinese = screens.with_language(config(), "zh-TW", at)
+    chinese = screens.with_language(config(), "zh-TW")
 
     # `_desktop_proposes` rather than the menu: a row index picked `console`,
     # which is a profile-bearing group and not a session, so the test was

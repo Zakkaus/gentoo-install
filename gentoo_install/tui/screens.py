@@ -1962,7 +1962,25 @@ def console_cjk_screen(
     """
     wanted = not config.system.console_cjk
     changed = replace(config, system=replace(config.system, console_cjk=wanted))
-    if wanted or config.kernel.source not in compat.CJK_KERNELS:
+    if wanted:
+        if config.kernel.source in compat.CJK_KERNELS:
+            return Answer(Outcome.CHOSE, changed)
+        # The mirror of the branch below, and of the kernel row: `compat.py`
+        # refuses this flag beside a kernel without the patch, and the
+        # interface language stopped choosing one, so this row is where the
+        # kernel and its overlay arrive.
+        say(
+            screen,
+            context,
+            context.translate("Console CJK needs cjktty, so the kernel becomes {}.").format(
+                KERNEL_PACKAGES[KernelSource.CJK_BIN].atom
+            ),
+        )
+        changed = replace(changed, kernel=replace(changed.kernel, source=KernelSource.CJK_BIN))
+        if not any(one.name == GENTOO_ZH for one in config.portage.overlays):
+            mark_derived(context, ValueKind.OVERLAY, GENTOO_ZH)
+        return Answer(Outcome.CHOSE, replace(changed, portage=with_gentoo_zh(changed)))
+    if config.kernel.source not in compat.CJK_KERNELS:
         return Answer(Outcome.CHOSE, changed)
     # The dataclass default, not a second literal: the kernel this row falls
     # back to is the one a configuration that never chose has.
@@ -2297,29 +2315,19 @@ class LanguageDefaults:
     #: True for the languages the cjktty patch is the point of. It pulls in
     #: gentoo-zh, so it is not a default for a language that would not use the
     #: rest of that overlay.
-    cjk_console: bool = False
 
 
 #: One row per interface language. Keyed by the same tags as the catalogs.
 LANGUAGE_DEFAULTS: Final[dict[str, LanguageDefaults]] = {
     "en": LanguageDefaults("en_US.UTF-8", "UTC", MirrorRegion.GLOBAL),
-    "zh-CN": LanguageDefaults(
-        "zh_CN.UTF-8",
-        "Asia/Shanghai",
-        MirrorRegion.CN,
-        cjk_console=True,
-    ),
-    "zh-TW": LanguageDefaults(
-        "zh_TW.UTF-8",
-        "Asia/Taipei",
-        MirrorRegion.GLOBAL,
-        cjk_console=True,
-    ),
-    # cjktty is what puts Chinese, Japanese and Korean on the console, so all
-    # four of those catalogs take the patched kernel and not only the two
-    # Chinese ones.
-    "ja": LanguageDefaults("ja_JP.UTF-8", "Asia/Tokyo", MirrorRegion.GLOBAL, True),
-    "ko": LanguageDefaults("ko_KR.UTF-8", "Asia/Seoul", MirrorRegion.GLOBAL, True),
+    # No CJK console and no kernel of its own. The interface language says
+    # which language the operator reads; the official prebuilt kernel is what
+    # a machine gets until someone asks for cjktty on the console screen or
+    # picks that kernel outright.
+    "zh-CN": LanguageDefaults("zh_CN.UTF-8", "Asia/Shanghai", MirrorRegion.CN),
+    "zh-TW": LanguageDefaults("zh_TW.UTF-8", "Asia/Taipei", MirrorRegion.GLOBAL),
+    "ja": LanguageDefaults("ja_JP.UTF-8", "Asia/Tokyo", MirrorRegion.GLOBAL),
+    "ko": LanguageDefaults("ko_KR.UTF-8", "Asia/Seoul", MirrorRegion.GLOBAL),
 }
 
 
@@ -2334,14 +2342,13 @@ def _site_kept_in(site: str, region: MirrorRegion) -> str:
     return ""
 
 
-def with_language(
-    config: InstallConfig, tag: str, context: Context | None = None
-) -> InstallConfig:
+def with_language(config: InstallConfig, tag: str) -> InstallConfig:
     """The configuration as the chosen interface language leaves it.
 
-    `context` records that the overlay came from this choice, so the console
-    CJK row can take it back. Without it the addition has no matching
-    withdrawal and the CJK family stays merged with its feature off.
+    Locale, timezone and mirror region, and nothing else. It chose the kernel
+    until 2026-09-01: a CJK catalog took `gentoo-cjk-kernel-bin` and the
+    overlay that carries it, so reading Chinese decided what the machine ran.
+    The console screen and the kernel screen are where cjktty is asked for.
     """
     chosen = LANGUAGE_DEFAULTS.get(tag)
     if chosen is None:
@@ -2374,7 +2381,6 @@ def with_language(
             locale=chosen.locale,
             timezone=chosen.timezone,
             locales=locales,
-            console_cjk=chosen.cjk_console,
         ),
         packages=replace(config.packages, applications=applications),
         portage=replace(
@@ -2389,19 +2395,7 @@ def with_language(
             ),
         ),
     )
-    if not chosen.cjk_console:
-        return seeded
-    # The patched kernel is what puts CJK on the console, and it is in gentoo-zh
-    # and nowhere else, so the overlay comes with it or the row is unusable.
-    if context is not None and not any(
-        one.name == GENTOO_ZH for one in config.portage.overlays
-    ):
-        mark_derived(context, ValueKind.OVERLAY, GENTOO_ZH)
-    return replace(
-        seeded,
-        kernel=replace(seeded.kernel, source=KernelSource.CJK_BIN),
-        portage=with_gentoo_zh(seeded),
-    )
+    return seeded
 
 
 def language_screen(screen: Screen, context: Context) -> str:

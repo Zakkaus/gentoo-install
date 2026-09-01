@@ -1181,16 +1181,21 @@ def test_console_cjk_has_an_independent_switch_beside_its_font() -> None:
     cjk, font = settings.KERNEL[1:3]
     assert (cjk.key, font.key) == ("console_cjk", "console_font")
 
-    at = context()
-    assert cjk.unavailable(config(), at)
-    chinese = screens.with_language(config(), "zh-TW")
-    assert cjk.unavailable(chinese, at) == ""
+    from gentoo_install.model.config import KernelSource
 
-    # A key, because turning the row off says which kernel it falls back to:
-    # the language chose the patched one and `RequestCjkKernel` reads this
-    # flag, so leaving that kernel here writes `-cjk`.
-    disabled = screens.console_cjk_screen(FakeScreen(keys=["\n"]), chinese, at).unwrap()
+    at = context()
+    # The row is never greyed out: it is the one place that can turn cjktty on
+    # by itself, and the interface language stopped doing it.
+    assert cjk.unavailable(config(), at) == ""
+
+    # A key each way, because both directions say which kernel they move to.
+    enabled = screens.console_cjk_screen(FakeScreen(keys=["\n"]), config(), at).unwrap()
+    assert enabled.system.console_cjk
+    assert enabled.kernel.source is KernelSource.CJK_BIN
+
+    disabled = screens.console_cjk_screen(FakeScreen(keys=["\n"]), enabled, at).unwrap()
     assert not disabled.system.console_cjk
+    assert disabled.kernel.source is not KernelSource.CJK_BIN
 
 
 def test_a_chinese_system_locale_selects_no_input_method_or_font_group() -> None:
@@ -1294,7 +1299,8 @@ def test_a_chinese_interface_selects_no_package_group_at_all() -> None:
     of a 1:43:48 install, pulling `fcitx-gtk` and `fcitx-qt` onto a machine
     with no X and no Wayland. The language decides the locale, the timezone,
     the console and the mirror region; the CJK console comes from the cjktty
-    kernel and not from a font package.
+    kernel and not from a font package, and since 2026-09-01 the language does
+    not choose that kernel either.
     """
     at = context()
     started = config()
@@ -1302,7 +1308,7 @@ def test_a_chinese_interface_selects_no_package_group_at_all() -> None:
 
     assert chinese.packages.desktop == ""
     assert chinese.packages.applications == started.packages.applications
-    assert chinese.system.console_cjk
+    assert not chinese.system.console_cjk
 
     # And each group is still selectable on its own row.
     with_fonts = tui_packages.select_cjk_fonts(chinese, at.groups, ("noto-cjk",), ())
@@ -1517,33 +1523,30 @@ def test_the_nvidia_group_writes_no_file_of_its_own() -> None:
     assert nvidia.package_use == ("x11-drivers/nvidia-drivers dist-kernel",)
 
 
-def test_a_chinese_interface_defaults_to_the_patched_kernel() -> None:
-    """cjktty is what puts CJK on the console, and it is in gentoo-zh and
-    nowhere else, so the overlay is ticked with it rather than after it."""
+def test_a_chinese_interface_keeps_the_official_kernel() -> None:
+    """Decided on 2026-09-01: the cjktty kernel is never a default. Reading
+    Chinese chose `gentoo-cjk-kernel-bin` and the overlay that carries it, so
+    an interface language decided which kernel the machine ran."""
     from gentoo_install.model.config import KernelSource
 
     for tag in ("zh-CN", "zh-TW"):
         seeded = screens.with_language(config(), tag)
-        assert seeded.kernel.source is KernelSource.CJK_BIN, tag
-        assert seeded.system.console_cjk, tag
-        assert [one.name for one in seeded.portage.overlays] == ["gentoo-zh"], tag
+        assert seeded.kernel.source is config().kernel.source, tag
+        assert seeded.kernel.source is not KernelSource.CJK_BIN, tag
+        assert not seeded.system.console_cjk, tag
+        assert seeded.portage.overlays == (), tag
         validate(seeded)
 
 
-def test_every_cjk_catalog_takes_the_patched_kernel_and_english_does_not() -> None:
-    """cjktty is what draws Chinese, Japanese and Korean on the console, so all
-    four of those catalogs need it; English has nothing to gain from the
-    overlay and is not defaulted into one."""
+def test_no_catalog_takes_the_patched_kernel_or_an_overlay() -> None:
+    """The four CJK catalogs took both and English took neither. All five now
+    take neither: cjktty comes from the console row or the kernel row."""
     from gentoo_install.model.config import KernelSource
 
-    for tag in ("zh-TW", "zh-CN", "ja", "ko"):
+    for tag in ("zh-TW", "zh-CN", "ja", "ko", "en"):
         seeded = screens.with_language(config(), tag)
-        assert seeded.kernel.source is KernelSource.CJK_BIN, tag
-        assert [one.name for one in seeded.portage.overlays] == ["gentoo-zh"], tag
-
-    english = screens.with_language(config(), "en")
-    assert english.kernel.source is not KernelSource.CJK_BIN
-    assert english.portage.overlays == ()
+        assert seeded.kernel.source is not KernelSource.CJK_BIN, tag
+        assert seeded.portage.overlays == (), tag
 
 
 def test_the_tree_row_names_the_address_the_chosen_method_uses() -> None:
@@ -2091,14 +2094,15 @@ def test_a_profile_the_operator_picked_survives_choosing_a_desktop() -> None:
 
 def test_choosing_a_kernel_without_cjktty_turns_console_cjk_off_and_says_so() -> None:
     """The rule refused the install with a message about the kernel, and the
-    only row that set console_cjk was the language screen before the menu."""
+    row that turns console_cjk on is the console row: the interface language
+    stopped setting it on 2026-09-01."""
     from gentoo_install.model.config import KernelSource
 
     at = context()
-    chinese = screens.with_language(config(), "zh-TW")
+    chinese = screens.console_cjk_screen(FakeScreen(keys=["\n"]), config(), at).unwrap()
     assert chinese.system.console_cjk
 
-    # A Chinese interface holds `cjk-bin`, so the menu opens there and reaching
+    # Turning the row on holds `cjk-bin`, so the menu opens there and reaching
     # a kernel without the patch takes two steps up.
     screen = FakeScreen(keys=["KEY_UP", "KEY_UP", "\n", "\n"], lines=30, columns=100)
     plain = screens.kernel_screen(screen, chinese, at).unwrap()
@@ -4851,17 +4855,17 @@ def test_changing_the_install_mode_takes_back_the_erase_confirmation() -> None:
 def test_turning_console_cjk_off_takes_back_what_turning_it_on_added() -> None:
     """Adding without a withdrawal is the shape `#1125` already fixed once.
 
-    Choosing a CJK interface language sets `KernelSource.CJK_BIN`, adds
-    `gentoo-zh` and turns the community binary host on. The console CJK row
-    flipped one flag, so the machine kept the whole CJK package family, the
-    overlay and a trusted binary host with the feature off: `RequestCjkKernel`
-    reads that flag and writes `-cjk`.
+    Turning the console CJK row on sets `KernelSource.CJK_BIN`, adds
+    `gentoo-zh` and turns the community binary host on. The row flipped one
+    flag, so the machine kept the whole CJK package family, the overlay and a
+    trusted binary host with the feature off: `RequestCjkKernel` reads that
+    flag and writes `-cjk`.
     """
     from gentoo_install.model.config import BinhostChannel, KernelSource
     from gentoo_install.tui.context import GENTOO_ZH
 
     at = context()
-    chinese = screens.with_language(config(), "zh-TW", at)
+    chinese = screens.console_cjk_screen(FakeScreen(keys=["\n"]), config(), at).unwrap()
     assert chinese.kernel.source is KernelSource.CJK_BIN
     assert any(one.name == GENTOO_ZH for one in chinese.portage.overlays)
     assert chinese.portage.binhost.community is BinhostChannel.STABLE

@@ -362,6 +362,7 @@
 "a partition" = "一个分区"
 "not set" = "未设置"
 "Console CJK is off, so the kernel goes back to {}." = "控制台 CJK 显示已关闭，内核改回 {}。"
+"Console CJK needs cjktty, so the kernel becomes {}." = "控制台 CJK 显示需要 cjktty，内核改为 {}。"
 "This kernel has no cjktty: console CJK is off." = "这个内核未含 cjktty，控制台 CJK 显示已关闭。"
 "System logger" = "系统日志服务"
 "Cron" = "计划任务"

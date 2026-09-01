@@ -362,6 +362,7 @@
 "a partition" = "파티션"
 "not set" = "설정 안 됨"
 "Console CJK is off, so the kernel goes back to {}." = "콘솔 CJK 표시를 껐으므로 커널을 다음으로 되돌립니다: {}."
+"Console CJK needs cjktty, so the kernel becomes {}." = "콘솔 CJK 표시에는 cjktty가 필요하므로 커널을 다음으로 변경합니다: {}."
 "This kernel has no cjktty: console CJK is off." = "cjktty가 없어 콘솔 CJK 표시를 껐습니다."
 "System logger" = "시스템 로거"
 "Cron" = "cron"

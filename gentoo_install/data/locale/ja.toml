@@ -362,6 +362,7 @@
 "a partition" = "パーティション"
 "not set" = "未設定"
 "Console CJK is off, so the kernel goes back to {}." = "コンソールの CJK 表示を無効にしたため、カーネルを {} に戻します。"
+"Console CJK needs cjktty, so the kernel becomes {}." = "コンソールの CJK 表示には cjktty が必要なため、カーネルを {} に変更します。"
 "This kernel has no cjktty: console CJK is off." = "このカーネルには cjktty がないため、コンソールの CJK 表示は無効です。"
 "System logger" = "システムロガー"
 "Cron" = "cron"
