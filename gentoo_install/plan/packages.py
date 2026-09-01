@@ -19,7 +19,7 @@ import tomllib
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import ClassVar, Final, Mapping, Protocol, Sequence, runtime_checkable
+from typing import Callable, ClassVar, Final, Mapping, Protocol, Sequence, runtime_checkable
 
 from ..errors import CommandFailed, ConfigError, ValidationFailed
 from ..model.config import InitSystem, InstallConfig
@@ -63,6 +63,10 @@ class Group:
     accept_license: tuple[str, ...] = ()
     #: The display manager this group installs, if it is one.
     display_manager: str = ""
+    #: Whether that greeter offers a list of accounts rather than a field to
+    #: type a name into. sddm reads `MinimumUid`, which defaults to `UID_MIN`,
+    #: so it lists nobody on a machine whose only account is root.
+    greeter_lists_accounts: bool = False
     #: The Portage profile this desktop is built against. Empty for an
     #: application group, which changes no profile.
     profile: str = ""
@@ -911,6 +915,74 @@ EXCLUSIVE_DRIVERS: tuple[tuple[str, str, str], ...] = (
         "cannot load",
     ),
 )
+
+
+@dataclass(frozen=True)
+class Caution:
+    """A configuration that installs and leaves the feature unreachable.
+
+    Not `compat.py`: that table is mutual exclusion and refuses the install,
+    while every case here is one an operator may want, so it warns instead.
+    """
+
+    name: str
+    reason: str
+    holds: Callable[[InstallConfig, tuple[Group, ...]], bool]
+
+
+def _greeter_has_no_account(config: InstallConfig, chosen: tuple[Group, ...]) -> bool:
+    if config.system.users:
+        return False
+    return any(
+        group.greeter_lists_accounts
+        and group.display_manager == config.packages.display_manager
+        for group in chosen
+    )
+
+
+def _framework_has_no_engine(config: InstallConfig, chosen: tuple[Group, ...]) -> bool:
+    if not any(group.input_framework for group in chosen):
+        return False
+    return not any(group.input_method for group in chosen)
+
+
+#: What installs cleanly and leaves the chosen feature unreachable. A desktop
+#: without a display manager is deliberately absent: the README set and the
+#: `display_manager` key both state that an empty value is a console login.
+#: Only `sddm` carries `greeter_lists_accounts` today, because it is the one
+#: greeter whose account filter was read out of its own source and seen on a
+#: machine. gdm and lightdm are unmarked until the same is done for them.
+CAUTIONS: tuple[Caution, ...] = (
+    Caution(
+        name="greeter-without-an-account",
+        reason=(
+            "a display manager was chosen and no user account: sddm lists only "
+            "accounts between UID_MIN and UID_MAX, which on Gentoo starts at "
+            "1000, so its greeter offers nobody to log in as"
+        ),
+        holds=_greeter_has_no_account,
+    ),
+    Caution(
+        name="framework-without-an-engine",
+        reason=(
+            "an input method framework was chosen and no engine: the framework "
+            "group installs the toolkit modules and provides nothing to type "
+            "with, so the profile carries the keyboard layout alone"
+        ),
+        holds=_framework_has_no_engine,
+    ),
+)
+
+
+def cautions(config: InstallConfig, catalog: Catalog) -> tuple[str, ...]:
+    """Reasons this configuration installs a feature nothing can reach.
+
+    Read by `exec/preflight.py` into `Report.warnings`, the way
+    `driver_conflict` is read by `build` and by the screen that offers the
+    groups.
+    """
+    chosen = groups(config, catalog)
+    return tuple(one.reason for one in CAUTIONS if one.holds(config, chosen))
 
 
 def driver_conflict(config: InstallConfig, catalog: Catalog) -> str:

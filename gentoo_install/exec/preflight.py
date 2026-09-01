@@ -33,8 +33,10 @@ from ..model.device import (
 )
 from ..model.size import SectorSize, Size
 from ..model.validate import root_size_problems
+from ..data import load_catalog
 from ..plan.disk import MKFS
 from ..plan.operations import Operation
+from ..plan.packages import Catalog, cautions
 from ..plan import dd
 from ..plan.portage import InstallStage3, MountChrootFilesystems, SyncRepository
 from .probe import RELEASE_KEY, Machine, Probe
@@ -509,12 +511,15 @@ def inspect(
     target: str = "/mnt/gentoo",
     *,
     operations: Iterable[Operation] | None = None,
+    catalog: Catalog | None = None,
 ) -> Report:
     plan = tuple(operations) if operations is not None else None
     wanted = required_commands(config, plan)
     config_target = target
     fatal: list[str] = []
-    warnings: list[str] = []
+    warnings: list[str] = list(
+        cautions(config, catalog if catalog is not None else load_catalog())
+    )
 
     if not machine.root:
         fatal.append("the installer has to run as root")

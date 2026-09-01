@@ -670,6 +670,85 @@ def test_two_input_frameworks_are_refused_rather_than_installed() -> None:
         plan_packages.build(wanted, load_catalog())
 
 
+def test_a_display_manager_with_no_user_account_is_cautioned() -> None:
+    """Measured on a Plasma guest on 2026-09-01: the greeter drew an empty
+    user carousel, and creating one uid-1000 account filled it. sddm lists
+    only accounts between UID_MIN and UID_MAX, so root is never offered."""
+    wanted = replace(
+        config(),
+        packages=PackagesConfig(desktop="plasma", display_manager="sddm"),
+    )
+    assert any("offers nobody" in one for one in plan_packages.cautions(wanted, load_catalog()))
+
+
+def test_a_display_manager_with_a_user_account_is_not_cautioned() -> None:
+    from gentoo_install.model.config import User
+
+    wanted = replace(
+        config(),
+        system=replace(config().system, users=(User(name="zakk", password_hash="x"),)),
+        packages=PackagesConfig(desktop="plasma", display_manager="sddm"),
+    )
+    assert not any("offers nobody" in one for one in plan_packages.cautions(wanted, load_catalog()))
+
+
+def test_an_input_framework_with_no_engine_is_cautioned() -> None:
+    """`fcitx5` declares the framework and provides nothing to type with, so
+    the profile it is given carries the keyboard layout alone."""
+    wanted = replace(config(), packages=PackagesConfig(applications=("fcitx5",)))
+    assert any("no engine" in one for one in plan_packages.cautions(wanted, load_catalog()))
+
+
+def test_an_input_framework_with_an_engine_is_not_cautioned() -> None:
+    wanted = replace(config(), packages=PackagesConfig(applications=("fcitx5", "rime")))
+    assert not any("no engine" in one for one in plan_packages.cautions(wanted, load_catalog()))
+
+
+def test_every_caution_has_a_configuration_that_raises_it() -> None:
+    """A caution nothing can trigger reads as coverage and is not."""
+    from gentoo_install.model.config import User
+
+    catalog = load_catalog()
+    raised: set[str] = set()
+    for wanted in (
+        replace(config(), packages=PackagesConfig(desktop="plasma", display_manager="sddm")),
+        replace(config(), packages=PackagesConfig(applications=("fcitx5",))),
+    ):
+        for one in plan_packages.CAUTIONS:
+            if one.holds(wanted, plan_packages.groups(wanted, catalog)):
+                raised.add(one.name)
+    assert raised == {one.name for one in plan_packages.CAUTIONS}
+
+
+def test_a_console_greeter_with_no_user_account_is_not_cautioned() -> None:
+    """tuigreet asks for a name rather than listing accounts, so root reaches
+    it. Cautioning `vm-greetd` would report a working fixture as a mistake."""
+    wanted = replace(
+        config(),
+        packages=PackagesConfig(desktop="xfce", display_manager="greetd"),
+    )
+    assert plan_packages.cautions(wanted, load_catalog()) == ()
+
+
+def test_only_a_greeter_whose_account_filter_was_read_carries_the_flag() -> None:
+    """The flag is evidence, not a guess: sddm's `MinimumUid` default was read
+    out of its own source and its empty carousel seen on a machine. gdm and
+    lightdm stay unmarked until the same is done, and this test says so."""
+    catalog = load_catalog()
+    marked = {
+        group.display_manager for group in catalog.values() if group.greeter_lists_accounts
+    }
+    assert marked == {"sddm"}
+
+
+def test_a_desktop_without_a_display_manager_is_not_cautioned() -> None:
+    """Deliberate, and stated in the README set and the `display_manager` key:
+    an empty value is a console login, so warning about it would call a
+    documented choice an accident."""
+    wanted = replace(config(), packages=PackagesConfig(desktop="plasma"))
+    assert plan_packages.cautions(wanted, load_catalog()) == ()
+
+
 def test_one_framework_with_several_engines_is_fine() -> None:
     """Chinese and Japanese together is the ordinary case."""
     wanted = replace(config(), packages=PackagesConfig(applications=("rime", "anthy", "hangul")))
