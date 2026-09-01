@@ -161,8 +161,10 @@ def test_leaving_a_row_alone_changes_nothing() -> None:
     before = config(ext4_on_gpt())
     for row in openable():
         screen, answer = leave(row, before, at)
-        if not screen.frames:
-            continue  # A toggle: flipping is what it is for.
+        # A toggle: flipping is what it is for. `console_cjk` is one and still
+        # draws, because both directions name the kernel they move to.
+        if not screen.frames or row.key == "console_cjk":
+            continue
         if answer.outcome is not Outcome.CHOSE:
             continue
         if row.key == "mirror":

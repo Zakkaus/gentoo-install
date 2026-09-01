@@ -755,13 +755,6 @@ def _erase(config: InstallConfig, context: Context) -> str:
 
 
 
-def _console_cjk_kernel_only(config: InstallConfig, context: Context) -> str:
-    """The cjktty switch cannot turn on without a kernel carrying the patch."""
-    if config.kernel.source not in CJK_KERNELS:
-        return context.translate("only the cjk kernel draws CJK on the console")
-    return ""
-
-
 def _cjk_kernel_only(config: InstallConfig, context: Context) -> str:
     """A font with CJK glyphs draws nothing without the patch that lets the
     console show them, so the size is a choice only under that kernel."""
@@ -860,7 +853,6 @@ KERNEL: Final[tuple[Setting, ...]] = (
         "Console CJK",
         lambda c, x: x.translate("in use" if c.system.console_cjk else "not used"),
         screens.console_cjk_screen,
-        unavailable=_console_cjk_kernel_only,
     ),
     Setting(
         "console_font",
