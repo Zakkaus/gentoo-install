@@ -29,6 +29,12 @@ python3 -m pytest
 
 mypy runs in strict mode. Do not hide a finding with `# type: ignore` or `# noqa`, and do not weaken an assertion to make a test pass.
 
+Run `pytest` with no path. `tests/unit` does not reach `tests/golden`, so a changed `describe()` left seven golden files stale on `master` for four merges before the whole suite was run again.
+
+Delete `__pycache__` and `.mypy_cache` before a run that decides anything. Both gates have reported success against an earlier analysis of code that had since been broken.
+
+A green mypy here is evidence, not the verdict. CI pins Python 3.13, and a newer interpreter narrows some unions the older one does not, so a clean local run has still failed CI in under a minute.
+
 One check skips itself rather than failing when it cannot run.
 `test_every_package_a_group_names_exists_where_it_says` reads
 `/var/db/repos/gentoo` and `/var/db/repos/gentoo-zh` to confirm that every atom
