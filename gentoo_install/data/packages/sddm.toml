@@ -3,3 +3,4 @@
 packages = ["x11-misc/sddm"]
 use = ["sddm"]
 display_manager = "sddm"
+greeter_lists_accounts = true
