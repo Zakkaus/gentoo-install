@@ -349,3 +349,51 @@ def test_a_bios_machine_is_told_why_a_uefi_configuration_refuses(tmp_path: Path)
 
     assert any("booted by BIOS" in one for one in report.fatal), report.fatal
     assert not any("efivarfs" in one for one in report.fatal), report.fatal
+
+
+def test_a_conversion_names_the_home_directories_it_will_orphan(tmp_path: Path) -> None:
+    """`/home` is kept and `/etc` is replaced, so the files stay and the
+    accounts that own them do not: the machine boots and is wrong in a way
+    nothing in the run reports."""
+    from gentoo_install.exec import preflight as checking
+
+    class WithHomes(Probe):
+        def home_accounts(self) -> tuple[tuple[str, int, str], ...]:
+            return (("/home/zakk", 1000, "zakk"), ("/home/olduser", 1001, "olduser"))
+
+        def live_medium(self) -> str:
+            return ""
+
+    from gentoo_install.model.config import User
+
+    started = config()
+    recreated = replace(
+        started,
+        system=replace(started.system, users=(User(name="zakk", password_hash="x"),)),
+    )
+    said = checking._orphaned_home_directories(
+        recreated, WithHomes(runner=Runner(log=lambda line: None), work=tmp_path)
+    )
+    assert len(said) == 2, said
+    # Both branches, because a recreated account is the case that reads as
+    # fine and is not: `useradd` picks its own uid.
+    assert any("/home/zakk" in one and "same uid" in one for one in said), said
+    assert any("/home/olduser" in one and "does not create" in one for one in said), said
+
+
+def test_a_system_account_owning_a_home_directory_is_not_reported(tmp_path: Path) -> None:
+    """A uid below the first one `useradd` hands out is a service account, and
+    naming it would bury the two lines that matter."""
+    from gentoo_install.exec import preflight as checking
+
+    class WithService(Probe):
+        def home_accounts(self) -> tuple[tuple[str, int, str], ...]:
+            return (("/home/postgres", 70, "postgres"),)
+
+    started = config()
+    assert (
+        checking._orphaned_home_directories(
+            started, WithService(runner=Runner(log=lambda line: None), work=tmp_path)
+        )
+        == []
+    )
