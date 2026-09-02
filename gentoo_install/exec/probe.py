@@ -1316,6 +1316,36 @@ class Probe:
             return BootMethod.BIOS_GRUB
         return BootMethod.NONE
 
+    def home_accounts(self) -> tuple[tuple[str, int, str], ...]:
+        """Each directory under `/home`, its owning uid, and that uid's name.
+
+        A conversion keeps `/home` and replaces `/etc`, so the files stay and
+        the accounts that own them do not. Read from the running system's own
+        `passwd`, because that is the only place the name still exists once
+        the swap has happened.
+        """
+        home = Path("/home")
+        try:
+            entries = sorted(one for one in home.iterdir() if one.is_dir())
+        except OSError:
+            return ()
+        names: dict[int, str] = {}
+        try:
+            for line in Path("/etc/passwd").read_text(encoding="utf-8").splitlines():
+                fields = line.split(":")
+                if len(fields) > 2 and fields[2].isdigit():
+                    names.setdefault(int(fields[2]), fields[0])
+        except OSError:
+            pass
+        found: list[tuple[str, int, str]] = []
+        for one in entries:
+            try:
+                uid = one.stat().st_uid
+            except OSError:
+                continue
+            found.append((str(one), uid, names.get(uid, "")))
+        return tuple(found)
+
     def root_source(self) -> str:
         """What `/` is mounted from, for the warning that names it."""
         said = self.runner.run(

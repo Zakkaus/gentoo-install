@@ -174,6 +174,10 @@ def assess_commands(
 #: has already been partitioned.
 ZFS_PASSPHRASE_MINIMUM: Final[int] = 8
 
+#: The first uid `useradd` hands out on Gentoo, and what separates a
+#: person's home directory from a system account that happens to own one.
+UID_MIN: Final[int] = 1000
+
 #: Below this, compiling in a tmpfs is what runs the machine out of memory.
 TMPFS_MINIMUM: Final[int] = 8 * 1024**3
 
@@ -307,6 +311,32 @@ def _disks_at_risk(graph: DeviceGraph) -> list[Existing]:
     device the operator kept.
     """
     return list(compat.destroyed(graph))
+
+
+def _orphaned_home_directories(config: InstallConfig, probe: Probe) -> list[str]:
+    """Home directories whose owner the converted machine will not have.
+
+    `/home` is not among the directories a conversion replaces and `/etc` is,
+    so the files stay and the accounts that own them do not. A name the
+    configuration recreates still gets whatever uid `useradd` picks, which is
+    why the old one is named here rather than only the account.
+    """
+    wanted = {user.name for user in config.system.users}
+    problems: list[str] = []
+    for path, uid, name in probe.home_accounts():
+        if name and name in wanted:
+            problems.append(
+                f"{path} belongs to uid {uid} ({name}), and the conversion recreates that "
+                "account: give it the same uid or its files stay unreadable to it"
+            )
+        elif uid >= UID_MIN:
+            problems.append(
+                f"{path} belongs to uid {uid}"
+                + (f" ({name})" if name else "")
+                + ", which this configuration does not create: the conversion replaces "
+                "/etc, so those files will have no account behind them"
+            )
+    return problems
 
 
 def _passphrase_problems(
@@ -598,6 +628,7 @@ def inspect(
                 "in-place conversion replaces the running userland, and this is a live "
                 f"medium ({medium}): install onto a disk instead"
             )
+        warnings += _orphaned_home_directories(config, probe)
 
     if config.disk.mode is not DiskMode.IMAGE:
         if _disks_at_risk(config.disk.graph) and not probe.live_medium():
