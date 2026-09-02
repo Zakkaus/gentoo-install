@@ -1382,7 +1382,10 @@ def _zfs_services(config: InstallConfig) -> list[Operation]:
         EnableService(stage=STORAGE_SERVICE_STAGE, service=service, init=init, runlevel=runlevel)
         for service, runlevel in ZFS_SERVICES[init]
     ]
-    if init is InitSystem.OPENRC and any(pool.passphrase_file for pool in pools):
+    # `encrypted`, not `passphrase_file`: the two answer the same today only
+    # because preflight refuses an encrypted pool that names no file, and
+    # the key service is needed for the encryption rather than for the path.
+    if init is InitSystem.OPENRC and any(pool.encrypted for pool in pools):
         operations.insert(
             1,
             EnableService(

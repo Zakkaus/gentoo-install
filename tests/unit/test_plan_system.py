@@ -1125,6 +1125,33 @@ def test_an_encrypted_pool_loads_its_key_between_import_and_mount() -> None:
     assert order.index("zfs-import") < order.index("zfs-load-key") < order.index("zfs-mount")
 
 
+def test_an_encrypted_pool_gets_the_key_service_before_its_file_is_named() -> None:
+    """The operation list is built before the passphrase is asked for, so a
+    configuration that names no file would have been built without the service
+    and the machine would boot with nothing to load its key."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.device import ZfsPool
+
+    from .layouts import zfs_root
+
+    nodes = [
+        _replace(node, encrypted=True, passphrase_file="")
+        if isinstance(node, ZfsPool)
+        else node
+        for node in zfs_root()
+    ]
+    encrypted = replace(
+        config(nodes),
+        system=SystemConfig(init=InitSystem.OPENRC),
+        portage=replace(config().portage, profile="default/linux/amd64/23.0"),
+    )
+    services = [
+        one.service for one in system.build(encrypted) if isinstance(one, system.EnableService)
+    ]
+    assert "zfs-load-key" in services, services
+
+
 def test_every_logger_has_a_package_a_service_and_a_row() -> None:
     """It was two tables of the same name: `plan/system.py` held the package
     and the service, `tui/screens.py` held the menu row. A logger added to one
