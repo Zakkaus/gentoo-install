@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AbstractSet, Final, Iterable, Mapping
+from typing import AbstractSet, Final, Iterable, Mapping, Sequence
 
 from ..errors import DeviceNotFound, PreflightFailed
 from ..model import compat
@@ -311,6 +311,52 @@ def _disks_at_risk(graph: DeviceGraph) -> list[Existing]:
     device the operator kept.
     """
     return list(compat.destroyed(graph))
+
+
+def _routing_interfaces(routes: Sequence[str]) -> tuple[str, ...]:
+    """The interfaces the default routes leave by, from `dev <name>`."""
+    found: list[str] = []
+    for route in routes:
+        fields = route.split()
+        if "dev" in fields:
+            name = fields[fields.index("dev") + 1]
+            if name not in found:
+                found.append(name)
+    return tuple(found)
+
+
+def _replaced_network(config: InstallConfig, probe: Probe) -> list[str]:
+    """What the machine reaches the network with now, beside what replaces it.
+
+    A conversion replaces `/etc`, and the interface configuration of the
+    distribution being replaced is in it. Nothing here decides whether an
+    address was configured statically: `dynamic` is reported because the
+    kernel sets it, and an operator reading their own machine's address
+    beside what the configuration will write is better placed to answer than
+    a rule that can be wrong in the direction of false reassurance.
+    """
+    routes = probe.default_routes()
+    if not routes:
+        return []
+    leaving = _routing_interfaces(routes)
+    holding = [one for one in probe.current_addresses() if one[0] in leaving]
+    if not holding:
+        return []
+    now = ", ".join(
+        f"{address} on {interface}" + (" (dynamic)" if dynamic else "")
+        for interface, address, dynamic in holding
+    )
+    if config.system.addresses:
+        after = "the configuration writes " + ", ".join(config.system.addresses)
+        kept = {one.split("/")[0] for one in config.system.addresses}
+        if not kept & {address.split("/")[0] for _, address, _ in holding}:
+            after += ", none of which this machine holds now"
+    else:
+        after = "the configuration names no address, so the converted system asks a DHCP server"
+    return [
+        f"this machine reaches the network as {now} via {'; '.join(routes)}; "
+        f"the conversion replaces /etc, and {after}"
+    ]
 
 
 def _orphaned_home_directories(config: InstallConfig, probe: Probe) -> list[str]:
@@ -629,6 +675,7 @@ def inspect(
                 f"medium ({medium}): install onto a disk instead"
             )
         warnings += _orphaned_home_directories(config, probe)
+        warnings += _replaced_network(config, probe)
 
     if config.disk.mode is not DiskMode.IMAGE:
         if _disks_at_risk(config.disk.graph) and not probe.live_medium():

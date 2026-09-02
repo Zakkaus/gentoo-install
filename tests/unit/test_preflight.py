@@ -397,3 +397,71 @@ def test_a_system_account_owning_a_home_directory_is_not_reported(tmp_path: Path
         )
         == []
     )
+
+
+class _WithNetwork(Probe):
+    """A machine holding one address on the interface its default route uses."""
+
+    routes: ClassVar[tuple[str, ...]] = (
+        "default via 192.0.2.1 dev eth0 proto static src 192.0.2.10",
+    )
+    addresses: ClassVar[tuple[tuple[str, str, bool], ...]] = (
+        ("eth0", "192.0.2.10/24", False),
+        ("virbr0", "192.168.122.1/24", False),
+    )
+
+    def default_routes(self) -> tuple[str, ...]:
+        return self.routes
+
+    def current_addresses(self) -> tuple[tuple[str, str, bool], ...]:
+        return self.addresses
+
+
+def test_a_conversion_says_what_the_machine_reaches_the_network_with(
+    tmp_path: Path,
+) -> None:
+    """`/etc` holds the interface configuration of the distribution being
+    replaced, so a machine whose address was configured there does not come
+    back. Nothing in the run said so."""
+    from gentoo_install.exec import preflight as checking
+
+    said = checking._replaced_network(
+        config(), _WithNetwork(runner=Runner(log=lambda line: None), work=tmp_path)
+    )
+    assert len(said) == 1, said
+    assert "192.0.2.10/24 on eth0" in said[0], said
+    assert "asks a DHCP server" in said[0], said
+    # Only the interface the default route leaves by: a bridge or a tunnel
+    # address is not what the operator is connected through.
+    assert "192.168.122.1" not in said[0], said
+
+
+def test_a_conversion_says_when_the_configured_address_is_a_different_one(
+    tmp_path: Path,
+) -> None:
+    from gentoo_install.exec import preflight as checking
+
+    started = config()
+    elsewhere = replace(
+        started, system=replace(started.system, addresses=("198.51.100.5/24",))
+    )
+    said = checking._replaced_network(
+        elsewhere, _WithNetwork(runner=Runner(log=lambda line: None), work=tmp_path)
+    )
+    assert "none of which this machine holds now" in said[0], said
+
+
+def test_a_machine_with_no_default_route_is_not_reported(tmp_path: Path) -> None:
+    """Nothing to compare against, and a line naming no route reads as though
+    the machine had lost one."""
+    from gentoo_install.exec import preflight as checking
+
+    class NoRoute(_WithNetwork):
+        routes: ClassVar[tuple[str, ...]] = ()
+
+    assert (
+        checking._replaced_network(
+            config(), NoRoute(runner=Runner(log=lambda line: None), work=tmp_path)
+        )
+        == []
+    )
