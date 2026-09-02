@@ -877,6 +877,42 @@ class Probe:
         has6 = any(address is not None and address not in _ULA_V6 for address in addresses6)
         return has4, has6
 
+    def current_addresses(self) -> tuple[tuple[str, str, bool], ...]:
+        """Every routable address this machine holds now, and how it got it.
+
+        The interface, the address in CIDR, and whether the kernel marked it
+        `dynamic`, which is what an address from DHCP or a router
+        advertisement carries. Reported rather than judged: a static address
+        configured by a cloud image looks like any other, and concluding
+        wrongly here would tell an operator their machine is safe to convert.
+        """
+        listed = self.runner.run(
+            ["ip", "-oneline", "address", "show", "scope", "global"], check=False
+        )
+        if listed.returncode != 0:
+            return ()
+        found: list[tuple[str, str, bool]] = []
+        for line in listed.stdout.splitlines():
+            fields = line.split()
+            if len(fields) < 4 or fields[2] not in ("inet", "inet6"):
+                continue
+            found.append((fields[1], fields[3], "dynamic" in fields))
+        return tuple(found)
+
+    def default_routes(self) -> tuple[str, ...]:
+        """Each default route, as `ip` prints it.
+
+        Whole lines: `proto dhcp` and the source address are the parts an
+        operator reads to recognise their own machine, and rewriting them
+        into fields loses exactly that.
+        """
+        listed = self.runner.run(
+            ["ip", "-oneline", "route", "show", "default"], check=False
+        )
+        if listed.returncode != 0:
+            return ()
+        return tuple(line.strip() for line in listed.stdout.splitlines() if line.strip())
+
     def mdraid_metadata(self, selector: str) -> MdraidMetadataFact:
         """The metadata version an array already on the machine carries.
 
