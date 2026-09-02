@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import io
 import os
 import shutil
@@ -3250,3 +3251,104 @@ def test_the_closing_questions_take_the_answer_they_asked_for(
         catalog,
     )
     assert not any("by hand" in one for one in said), said
+
+
+def _no_way_in() -> Any:
+    """A configuration whose only login is a root hash, with that hash gone."""
+    started = load(FIXTURES / "ext4-bios.toml")
+    return replace(started, system=replace(started.system, root_password_hash=""))
+
+
+def _driven(*, no_shell: bool = False, menu: bool = False) -> argparse.Namespace:
+    return argparse.Namespace(no_shell=no_shell, menu=menu)
+
+
+def test_a_configuration_with_no_login_is_left_alone_off_a_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A question added to an unattended run is a way for it to hang, so the
+    prompt exists only where somebody can answer it; `validate` still refuses.
+    """
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(
+        getpass, "getpass", lambda _: pytest.fail("asked with no terminal")
+    )
+    locked = _no_way_in()
+    assert cli._with_a_root_password_if_asked(locked, _driven()) is locked
+
+
+def test_a_configuration_with_no_login_is_asked_for_one_on_a_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One configuration, many machines: `--config` already takes a URL, so the
+    password is the only thing that has to differ per machine."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "_forget_what_was_typed", lambda: None)
+    answers = iter(["hunter2hunter2", "hunter2hunter2"])
+    monkeypatch.setattr(getpass, "getpass", lambda _: next(answers))
+
+    filled = cli._with_a_root_password_if_asked(_no_way_in(), _driven())
+    assert filled.system.root_password_hash.startswith("$6$")
+
+
+def test_a_mistyped_confirmation_is_asked_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "_forget_what_was_typed", lambda: None)
+    answers = iter(["one", "other", "same", "same"])
+    monkeypatch.setattr(getpass, "getpass", lambda _: next(answers))
+
+    filled = cli._with_a_root_password_if_asked(_no_way_in(), _driven())
+    assert filled.system.root_password_hash.startswith("$6$")
+
+
+def test_asking_stops_rather_than_repeating_forever(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A person mistypes; something answering wrongly forever is what the
+    ceiling stops."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "_forget_what_was_typed", lambda: None)
+    monkeypatch.setattr(getpass, "getpass", lambda _: "")
+
+    with pytest.raises(errors.ValidationFailed, match="no root password"):
+        cli._with_a_root_password_if_asked(_no_way_in(), _driven())
+
+
+def test_an_encrypted_paste_is_not_asked_about_under_no_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same guard as the root password: `--no-shell` is a real terminal
+    with nobody at it, so the refusal has to stand instead of a prompt."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        getpass, "getpass", lambda _: pytest.fail("asked under --no-shell")
+    )
+
+    def refuse(source: str, password: str | None = None) -> None:
+        raise ConfigError("this is an encrypted paste")
+
+    monkeypatch.setattr(cli, "load_source", refuse)
+    with pytest.raises(ConfigError, match="encrypted paste"):
+        cli._configuration_from("https://paste.example/x", _driven(no_shell=True))
+
+
+def test_no_shell_on_a_terminal_is_still_unattended(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The driver CD passes `--no-shell` on a real terminal, so a question
+    guarded on `isatty` alone would have sat there for the whole run."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        getpass, "getpass", lambda _: pytest.fail("asked under --no-shell")
+    )
+    locked = _no_way_in()
+    assert cli._with_a_root_password_if_asked(locked, _driven(no_shell=True)) is locked
+
+
+def test_a_configuration_that_can_already_log_in_is_not_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        getpass, "getpass", lambda _: pytest.fail("asked with a password already set")
+    )
+    started = load(FIXTURES / "ext4-bios.toml")
+    assert cli._with_a_root_password_if_asked(started, _driven()) is started

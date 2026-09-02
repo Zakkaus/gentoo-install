@@ -17,7 +17,7 @@ import getpass
 import sys
 import termios
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Final, Mapping, Sequence
@@ -54,7 +54,7 @@ from .tui import context as tui_context
 from .tui.curses_screen import CursesScreen, too_small
 from .i18n import Catalog, tag_for
 from .exec.console import kernel_messages_held
-from .model import mirrors, qr, refusals, templates
+from .model import compat, mirrors, qr, refusals, templates
 from .model.architecture import official_subarch
 from .model.config import (
     BootloaderConfig,
@@ -519,7 +519,9 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
                 return EXIT_ABORTED
             config = chosen
         else:
-            config = _configuration_from(arguments.config)
+            config = _with_a_root_password_if_asked(
+                _configuration_from(arguments.config, arguments), arguments
+            )
         if not arguments.missing_commands:
             catalog = load_catalog()
             validate(
@@ -911,17 +913,19 @@ def _closing_catalog(state: RunState, arguments: argparse.Namespace) -> Catalog:
     return Catalog(state.language or tag_for(override=arguments.lang))
 
 
-def _configuration_from(source: str) -> InstallConfig:
+def _configuration_from(source: str, arguments: argparse.Namespace) -> InstallConfig:
     """The configuration, asking for a password when the paste needs one.
 
     Asked rather than taken from the command line: a password there reaches
-    the shell's history and every `ps` on the machine. An unattended run has
-    no terminal to ask, so the refusal stands and names what is missing.
+    the shell's history and every `ps` on the machine. `_unattended` and not
+    `isatty` alone, for the reason `_with_a_root_password_if_asked` carries:
+    `--no-shell` is a real terminal with nobody at it. With nobody to ask, the
+    refusal stands and names what is missing.
     """
     try:
         return load_source(source)
     except errors.ConfigError as refused:
-        if "encrypted paste" not in str(refused) or not sys.stdin.isatty():
+        if "encrypted paste" not in str(refused) or _unattended(arguments):
             raise
     _forget_what_was_typed()
     return load_source(source, getpass.getpass("password for this paste: "))
@@ -957,6 +961,47 @@ def _affirmatives(translate: Catalog | None) -> frozenset[str]:
     # check that every shipped key is shown reads them out of the source.
     said = translate("y|yes") if translate is not None else "y|yes"
     return frozenset({"y", "yes", *(one.strip().lower() for one in said.split("|") if one.strip())})
+
+
+#: How many times a mistyped confirmation is worth asking again. A person
+#: mistypes; a script that answers wrongly forever is what the ceiling stops.
+PASSWORD_TRIES: Final[int] = 3
+
+
+def _with_a_root_password_if_asked(
+    config: InstallConfig, arguments: argparse.Namespace
+) -> InstallConfig:
+    """Ask for a root password when the configuration leaves no way in.
+
+    Batch installation is one configuration and many machines, and `--config`
+    already takes a URL, so the only thing that has to differ per machine is
+    the secret. `_unattended` and not `isatty` alone: the driver CD passes
+    `--no-shell` on a real terminal, so a question guarded on the terminal
+    would have sat there. With nobody to ask, `validate` refuses exactly as it
+    did before.
+    """
+    locked = [
+        one
+        for one in compat.violations_without_a_graph(config)
+        if one.when is compat.Trait.ROOT_LOCKED and one.excludes is compat.Trait.NO_OTHER_LOGIN
+    ]
+    if not locked or _unattended(arguments):
+        return config
+    print(locked[0].reason, file=sys.stderr)
+    runner = Runner(log=lambda _: None, echo=False)
+    for _ in range(PASSWORD_TRIES):
+        _forget_what_was_typed()
+        first = getpass.getpass("root password for this machine: ")
+        if not first:
+            continue
+        if first != getpass.getpass("again: "):
+            print("the two did not match", file=sys.stderr)
+            continue
+        return replace(
+            config,
+            system=replace(config.system, root_password_hash=fetch.password_hash(first, runner)),
+        )
+    raise errors.ValidationFailed("no root password was given")
 
 
 def _forget_what_was_typed() -> None:
