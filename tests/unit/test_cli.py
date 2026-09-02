@@ -26,7 +26,14 @@ from gentoo_install.errors import CommandFailed, ConfigError, IntegrityError
 from gentoo_install.plan.operations import CommandOutput
 from gentoo_install.model.config import DiskConfig, DiskMode, ImageFormat, MemoryLaunch, MemoryMode
 from gentoo_install.model.hardware import CpuVendor, HardwareFacts
-from gentoo_install.model.device import DeviceGraph, DeviceId, StorageFacts, StorageLayout
+from gentoo_install.model.device import (
+    DeviceGraph,
+    DeviceId,
+    Luks,
+    StorageFacts,
+    StorageLayout,
+    ZfsPool,
+)
 from gentoo_install.plan.build import DEFAULT_MIRROR
 from gentoo_install.exec.config import load
 
@@ -3352,3 +3359,92 @@ def test_a_configuration_that_can_already_log_in_is_not_asked(
     )
     started = load(FIXTURES / "ext4-bios.toml")
     assert cli._with_a_root_password_if_asked(started, _driven()) is started
+
+
+def _encrypted_without_a_key_file() -> Any:
+    """A LUKS root whose configuration names no passphrase file."""
+    started = load(FIXTURES / "vm-luks.toml")
+    graph = started.disk.graph
+    rebuilt = [
+        replace(node, passphrase_file="") if isinstance(node, Luks) else node
+        for node in graph.nodes.values()
+    ]
+    return replace(
+        started, disk=replace(started.disk, graph=DeviceGraph.build(rebuilt))
+    )
+
+
+def test_an_encrypted_device_with_no_key_file_is_asked_about(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A shared configuration carries no secret, so the passphrase is the one
+    thing that has to arrive per machine."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "_forget_what_was_typed", lambda: None)
+    answers = iter(["opensesame", "opensesame"])
+    monkeypatch.setattr(getpass, "getpass", lambda _: next(answers))
+
+    filled = cli._with_passphrases_if_asked(
+        _encrypted_without_a_key_file(), _driven(), tmp_path
+    )
+    named = [
+        node.passphrase_file
+        for node in filled.disk.graph.nodes.values()
+        if isinstance(node, Luks)
+    ]
+    # Under the run's own work directory, asserted before the file is read: a
+    # configuration left untouched still names a path, and reading that one
+    # fails with an errno rather than with this test's own claim.
+    assert named and all(one.startswith(str(tmp_path)) for one in named), named
+    written = Path(named[0])
+    assert written.read_text() == "opensesame"
+    assert written.stat().st_mode & 0o777 == 0o600
+
+
+def test_an_encrypted_device_is_not_asked_about_unattended(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Preflight refuses it by name instead; a question here would hang the run."""
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(getpass, "getpass", lambda _: pytest.fail("asked unattended"))
+    started = _encrypted_without_a_key_file()
+    assert cli._with_passphrases_if_asked(started, _driven(no_shell=True), tmp_path) is started
+
+
+def test_a_named_key_file_is_left_for_preflight_to_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(getpass, "getpass", lambda _: pytest.fail("asked with a file named"))
+    started = load(FIXTURES / "vm-luks.toml")
+    assert cli._with_passphrases_if_asked(started, _driven(), tmp_path) is started
+
+
+def test_a_short_zfs_passphrase_is_refused_at_the_question(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`zpool create` refuses one only once the vdevs are partitioned, which
+    leaves the disk wiped and the install stopped."""
+    from gentoo_install.exec.preflight import ZFS_PASSPHRASE_MINIMUM
+
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "_forget_what_was_typed", lambda: None)
+    short = "a" * (ZFS_PASSPHRASE_MINIMUM - 1)
+    answers = iter([short, "longenoughnow", "longenoughnow"])
+    monkeypatch.setattr(getpass, "getpass", lambda _: next(answers))
+
+    started = load(FIXTURES / "vm-zfs-encrypted.toml")
+    pools = [
+        replace(node, passphrase_file="") if isinstance(node, ZfsPool) else node
+        for node in started.disk.graph.nodes.values()
+    ]
+    stripped = replace(started, disk=replace(started.disk, graph=DeviceGraph.build(pools)))
+
+    filled = cli._with_passphrases_if_asked(stripped, _driven(), tmp_path)
+    named = [
+        node.passphrase_file
+        for node in filled.disk.graph.nodes.values()
+        if isinstance(node, ZfsPool)
+    ]
+    assert named and all(one.startswith(str(tmp_path)) for one in named), named
+    assert Path(named[0]).read_text() == "longenoughnow"

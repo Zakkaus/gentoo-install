@@ -42,6 +42,8 @@ from .log import Journal
 from .model.device import (
     DeviceGraph,
     DeviceId,
+    Luks,
+    Node,
     StorageFacts,
     StorageLayout,
     ZfsPool,
@@ -723,6 +725,7 @@ def install(
         runner = Runner(log=record, journal=journal)
         probe = Probe(runner=runner, work=work)
         probe.load()
+        config = _with_passphrases_if_asked(config, arguments, work)
         if not arguments.skip_preflight:
             preflight_report = preflight.check(
                 config, probe, str(target), operations=operations
@@ -966,6 +969,67 @@ def _affirmatives(translate: Catalog | None) -> frozenset[str]:
 #: How many times a mistyped confirmation is worth asking again. A person
 #: mistypes; a script that answers wrongly forever is what the ceiling stops.
 PASSWORD_TRIES: Final[int] = 3
+
+
+def _needs_a_passphrase(node: Node) -> bool:
+    """Whether this node is encrypted and names no file to read a key from."""
+    if isinstance(node, Luks):
+        return not node.passphrase_file
+    return isinstance(node, ZfsPool) and node.encrypted and not node.passphrase_file
+
+
+def _passphrase_minimum(node: Node) -> int:
+    """`zpool create` refuses a short one only once the vdevs are partitioned,
+    which leaves the disk wiped, so the length is checked at the question."""
+    return preflight.ZFS_PASSPHRASE_MINIMUM if isinstance(node, ZfsPool) else 1
+
+
+def _with_passphrases_if_asked(
+    config: InstallConfig, arguments: argparse.Namespace, work: Path
+) -> InstallConfig:
+    """Ask for the passphrases a shared configuration cannot carry.
+
+    Here rather than where the configuration is loaded, because the answer is
+    written to a file: `SecretStore` is emptied by `raise_if_fatal` and by
+    `cleanup_secrets`, and neither is reached from the load, so a `validate`
+    refusal or a dry run would have left a passphrase in `/run`. A dry run
+    never arrives here, which is right — it has no disk to unlock.
+    """
+    wanted = [node for node in config.disk.graph.nodes.values() if _needs_a_passphrase(node)]
+    if not wanted or _unattended(arguments):
+        return config
+    store = preflight.SecretStore(work)
+    staged: dict[DeviceId, str] = {}
+    for node in wanted:
+        minimum = _passphrase_minimum(node)
+        for _ in range(PASSWORD_TRIES):
+            _forget_what_was_typed()
+            first = getpass.getpass(f"passphrase for {node.id}: ")
+            if len(first) < minimum:
+                print(f"at least {minimum} characters", file=sys.stderr)
+                continue
+            if first != getpass.getpass("again: "):
+                print("the two did not match", file=sys.stderr)
+                continue
+            store.stage(node.id, first)
+            staged[node.id] = str(store.path(node.id))
+            break
+        else:
+            raise errors.ValidationFailed(f"no passphrase was given for {node.id}")
+    rebuilt: list[Node] = []
+    for node in config.disk.graph.nodes.values():
+        where = staged.get(node.id)
+        if where is None:
+            rebuilt.append(node)
+        elif isinstance(node, Luks):
+            rebuilt.append(replace(node, passphrase_file=where))
+        elif isinstance(node, ZfsPool):
+            rebuilt.append(replace(node, passphrase_file=where))
+        else:
+            rebuilt.append(node)
+    return replace(
+        config, disk=replace(config.disk, graph=DeviceGraph.build(rebuilt))
+    )
 
 
 def _with_a_root_password_if_asked(
