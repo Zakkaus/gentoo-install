@@ -3448,3 +3448,38 @@ def test_a_short_zfs_passphrase_is_refused_at_the_question(
     ]
     assert named and all(one.startswith(str(tmp_path)) for one in named), named
     assert Path(named[0]).read_text() == "longenoughnow"
+
+
+def test_a_memory_launch_is_armed_with_the_password_already_answered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One configuration, many machines, and the memory environment is where
+    the install actually runs: the question has to be answered on the host, or
+    the machine reboots into an environment that cannot finish."""
+    source = tmp_path / "no-password.toml"
+    given = (FIXTURES / "ext4-bios.toml").read_text(encoding="utf-8")
+    source.write_text(
+        re.sub(r'(?m)^root_password_hash = .*$', 'root_password_hash = ""', given),
+        encoding="utf-8",
+    )
+    assert 'root_password_hash = ""' in source.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "_forget_what_was_typed", lambda: None)
+    answers = iter(["hunter2hunter2", "hunter2hunter2"])
+    monkeypatch.setattr(getpass, "getpass", lambda _: next(answers))
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_check_the_clock", lambda: None)
+    monkeypatch.setattr(cli, "_validate_memory_launch", lambda *rest: None)
+
+    from gentoo_install.model.config import InstallConfig
+
+    armed: list[InstallConfig] = []
+
+    def capture(config: InstallConfig, launch: object, arguments: object) -> int:
+        armed.append(config)
+        return EXIT_OK
+
+    monkeypatch.setattr(cli, "_arm_memory_environment", capture)
+    assert main(["--config", str(source), "--lowram"]) == EXIT_OK
+    assert armed and armed[0].system.root_password_hash.startswith("$6$"), armed
