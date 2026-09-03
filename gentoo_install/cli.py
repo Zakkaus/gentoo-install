@@ -814,7 +814,7 @@ def install(
                 f"{counted.get('binary', 0)} packages from a binary host, "
                 f"{counted.get('compiled', 0)} compiled"
             )
-    return EXIT_OK
+        return EXIT_OK
 
 
 def _first_failure(
@@ -992,8 +992,7 @@ def _with_passphrases_if_asked(
     Here rather than where the configuration is loaded, because the answer is
     written to a file: `SecretStore` is emptied by `raise_if_fatal` and by
     `cleanup_secrets`, and neither is reached from the load, so a `validate`
-    refusal or a dry run would have left a passphrase in `/run`. A dry run
-    never arrives here, which is right — it has no disk to unlock.
+    refusal or a dry run would have left a passphrase in `/run`.
     """
     wanted = [node for node in config.disk.graph.nodes.values() if _needs_a_passphrase(node)]
     if not wanted or _unattended(arguments):
@@ -1032,6 +1031,16 @@ def _with_passphrases_if_asked(
     )
 
 
+def _only_answers_a_question(arguments: argparse.Namespace) -> bool:
+    """Whether this run prints something instead of installing anything.
+
+    `--dry-run` renders the operations and `--missing-commands` names the
+    commands; neither writes to a disk, so neither has anything to do with a
+    secret.
+    """
+    return bool(arguments.dry_run) or bool(arguments.missing_commands)
+
+
 def _with_a_root_password_if_asked(
     config: InstallConfig, arguments: argparse.Namespace
 ) -> InstallConfig:
@@ -1043,13 +1052,17 @@ def _with_a_root_password_if_asked(
     `--no-shell` on a real terminal, so a question guarded on the terminal
     would have sat there. With nobody to ask, `validate` refuses exactly as it
     did before.
+
+    A run that only answers a question asks nothing: `--dry-run` prints the
+    operations of a configuration it never applies, and demanding the target
+    machine's root password to print them was a question with no purpose.
     """
     locked = [
         one
         for one in compat.violations_without_a_graph(config)
         if one.when is compat.Trait.ROOT_LOCKED and one.excludes is compat.Trait.NO_OTHER_LOGIN
     ]
-    if not locked or _unattended(arguments):
+    if not locked or _unattended(arguments) or _only_answers_a_question(arguments):
         return config
     print(locked[0].reason, file=sys.stderr)
     runner = Runner(log=lambda _: None, echo=False)
