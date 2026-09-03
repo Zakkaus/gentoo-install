@@ -197,17 +197,21 @@ class SecretStore:
     def cleanup(self) -> tuple[str, ...]:
         """Remove every staged passphrase, and answer the ones that stayed.
 
+        The whole `keys` tree, not `approved` alone: the menu writes its own
+        answers beside it through `report.stage_passphrase`, and those were
+        removed by nothing at all.
+
         Raising here replaces the failure that brought the run to the closing
         path — a preflight refusal, or the install's own error — with an
         `unlink` errno, and that is never the more useful of the two. The
         caller reports what stayed, because a passphrase left on disk is not
         something to drop quietly either.
         """
-        keys = self.work / "keys" / "approved"
+        keys = self.work / "keys"
         if not keys.is_dir():
             return ()
         stayed: list[str] = []
-        for path in keys.iterdir():
+        for path in sorted(keys.rglob("*")):
             if not path.is_file():
                 continue
             try:
