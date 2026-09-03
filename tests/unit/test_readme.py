@@ -245,6 +245,12 @@ def test_reference_holds_the_moved_lookup_material() -> None:
         assert required in text, required
 
 
+def test_interface_language_does_not_select_a_kernel_or_overlay() -> None:
+    said = document(REFERENCE)
+    assert "does not select a kernel or overlay" in said
+    assert "also selects the gentoo-zh patched binary kernel" not in said
+
+
 def test_all_embedded_toml_examples_parse_and_validate() -> None:
     from gentoo_install.model.parse import parse
     from gentoo_install.model.validate import validate
