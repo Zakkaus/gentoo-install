@@ -2239,13 +2239,12 @@ def _l10n(config: InstallConfig) -> tuple[str, ...]:
     return tuple(tags)
 
 
-#: The stage3 Gentoo publishes for each profile target, by the profile path
-#: segment that names it. Order matters: `no-multilib` is checked before the
-#: plain base, and `desktop` covers `desktop/plasma` and `desktop/gnome`, for
-#: which Gentoo publishes no stage3 of their own.
+#: The published stage3 variant for profile path segments. `split-usr` and
+#: `no-multilib` precede `desktop`, which publishes no child-specific stage3.
 STAGE3_BY_PROFILE: tuple[tuple[str, str], ...] = (
-    ("/no-multilib", "nomultilib"),
-    ("/desktop", "desktop"),
+    ("/split-usr", "{init}-splitusr"),
+    ("/no-multilib", "nomultilib-{init}"),
+    ("/desktop", "desktop-{init}"),
 )
 
 
@@ -2260,7 +2259,7 @@ def variant_of(config: InstallConfig) -> str:
     """
     init = "systemd" if config.system.init is InitSystem.SYSTEMD else "openrc"
     profile = config.portage.profile
-    for segment, target in STAGE3_BY_PROFILE:
+    for segment, variant in STAGE3_BY_PROFILE:
         if segment in profile:
-            return f"{target}-{init}"
+            return variant.format(init=init)
     return init
