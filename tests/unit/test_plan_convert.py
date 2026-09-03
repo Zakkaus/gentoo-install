@@ -345,6 +345,16 @@ def test_the_staging_root_is_created_before_anything_is_written() -> None:
     assert isinstance(first.inner, convert.PrepareStaging)
 
 
+def test_a_resumed_conversion_rebuilds_staged_operations() -> None:
+    """Failure cleanup removes the staging root, so its completed work reruns."""
+    staged = [
+        one for one in build(_in_place(), CATALOG, layout=_layout())
+        if isinstance(one, convert.Staged)
+    ]
+    assert staged
+    assert not any(one.survives_a_reboot for one in staged)
+
+
 def test_a_staging_root_left_from_an_earlier_attempt_is_refused() -> None:
     context = _RunningContext()
     context.answers = {"find": "/gentoo-install.new/usr"}

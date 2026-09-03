@@ -62,6 +62,11 @@ class Staged(Operation):
     def releases_the_machine(self) -> bool:
         return self.inner.releases_the_machine
 
+    @property
+    def survives_a_reboot(self) -> bool:
+        # Failure cleanup removes the staging root, so a resume must rebuild it.
+        return False
+
     def describe(self) -> str:
         return f"{self.inner.describe()}, in {self.staging}"
 
