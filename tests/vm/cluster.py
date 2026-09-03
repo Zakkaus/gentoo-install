@@ -658,6 +658,23 @@ def _signing_key(status: str) -> str | None:
     return None
 
 
+def verified_digest_text(digests: Path, key: Path, home: Path) -> str:
+    """The cleartext the pinned key signed, which is the only part to parse.
+
+    The armored file carries text outside the signature, and a digest read
+    from there is one the pinned key never signed.
+    """
+    verify_release_signature(digests, key, home)
+    read = subprocess.run(
+        ["gpg", "--batch", "--homedir", str(home), "--output", "-", "--decrypt", str(digests)],
+        capture_output=True,
+        text=True,
+    )
+    if read.returncode != 0:
+        raise ProxmoxError(f"the signature on {digests.name} does not verify")
+    return read.stdout
+
+
 def verify_release_signature(digests: Path, key: Path, home: Path) -> None:
     """Verify Gentoo's digest signature against the pinned primary key."""
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -691,8 +708,8 @@ def verify_release_signature(digests: Path, key: Path, home: Path) -> None:
         )
 
 
-def _expected_sha512(digests: Path, name: str) -> str:
-    rows = digests.read_text().splitlines()
+def _expected_sha512(cleartext: str, name: str) -> str:
+    rows = cleartext.splitlines()
     for index, row in enumerate(rows):
         if row.strip().upper().startswith("# SHA512"):
             for candidate in rows[index + 1 :]:
@@ -701,7 +718,7 @@ def _expected_sha512(digests: Path, name: str) -> str:
                     digest = fields[0].lower()
                     if re.fullmatch(r"[0-9a-f]{128}", digest):
                         return digest
-    raise ProxmoxError(f"{digests.name} has no SHA512 line for {name}")
+    raise ProxmoxError(f"the signed digests hold no SHA512 line for {name}")
 
 
 def _medium_name(name: str, sha512: str) -> str:
@@ -800,8 +817,8 @@ def current_minimal() -> tuple[str, tuple[str, ...], str]:
                 for source in MIRRORS:
                     try:
                         _download(f"{source}/{AUTOBUILDS}/{first}.DIGESTS", digests)
-                        verify_release_signature(digests, key, trust / "gnupg")
-                        sha512 = _expected_sha512(digests, original)
+                        cleartext = verified_digest_text(digests, key, trust / "gnupg")
+                        sha512 = _expected_sha512(cleartext, original)
                         return _medium_name(original, sha512), tuple(
                             f"{one}/{AUTOBUILDS}/{first}" for one in MIRRORS
                         ), sha512

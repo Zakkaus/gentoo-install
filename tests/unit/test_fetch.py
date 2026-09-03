@@ -3,13 +3,40 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 
-from gentoo_install.errors import ArchiveDigestMismatch, DownloadFailed
+from gentoo_install.errors import ArchiveDigestMismatch, DownloadFailed, IntegrityError
 from gentoo_install.exec import fetch
-from gentoo_install.exec.runner import Runner
+from gentoo_install.exec.runner import Result, Runner
+
+def _cleartext_runner(
+    fingerprint: str, cleartext: str, asked: list[tuple[str, ...]]
+) -> Runner:
+    class Cleartext(Runner):
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            asked.append(tuple(argv))
+            if "--verify" in argv:
+                stdout = (
+                    "[GNUPG:] VALIDSIG SUBKEY 2026-09-03 1 4 0 1 8 00 "
+                    f"{fingerprint}\n"
+                )
+            else:
+                assert "--output" in argv and "--decrypt" in argv
+                stdout = cleartext
+            return Result(tuple(argv), 0, stdout, "", 0.0)
+
+    return Cleartext(log=lambda line: None)
+
 
 
 def test_a_mirror_that_cannot_be_reached_is_not_the_end_of_the_install(
@@ -279,8 +306,111 @@ def test_a_corrupt_archive_is_removed_so_the_next_mirror_downloads_again(
     digests.write_text("# SHA512 HASH\n" + "0" * 128 + " stage3.tar.xz\n")
 
     with pytest.raises(ArchiveDigestMismatch):
-        fetch._verify_digest(archive, digests)
+        fetch._verify_digest(
+            archive, fetch._VerifiedDigests(name=digests.name, text=digests.read_text())
+        )
     assert archive.exists(), "the check itself does not remove anything"
+
+
+def test_stage3_rejects_a_digest_before_the_signed_block(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The digest gpg emits wins; prepended metadata remains unsigned."""
+    name = "stage3-amd64-openrc.tar.xz"
+    fingerprint = "13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
+    archive = tmp_path / name
+    archive_bytes = b"unsigned archive"
+    archive.write_bytes(archive_bytes)
+    attacker = fetch._sha512(archive)
+    signed = "0" * 128
+    cleartext = f"# SHA512 HASH\n{signed}  {name}\n"
+    supplied = (
+        f"# SHA512 HASH\n{attacker}  {name}\n"
+        "-----BEGIN PGP SIGNED MESSAGE-----\n"
+        "Hash: SHA512\n\n"
+        f"{cleartext}"
+        "-----BEGIN PGP SIGNATURE-----\n"
+        "signature\n"
+        "-----END PGP SIGNATURE-----\n"
+    )
+    digests = tmp_path / f"{name}.DIGESTS"
+    asked: list[tuple[str, ...]] = []
+
+    def downloading(
+        url: str, target: Path, *unused: object, **ignored: object
+    ) -> None:
+        if target == archive:
+            target.write_bytes(archive_bytes)
+        else:
+            target.write_text(supplied)
+
+    monkeypatch.setattr(fetch, "_newest", lambda *unused: name)
+    monkeypatch.setattr(fetch, "_download", downloading)
+    monkeypatch.setattr(fetch, "_import_release_key", lambda *unused: None)
+
+    with pytest.raises(ArchiveDigestMismatch, match=signed[:16]):
+        fetch._stage3_from(
+            "https://mirror.example",
+            "openrc",
+            fingerprint,
+            tmp_path,
+            _cleartext_runner(fingerprint, cleartext, asked),
+        )
+
+    assert len(asked) == 2
+    assert asked[0] == ("gpg", "--status-fd", "1", "--verify", str(digests))
+    assert "--decrypt" in asked[1]
+    assert asked[1][asked[1].index("--output") + 1] == "-"
+
+
+def test_stage3_refuses_a_digest_after_the_signature(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A digest after the armor cannot supply an unsigned archive name."""
+    name = "stage3-amd64-openrc.tar.xz"
+    fingerprint = "13EBBDBEDE7A12775DFDB1BABB572E0E2D182910"
+    archive = tmp_path / name
+    archive_bytes = b"unsigned archive"
+    archive.write_bytes(archive_bytes)
+    attacker = fetch._sha512(archive)
+    cleartext = "# SHA512 HASH\n" + "0" * 128 + "  another-stage3.tar.xz\n"
+    supplied = (
+        "-----BEGIN PGP SIGNED MESSAGE-----\n"
+        "Hash: SHA512\n\n"
+        f"{cleartext}"
+        "-----BEGIN PGP SIGNATURE-----\n"
+        "signature\n"
+        "-----END PGP SIGNATURE-----\n"
+        f"# SHA512 HASH\n{attacker}  {name}\n"
+    )
+    digests = tmp_path / f"{name}.DIGESTS"
+    asked: list[tuple[str, ...]] = []
+
+    def downloading(
+        url: str, target: Path, *unused: object, **ignored: object
+    ) -> None:
+        if target == archive:
+            target.write_bytes(archive_bytes)
+        else:
+            target.write_text(supplied)
+
+    monkeypatch.setattr(fetch, "_newest", lambda *unused: name)
+    monkeypatch.setattr(fetch, "_download", downloading)
+    monkeypatch.setattr(fetch, "_import_release_key", lambda *unused: None)
+
+    with pytest.raises(IntegrityError, match="no SHA512 line"):
+        fetch._stage3_from(
+            "https://mirror.example",
+            "openrc",
+            fingerprint,
+            tmp_path,
+            _cleartext_runner(fingerprint, cleartext, asked),
+        )
+
+    assert len(asked) == 2
+    assert asked[0] == ("gpg", "--status-fd", "1", "--verify", str(digests))
+    assert "--decrypt" in asked[1]
+    assert asked[1][asked[1].index("--output") + 1] == "-"
 
 
 def test_a_body_that_stops_early_is_a_download_failure(
@@ -402,7 +532,9 @@ def test_the_stage3_is_hashed_once_for_one_download(
         return real(path)
 
     monkeypatch.setattr(fetch, "_sha512", counted)
-    digest = fetch._verify_digest(archive, digests)
+    digest = fetch._verify_digest(
+        archive, fetch._VerifiedDigests(name=digests.name, text=digests.read_text())
+    )
     assert reads == 1, reads
 
     # What the caller writes into the marker has to be the digest it was

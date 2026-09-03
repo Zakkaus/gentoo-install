@@ -13,11 +13,13 @@ import errno
 import hashlib
 import http.client
 import json
+import os
 import re
 import socket
 import ssl
 import time
 import tomllib
+from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 from email.utils import parsedate_to_datetime
 from itertools import takewhile
@@ -146,9 +148,9 @@ def _stage3_from(
     digests = work / f"{name}.DIGESTS"
     _download(f"{builds}/{where}.DIGESTS", digests, runner.log, proxy=selected)
     _import_release_key(runner, work, selected)
-    _verify_signature(digests, fingerprint, runner)
+    verified = _verified_digests(digests, fingerprint, runner)
     try:
-        digest = _verify_digest(archive, digests)
+        digest = _verify_digest(archive, verified)
     except ArchiveDigestMismatch:
         # Removed before the next mirror is asked: the download below skips a
         # file that is already there, so leaving the bad one would make every
@@ -1136,6 +1138,12 @@ def _download_once(
         raise DownloadFailed(scrub(f"{url} could not be fetched: {error}")) from error
 
 
+@dataclass(frozen=True)
+class _VerifiedDigests:
+    name: str
+    text: str
+
+
 def _verify_signature(digests: Path, fingerprint: str, runner: Runner) -> None:
     """Compare the fingerprint gpg reports, not the text it printed.
 
@@ -1172,7 +1180,33 @@ def _signing_key(status: str) -> str | None:
     return None
 
 
-def _verify_digest(archive: Path, digests: Path) -> str:
+def _verified_digests(
+    digests: Path, fingerprint: str, runner: Runner
+) -> _VerifiedDigests:
+    """The cleartext gpg accepted after the pinned key verified it."""
+    # Cleartext can imitate a status record, so fingerprint checking remains a
+    # separate command from the plaintext read.
+    _verify_signature(digests, fingerprint, runner)
+    result = runner.run(
+        [
+            "gpg",
+            "--batch",
+            "--quiet",
+            "--logger-file",
+            os.devnull,
+            "--output",
+            "-",
+            "--decrypt",
+            str(digests),
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        raise IntegrityError(f"the signature on {digests.name} does not verify")
+    return _VerifiedDigests(name=digests.name, text=result.stdout)
+
+
+def _verify_digest(archive: Path, digests: _VerifiedDigests) -> str:
     """The archive's SHA-512, once it matches what `DIGESTS` says it is.
 
     Answered rather than discarded: the marker beside the archive holds the
@@ -1188,8 +1222,13 @@ def _verify_digest(archive: Path, digests: Path) -> str:
     return got
 
 
-def _expected_sha512(digests: Path, name: str) -> str:
-    lines = digests.read_text().splitlines()
+def _expected_sha512(digests: _VerifiedDigests, name: str) -> str:
+    """The SHA-512 line in GnuPG's cleartext, never the armored source.
+
+    The armored file carries text outside the signature, and a digest read
+    from there is one the pinned key never signed.
+    """
+    lines = digests.text.splitlines()
     for index, line in enumerate(lines):
         if line.strip().upper().startswith("# SHA512"):
             for candidate in lines[index + 1 :]:
