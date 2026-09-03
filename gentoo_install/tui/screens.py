@@ -1962,25 +1962,38 @@ def console_cjk_screen(
     """
     wanted = not config.system.console_cjk
     changed = replace(config, system=replace(config.system, console_cjk=wanted))
+    # The override wins in the plan, so this row reads the same package as the
+    # compatibility rule.
+    package = compat.kernel_package_name(config)
+    has_cjktty = any(
+        package == KERNEL_PACKAGES[source].atom for source in compat.CJK_KERNELS
+    )
     if wanted:
-        if config.kernel.source in compat.CJK_KERNELS:
-            return Answer(Outcome.CHOSE, changed)
-        # The mirror of the branch below, and of the kernel row: `compat.py`
-        # refuses this flag beside a kernel without the patch, and the
-        # interface language stopped choosing one, so this row is where the
-        # kernel and its overlay arrive.
-        say(
-            screen,
-            context,
-            context.translate("Console CJK needs cjktty, so the kernel becomes {}.").format(
-                KERNEL_PACKAGES[KernelSource.CJK_BIN].atom
-            ),
-        )
-        changed = replace(changed, kernel=replace(changed.kernel, source=KernelSource.CJK_BIN))
+        if not has_cjktty:
+            # The mirror of the branch below, and of the kernel row: `compat.py`
+            # refuses this flag beside a kernel without the patch.
+            say(
+                screen,
+                context,
+                context.translate("Console CJK needs cjktty, so the kernel becomes {}.").format(
+                    KERNEL_PACKAGES[KernelSource.CJK_BIN].atom
+                ),
+            )
+            # The override and pin name the old package, so neither can survive
+            # selecting the CJK package.
+            changed = replace(
+                changed,
+                kernel=replace(
+                    changed.kernel,
+                    source=KernelSource.CJK_BIN,
+                    package="",
+                    version="",
+                ),
+            )
         if not any(one.name == GENTOO_ZH for one in config.portage.overlays):
             mark_derived(context, ValueKind.OVERLAY, GENTOO_ZH)
         return Answer(Outcome.CHOSE, replace(changed, portage=with_gentoo_zh(changed)))
-    if config.kernel.source not in compat.CJK_KERNELS:
+    if not has_cjktty:
         return Answer(Outcome.CHOSE, changed)
     # The dataclass default, not a second literal: the kernel this row falls
     # back to is the one a configuration that never chose has.
@@ -1992,7 +2005,12 @@ def console_cjk_screen(
             KERNEL_PACKAGES[fallback].atom
         ),
     )
-    changed = replace(changed, kernel=replace(changed.kernel, source=fallback))
+    # A cjktty override names the package, so clearing the source alone
+    # leaves the old atom selected.
+    changed = replace(
+        changed,
+        kernel=replace(changed.kernel, source=fallback, package="", version=""),
+    )
     return Answer(Outcome.CHOSE, _withdrawing_a_derived_overlay(changed, context))
 
 

@@ -4941,6 +4941,54 @@ def test_changing_the_kernel_source_drops_the_version_pinned_to_the_old_one() ->
     assert kept.kernel.source is pinned.kernel.source
     assert kept.kernel.version == "7.1.12"
 
+def test_turning_console_cjk_on_drops_the_old_kernel_version_pin() -> None:
+    from gentoo_install.model.config import KernelSource
+
+    at = context()
+    pinned = replace(
+        config(),
+        kernel=replace(config().kernel, source=KernelSource.DIST_BIN, version="7.1.12"),
+    )
+
+    enabled = screens.console_cjk_screen(FakeScreen(keys=["\n"]), pinned, at).unwrap()
+    assert enabled.kernel.source is KernelSource.CJK_BIN
+    assert enabled.kernel.version == ""
+
+
+def test_console_cjk_uses_the_effective_kernel_package() -> None:
+    from gentoo_install.model.config import KernelSource
+    from gentoo_install.tui.context import GENTOO_ZH
+
+    overridden = replace(
+        config(),
+        kernel=replace(
+            config().kernel,
+            source=KernelSource.CJK_BIN,
+            package=compat.KERNEL_PACKAGES[KernelSource.DIST_BIN].atom,
+        ),
+    )
+    enabled = screens.console_cjk_screen(
+        FakeScreen(keys=["\n"]), overridden, context()
+    ).unwrap()
+    assert enabled.kernel.package == ""
+    assert compat.kernel_package_name(enabled) == compat.KERNEL_PACKAGES[KernelSource.CJK_BIN].atom
+    assert any(overlay.name == GENTOO_ZH for overlay in enabled.portage.overlays)
+    validate(enabled)
+
+    carried = replace(
+        config(),
+        kernel=replace(
+            config().kernel,
+            source=KernelSource.DIST_BIN,
+            package=compat.KERNEL_PACKAGES[KernelSource.CJK_BIN].atom,
+        ),
+    )
+    enabled = screens.console_cjk_screen(
+        FakeScreen(keys=["\n"]), carried, context()
+    ).unwrap()
+    assert any(overlay.name == GENTOO_ZH for overlay in enabled.portage.overlays)
+    validate(enabled)
+
 def test_the_interface_language_does_not_widen_a_measured_cn_region() -> None:
     """Two readers wrote down opposite policies and the reasoned one lost.
 

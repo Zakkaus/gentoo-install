@@ -19,7 +19,7 @@ import pytest
 
 from gentoo_install.model.config import InstallConfig
 from gentoo_install.model import mirrors
-from gentoo_install.tui import settings
+from gentoo_install.tui import screens, settings
 from gentoo_install.tui.context import Context
 from gentoo_install.tui.settings import UNSET, Setting
 from gentoo_install.tui.widgets import Answer, Outcome
@@ -161,9 +161,12 @@ def test_leaving_a_row_alone_changes_nothing() -> None:
     before = config(ext4_on_gpt())
     for row in openable():
         screen, answer = leave(row, before, at)
-        # A toggle: flipping is what it is for. `console_cjk` is one and still
-        # draws, because both directions name the kernel they move to.
-        if not screen.frames or row.key == "console_cjk":
+        # Toggles act on open rather than consuming the cancel keys.
+        if row.edit in (screens.console_cjk_screen, screens.cron_screen):
+            assert answer.outcome is Outcome.CHOSE, row.key
+            assert row.value(answer.unwrap(), at) != row.value(before, at), row.key
+            continue
+        if not screen.frames:
             continue
         if answer.outcome is not Outcome.CHOSE:
             continue
