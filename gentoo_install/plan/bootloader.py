@@ -91,9 +91,12 @@ MENU_SECONDS: Final[int] = 5
 #: Writing an NVRAM entry needs this, and only UEFI has NVRAM to write to.
 EFI_PACKAGE: Final[str] = "sys-boot/efibootmgr"
 
-#: Where generate-zbm writes, and the path firmware boots with no NVRAM entry.
-#: It names the image after the kernel, so the name is looked up, not assumed.
+#: Where generate-zbm writes; a copy goes to `FALLBACK_IMAGE` for firmware
+#: with no NVRAM entry.
 ZBM_DIRECTORY: Final[str] = "EFI/zbm"
+#: generate-zbm names images after kernels and reports the current path, so
+#: output identifies this build instead of scanning a reused ESP.
+ZBM_IMAGE_REPORT_PREFIX: Final[str] = "Created new UEFI image "
 FALLBACK_IMAGE: Final[str] = f"EFI/BOOT/BOOT{DEFAULT_ARCHITECTURE.efi_name.upper()}.EFI"
 
 
@@ -359,10 +362,11 @@ class InstallSystemdBoot(Operation):
 
     def apply(self, context: Context) -> None:
         command = ["bootctl", f"--esp-path={self.esp}"]
+        # The fallback loader must exist before an optional firmware entry may
+        # be degraded.
+        context.run_in_target([*command, "--no-variables", "install"])
         if self.write_nvram:
             _try_the_nvram_entry(context, [*command, "install"])
-        else:
-            context.run_in_target([*command, "--no-variables", "install"])
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -572,8 +576,7 @@ class InstallZfsBootMenu(Operation):
             ]
         )
         context.write(ZBM_CONFIG, self._config())
-        context.run_in_target(["generate-zbm"])
-        image = self._image(context)
+        image = self._image(context.run_in_target(["generate-zbm"]))
         if self.unlocks_remotely:
             self._say_if_the_image_cannot_unlock(context, image)
         context.run_in_target(["install", "-D", "-m0644", image, f"{self.esp}/{FALLBACK_IMAGE}"])
@@ -590,25 +593,20 @@ class InstallZfsBootMenu(Operation):
                 ],
             )
 
-    def _image(self, context: Context) -> str:
-        """Whatever generate-zbm wrote. It names the image after the kernel
-        it built from, so `vmlinuz.EFI` is only one of the names it can have."""
-        # findutils 4.11.0 exits 1 for an entry it could not read while still
-        # printing the matches it reached, so the listing decides, not the code.
-        listing = str(
-            context.run_in_target(
-                ["find", f"{self.esp}/{ZBM_DIRECTORY}", "-name", "*.EFI"], check=False
-            )
-        ).strip()
-        found = sorted(
-            line.strip() for line in listing.splitlines() if line.strip().endswith(".EFI")
+    def _image(self, generated: str) -> str:
+        """The path `generate-zbm` reports for its current successful build."""
+        reported = [
+            line.removeprefix(ZBM_IMAGE_REPORT_PREFIX)
+            for line in generated.splitlines()
+            if line.startswith(ZBM_IMAGE_REPORT_PREFIX) and line.endswith(".EFI")
+        ]
+        directory = self.esp / ZBM_DIRECTORY
+        if len(reported) == 1 and PurePosixPath(reported[0]).parent == directory:
+            return reported[0]
+        said = f": {generated.strip()[:200]}" if generated.strip() else ""
+        raise NothingToBoot(
+            f"generate-zbm did not report an EFI image under {directory}{said}"
         )
-        if not found:
-            said = f": {listing[:200]}" if listing else ""
-            raise NothingToBoot(
-                f"generate-zbm wrote no EFI image under {self.esp}/{ZBM_DIRECTORY}{said}"
-            )
-        return found[0]
 
 
 def build(config: InstallConfig) -> list[Operation]:
