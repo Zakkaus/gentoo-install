@@ -3266,6 +3266,10 @@ def _no_way_in() -> Any:
     return replace(started, system=replace(started.system, root_password_hash=""))
 
 
+def _english() -> Catalog:
+    return Catalog("en")
+
+
 def _driven(*, no_shell: bool = False, menu: bool = False) -> argparse.Namespace:
     return argparse.Namespace(
         no_shell=no_shell, menu=menu, dry_run=False, missing_commands=False
@@ -3283,7 +3287,7 @@ def test_a_configuration_with_no_login_is_left_alone_off_a_terminal(
         getpass, "getpass", lambda _: pytest.fail("asked with no terminal")
     )
     locked = _no_way_in()
-    assert cli._with_a_root_password_if_asked(locked, _driven()) is locked
+    assert cli._with_a_root_password_if_asked(locked, _driven(), _english()) is locked
 
 
 def test_a_configuration_with_no_login_is_asked_for_one_on_a_terminal(
@@ -3296,7 +3300,7 @@ def test_a_configuration_with_no_login_is_asked_for_one_on_a_terminal(
     answers = iter(["hunter2hunter2", "hunter2hunter2"])
     monkeypatch.setattr(getpass, "getpass", lambda _: next(answers))
 
-    filled = cli._with_a_root_password_if_asked(_no_way_in(), _driven())
+    filled = cli._with_a_root_password_if_asked(_no_way_in(), _driven(), _english())
     assert filled.system.root_password_hash.startswith("$6$")
 
 
@@ -3306,7 +3310,7 @@ def test_a_mistyped_confirmation_is_asked_again(monkeypatch: pytest.MonkeyPatch)
     answers = iter(["one", "other", "same", "same"])
     monkeypatch.setattr(getpass, "getpass", lambda _: next(answers))
 
-    filled = cli._with_a_root_password_if_asked(_no_way_in(), _driven())
+    filled = cli._with_a_root_password_if_asked(_no_way_in(), _driven(), _english())
     assert filled.system.root_password_hash.startswith("$6$")
 
 
@@ -3318,7 +3322,7 @@ def test_asking_stops_rather_than_repeating_forever(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(getpass, "getpass", lambda _: "")
 
     with pytest.raises(errors.ValidationFailed, match="no root password"):
-        cli._with_a_root_password_if_asked(_no_way_in(), _driven())
+        cli._with_a_root_password_if_asked(_no_way_in(), _driven(), _english())
 
 
 def test_an_encrypted_paste_is_not_asked_about_under_no_shell(
@@ -3349,7 +3353,7 @@ def test_no_shell_on_a_terminal_is_still_unattended(
         getpass, "getpass", lambda _: pytest.fail("asked under --no-shell")
     )
     locked = _no_way_in()
-    assert cli._with_a_root_password_if_asked(locked, _driven(no_shell=True)) is locked
+    assert cli._with_a_root_password_if_asked(locked, _driven(no_shell=True), _english()) is locked
 
 
 def test_a_configuration_that_can_already_log_in_is_not_asked(
@@ -3360,7 +3364,7 @@ def test_a_configuration_that_can_already_log_in_is_not_asked(
         getpass, "getpass", lambda _: pytest.fail("asked with a password already set")
     )
     started = load(FIXTURES / "ext4-bios.toml")
-    assert cli._with_a_root_password_if_asked(started, _driven()) is started
+    assert cli._with_a_root_password_if_asked(started, _driven(), _english()) is started
 
 
 def _encrypted_without_a_key_file() -> Any:
@@ -3387,7 +3391,7 @@ def test_an_encrypted_device_with_no_key_file_is_asked_about(
     monkeypatch.setattr(getpass, "getpass", lambda _: next(answers))
 
     filled = cli._with_passphrases_if_asked(
-        _encrypted_without_a_key_file(), _driven(), tmp_path
+        _encrypted_without_a_key_file(), _driven(), tmp_path, _english()
     )
     named = [
         node.passphrase_file
@@ -3410,7 +3414,7 @@ def test_an_encrypted_device_is_not_asked_about_unattended(
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(getpass, "getpass", lambda _: pytest.fail("asked unattended"))
     started = _encrypted_without_a_key_file()
-    assert cli._with_passphrases_if_asked(started, _driven(no_shell=True), tmp_path) is started
+    assert cli._with_passphrases_if_asked(started, _driven(no_shell=True), tmp_path, _english()) is started
 
 
 def test_a_named_key_file_is_left_for_preflight_to_read(
@@ -3419,7 +3423,7 @@ def test_a_named_key_file_is_left_for_preflight_to_read(
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(getpass, "getpass", lambda _: pytest.fail("asked with a file named"))
     started = load(FIXTURES / "vm-luks.toml")
-    assert cli._with_passphrases_if_asked(started, _driven(), tmp_path) is started
+    assert cli._with_passphrases_if_asked(started, _driven(), tmp_path, _english()) is started
 
 
 def test_a_short_zfs_passphrase_is_refused_at_the_question(
@@ -3442,7 +3446,7 @@ def test_a_short_zfs_passphrase_is_refused_at_the_question(
     ]
     stripped = replace(started, disk=replace(started.disk, graph=DeviceGraph.build(pools)))
 
-    filled = cli._with_passphrases_if_asked(stripped, _driven(), tmp_path)
+    filled = cli._with_passphrases_if_asked(stripped, _driven(), tmp_path, _english())
     named = [
         node.passphrase_file
         for node in filled.disk.graph.nodes.values()
@@ -3582,8 +3586,8 @@ def test_a_password_answered_at_the_prompt_does_not_move_the_run_identity(
     monkeypatch.setattr(getpass, "getpass", lambda _: "hunter2hunter2")
 
     loaded = load(source)
-    first = cli._with_a_root_password_if_asked(loaded, _driven())
-    second = cli._with_a_root_password_if_asked(loaded, _driven())
+    first = cli._with_a_root_password_if_asked(loaded, _driven(), _english())
+    second = cli._with_a_root_password_if_asked(loaded, _driven(), _english())
     # The premise: the two answers are the same and their hashes are not.
     assert first.system.root_password_hash != second.system.root_password_hash
 
