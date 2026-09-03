@@ -3267,7 +3267,9 @@ def _no_way_in() -> Any:
 
 
 def _driven(*, no_shell: bool = False, menu: bool = False) -> argparse.Namespace:
-    return argparse.Namespace(no_shell=no_shell, menu=menu)
+    return argparse.Namespace(
+        no_shell=no_shell, menu=menu, dry_run=False, missing_commands=False
+    )
 
 
 def test_a_configuration_with_no_login_is_left_alone_off_a_terminal(
@@ -3483,3 +3485,34 @@ def test_a_memory_launch_is_armed_with_the_password_already_answered(
     monkeypatch.setattr(cli, "_arm_memory_environment", capture)
     assert main(["--config", str(source), "--lowram"]) == EXIT_OK
     assert armed and armed[0].system.root_password_hash.startswith("$6$"), armed
+
+
+def test_a_dry_run_asks_for_no_secret(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """It renders a configuration it never applies, so the target machine's
+    root password has nothing to do with what it prints."""
+    source = tmp_path / "no-password.toml"
+    given = (FIXTURES / "ext4-bios.toml").read_text(encoding="utf-8")
+    source.write_text(
+        re.sub(r'(?m)^root_password_hash = .*$', 'root_password_hash = ""', given),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(getpass, "getpass", lambda _: pytest.fail("a dry run asked"))
+    # It refuses, the way it did before the question existed: the message names
+    # the missing login rather than a prompt nobody wanted.
+    assert main(["--config", str(source), "--dry-run"]) == EXIT_CONFIG
+
+
+def test_naming_the_missing_commands_asks_for_no_secret(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "no-password.toml"
+    given = (FIXTURES / "ext4-bios.toml").read_text(encoding="utf-8")
+    source.write_text(
+        re.sub(r'(?m)^root_password_hash = .*$', 'root_password_hash = ""', given),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(getpass, "getpass", lambda _: pytest.fail("a query asked"))
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    assert main(["--config", str(source), "--missing-commands"]) == EXIT_OK
