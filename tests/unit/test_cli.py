@@ -3516,3 +3516,50 @@ def test_naming_the_missing_commands_asks_for_no_secret(
     monkeypatch.setattr(getpass, "getpass", lambda _: pytest.fail("a query asked"))
     monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
     assert main(["--config", str(source), "--missing-commands"]) == EXIT_OK
+def test_a_passphrase_does_not_stay_when_a_refused_resume_ends_the_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`SecretStore` is emptied by `raise_if_fatal` and by `cleanup_secrets`,
+    and a `--resume` refused for a missing journal leaves between them: the
+    work directory outlives the run, so the passphrase stayed readable on a
+    machine the operator had just been told it could not resume."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.model.device import DeviceGraph, Luks
+
+    started = load(FIXTURES / "vm-luks.toml")
+    rebuilt = [
+        _replace(node, passphrase_file="") if isinstance(node, Luks) else node
+        for node in started.disk.graph.nodes.values()
+    ]
+    unlocked = _replace(
+        started, disk=_replace(started.disk, graph=DeviceGraph.build(rebuilt))
+    )
+
+    work = tmp_path / "work"
+    asked: list[str] = []
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "_forget_what_was_typed", lambda: None)
+    answers = iter(["opensesame", "opensesame"])
+    def answer(prompt: str) -> str:
+        asked.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr(getpass, "getpass", answer)
+    arguments = argparse.Namespace(
+        work=work,
+        target=tmp_path / "target",
+        resume=True,
+        skip_preflight=True,
+        no_shell=False,
+        menu=True,
+        dry_run=False,
+        missing_commands=False,
+        lang="en",
+    )
+    with pytest.raises(errors.ResumeRefused):
+        cli.install(unlocked, (), arguments, cli.RunState())
+    assert asked, "the run ended before the passphrase was asked for"
+    staged = work / "keys" / "approved"
+    left = sorted(one.name for one in staged.iterdir()) if staged.is_dir() else []
+    assert left == [], left
