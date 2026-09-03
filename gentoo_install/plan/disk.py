@@ -19,6 +19,7 @@ from ..model.device import (
     dataset_name,
     md_path,
     mapper_path,
+    takes_the_rest,
     DeviceGraph,
     DeviceId,
     Existing,
@@ -1276,12 +1277,16 @@ def _order_key(node: Node) -> tuple[int, int, str]:
     """Partition index first, then whether the node takes the remaining space.
 
     `sgdisk --new=N:0:+size` and `lvcreate -l 100%FREE` both take what is free
-    when they run, so a node with no size has to be created after every sized
-    one that shares its container.
+    when they run, so a partition taking the rest or a logical volume with no
+    size has to be created after every sized one that shares its container.
     """
     index = node.index if isinstance(node, Partition) else 0
-    takes_the_rest = isinstance(node, (Partition, LogicalVolume)) and node.size is None
-    return (index, 1 if takes_the_rest else 0, node.id)
+    is_rest = (
+        takes_the_rest(node)
+        if isinstance(node, Partition)
+        else isinstance(node, LogicalVolume) and node.size is None
+    )
+    return (index, 1 if is_rest else 0, node.id)
 
 
 #: What closes each kind of device, by the node that describes it.
@@ -1454,10 +1459,11 @@ def resolve_share(
     number the run will use: a `--dry-run` that says `40%` and an install that
     writes 96 GiB are two different answers to one question.
 
-    The usable space comes from `Size.usable_for_partitions`, the same
-    function `exec/preflight.py` checks fixed sizes against. Its own docstring
-    says why: answered separately, an operator was told their sizes fitted and
-    the install refused them an hour later.
+    A fresh table's usable space comes from `Size.usable_for_partitions`, the
+    same function `exec/preflight.py` checks fixed sizes against. An edited
+    table uses measured free extents, which exclude retained partitions. That
+    function's docstring says why: answered separately, an operator was told
+    their sizes fitted and the install refused them an hour later.
     """
     if partition.share is None:
         return partition.size
@@ -1466,9 +1472,15 @@ def resolve_share(
     table = _expect(graph, partition.table, PartitionTable)
     base = share_base(graph, table, facts)
     if base is None:
+        if not table.create:
+            raise InvalidLayout(
+                f"{partition.id} asks for {partition.share.percent}% of free space on "
+                f"{table.id}, but no measured free extents were provided; probe the "
+                "table before planning"
+            )
         raise InvalidLayout(
-            f"{partition.id} asks for {partition.share.percent}% of "
-            f"{table.disk}, and this machine did not report that disk's size"
+            f"{partition.id} asks for {partition.share.percent}% of {table.disk}, "
+            f"and this machine did not report that disk's size"
         )
     wanted = Size(int(base.bytes * partition.share.percent / 100)).align_down()
     return _bounded(wanted, partition)
@@ -1481,18 +1493,24 @@ def share_base(
 
     Every absolute size comes off first. A share is then what is left, which
     is how an operator describes it: the esp and the swap take their fixed
-    sizes and the rest is split.
+    sizes and the rest is split. On an edited table, measured free extents
+    already exclude partitions the operator keeps.
     """
+    fixed = sum(
+        one.size.bytes
+        for one in graph.of_type(Partition)
+        if one.table == table.id and one.size is not None
+    )
+    if not table.create:
+        extents = facts.free_extents.get(table.id)
+        if extents is None:
+            return None
+        return Size(max(0, sum(extent.size for extent in extents) - fixed))
     capacity = facts.capacities.get(table.disk)
     if capacity is None:
         return None
     usable = capacity.usable_for_partitions(
         table.table is TableType.GPT, SectorSize(512)
-    )
-    fixed = sum(
-        one.size.bytes
-        for one in graph.of_type(Partition)
-        if one.table == table.id and one.size is not None
     )
     return Size(max(0, usable.bytes - fixed))
 
@@ -1523,8 +1541,8 @@ def _start_of(
     """Where an MBR partition begins.
 
     On a table written from scratch, after every partition with a lower index.
-    A partition with no size takes the rest of the disk, so anything after it
-    has no start to compute; `validate.py` rejects that layout.
+    A partition taking the rest has no later start to compute; `validate.py`
+    rejects that layout.
 
     On a table the operator edits, after the partitions the disk already has:
     those are not model nodes and summing the model's own gave 1MiB, which
@@ -1534,15 +1552,18 @@ def _start_of(
     table = graph[partition.table]
     if isinstance(table, PartitionTable) and table.id in storage_facts.free_extents:
         return _into_free_space(
-            graph, table, partition, storage_facts.free_extents[table.id]
+            graph, table, partition, storage_facts.free_extents[table.id], storage_facts
         )
     start = FIRST_OFFSET
     for sibling in sorted(graph.of_type(Partition), key=lambda node: node.index):
         if sibling.table != partition.table or sibling.index >= partition.index:
             continue
-        if sibling.size is None:
+        if takes_the_rest(sibling):
             return start
-        start = (start + sibling.size).align_up()
+        sibling_size = resolve_share(graph, sibling, storage_facts)
+        if sibling_size is None:
+            raise InvalidLayout(f"{sibling.id} does not resolve to a size")
+        start = (start + sibling_size).align_up()
     return start
 
 
@@ -1554,10 +1575,10 @@ def _extent_end_of(
     """Where the gap this partition was placed in ends, or None for a fresh
     table where the rest of the disk is the answer.
 
-    An unsized partition in an edited table would otherwise be written as
-    `100%`, which reaches past every partition the operator asked to keep.
+    A partition taking the rest in an edited table would otherwise be written
+    as `100%`, which reaches past every partition the operator asked to keep.
     """
-    if partition.size is not None or storage_facts is None:
+    if not takes_the_rest(partition) or storage_facts is None:
         return None
     table = _expect(graph, partition.table, PartitionTable)
     if table.create:
@@ -1575,6 +1596,7 @@ def _into_free_space(
     table: PartitionTable,
     partition: Partition,
     free_extents: tuple[Extent, ...],
+    storage_facts: StorageFacts,
 ) -> Size:
     """The first free extent with room for this partition and the ones before it.
 
@@ -1590,12 +1612,18 @@ def _into_free_space(
     for one in added:
         for extent in free_extents:
             at = cursor[extent.start]
-            wanted = one.size.bytes if one.size is not None else 0
-            if at.bytes + wanted > extent.end + 1:
+            if takes_the_rest(one):
+                wanted = None
+            else:
+                wanted = resolve_share(graph, one, storage_facts)
+                if wanted is None:
+                    raise InvalidLayout(f"{one.id} does not resolve to a size")
+            needed = wanted.bytes if wanted is not None else 0
+            if at.bytes + needed > extent.end + 1:
                 continue
             if one.id == partition.id:
                 return at
-            cursor[extent.start] = (at + one.size).align_up() if one.size else at
+            cursor[extent.start] = (at + wanted).align_up() if wanted is not None else at
             break
         else:
             if one.id == partition.id:

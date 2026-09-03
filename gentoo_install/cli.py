@@ -44,10 +44,11 @@ from .model.device import (
     DeviceId,
     Luks,
     Node,
+    Partition,
+    PartitionTable,
     StorageFacts,
     StorageLayout,
     ZfsPool,
-    asks_for_a_share,
 )
 from .model.hardware import HardwareFacts
 from .model.size import Size
@@ -491,6 +492,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         refused = outcome
 
 
+def _dry_run_storage_facts(config: InstallConfig, probe: Probe) -> StorageFacts | None:
+    """Evidence a dry run needs to resolve percentage shares."""
+    has_share = False
+    for partition in config.disk.graph.of_type(Partition):
+        share = partition.share
+        if share is None or share.percent is None:
+            continue
+        has_share = True
+        table = config.disk.graph[partition.table]
+        if isinstance(table, PartitionTable) and not table.create:
+            return probe_storage_facts(config, probe)
+    if not has_share:
+        return None
+    return StorageFacts(capacities=probe_capacities(config.disk.graph, probe))
+
+
 def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int | str:
     """One attempt. A string is why the menu should be walked again."""
     try:
@@ -587,19 +604,15 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
             layout = Probe(
                 runner=Runner(log=lambda line: None), work=arguments.work
             ).storage_layout()
-        if arguments.dry_run and asks_for_a_share(config.disk.graph):
-            # A capacity even for a dry run, and only when a share needs one:
-            # a share is a share of the disk, so without it the printed plan
-            # cannot say what `40%` is, and a plan that prints a different
-            # number from the one the install writes is the defect this whole
-            # feature exists to avoid. Gated on the share rather than on the
-            # mode, so a configuration that asks for nothing reads nothing.
-            storage_facts = StorageFacts(
-                capacities=probe_capacities(config.disk.graph, reading)
-            )
+        if arguments.dry_run and config.disk.mode is not DiskMode.DD:
+            # A preview has to use the install's share basis, or it can advertise
+            # a different size from the partition the install creates.
+            dry_run_facts = _dry_run_storage_facts(config, reading)
+            if dry_run_facts is not None:
+                storage_facts = dry_run_facts
         if not arguments.dry_run and config.disk.mode is not DiskMode.DD:
-            # The heavier evidence — mdraid metadata, free extents — is only
-            # required before a real install.
+            # Metadata is only needed before a real install; preview shares read
+            # free extents above when an edited table needs them.
             storage_facts = probe_storage_facts(config, reading)
             # `ld.so --help`, the loader's own answer about this machine.
             loader_v3 = reading.supports_v3()

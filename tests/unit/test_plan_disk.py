@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -28,6 +29,7 @@ from gentoo_install.model.device import (
     PartitionTable,
     RaidLevel,
     RaidMetadata,
+    Share,
     StorageFacts,
     Subvolume,
     Swap,
@@ -199,6 +201,48 @@ def test_an_mbr_partition_is_placed_by_offset_because_parted_needs_one() -> None
     assert made[0][-2:] == ("mklabel", "msdos")
     assert made[1][-3:] == ("primary", "1MiB", "513MiB")
     assert made[-1][-3:] == ("primary", "513MiB", "100%")
+
+
+
+def test_a_percent_share_in_an_mbr_table_advances_later_partitions() -> None:
+    """A later partition must not reuse the percentage partition's start."""
+    nodes: list[Node] = [
+        Existing(id=i("disk"), selector="/dev/disk/by-id/virtio-target", wipe=True),
+        PartitionTable(id=i("table"), disk=i("disk"), table=TableType.MBR),
+        Partition(id=i("one"), table=i("table"), index=1, role=PartitionRole.DATA, size=Size.parse("1GiB")),
+        Partition(
+            id=i("two"),
+            table=i("table"),
+            index=2,
+            role=PartitionRole.DATA,
+            size=None,
+            share=Share(percent=Decimal("50")),
+        ),
+        Partition(id=i("three"), table=i("table"), index=3, role=PartitionRole.DATA, size=Size.parse("8GiB")),
+    ]
+    facts = StorageFacts(capacities={i("disk"): Size.parse("100GiB")})
+    partitions = [
+        operation
+        for operation in disk.build(config(nodes), facts)
+        if isinstance(operation, disk.CreatePartition)
+    ]
+
+    assert [(one.index, one.start, one.size) for one in partitions] == [
+        (1, Size.parse("1MiB"), Size.parse("1GiB")),
+        (2, Size.parse("1025MiB"), Size.parse("46591MiB")),
+        (3, Size.parse("47616MiB"), Size.parse("8GiB")),
+    ]
+    assert "from 1025MiB" in partitions[1].describe()
+    assert "from 47616MiB" in partitions[2].describe()
+
+    recorder = Recorder()
+    for partition in partitions:
+        partition.apply(recorder)
+    assert [argv[-2] for argv in recorder.argv_starting("parted")] == [
+        "1MiB",
+        "1025MiB",
+        "47616MiB",
+    ]
 
 
 def test_partition_table_kind_and_mbr_start_change_the_dry_run() -> None:
@@ -1530,6 +1574,22 @@ def _resolved(body: str, capacity: str) -> Size | None:
     return resolve_share(config.disk.graph, root, facts)
 
 
+def _edited_table_share() -> InstallConfig:
+    """The edited-table fixture with its added partition percentage-sized."""
+    installation = load(Path("tests/fixtures/mbr-edit.toml"))
+    graph = DeviceGraph.build(
+        replace(
+            node,
+            size=None,
+            share=Share(percent=Decimal("40")),
+        )
+        if isinstance(node, Partition) and node.id == i("rootpart")
+        else node
+        for node in installation.disk.graph.nodes.values()
+    )
+    return replace(installation, disk=replace(installation.disk, graph=graph))
+
+
 def test_a_share_is_of_what_the_fixed_sizes_leave_and_its_bounds_hold() -> None:
     """One file for a fleet of unlike disks is the whole point: four tenths of
     a 240 GB disk and four tenths of an 8 TB disk are both wrong on the other
@@ -1567,6 +1627,164 @@ def test_a_share_is_of_what_the_fixed_sizes_leave_and_its_bounds_hold() -> None:
     # And the other two spellings still mean what they meant.
     assert _resolved('size = "rest"', "240G") is None
     assert _resolved('size = "20G"', "240G") == Size.parse("20G")
+
+
+def test_a_share_on_an_edited_table_uses_its_measured_free_space() -> None:
+    """A retained partition is not a model node, so capacity overstates this share."""
+    nodes: list[Node] = [
+        Existing(id=i("disk"), selector="/dev/disk/by-id/virtio-target", wipe=False),
+        PartitionTable(id=i("table"), disk=i("disk"), table=TableType.GPT, create=False),
+        Partition(
+            id=i("added"),
+            table=i("table"),
+            index=2,
+            role=PartitionRole.DATA,
+            size=None,
+            share=Share(percent=Decimal("40")),
+        ),
+    ]
+    free = Extent(
+        start=Size.parse("60GiB").bytes,
+        end=Size.parse("100GiB").bytes - 1,
+    )
+    facts = StorageFacts(
+        capacities={i("disk"): Size.parse("100GiB")},
+        free_extents={i("table"): (free,)},
+    )
+    created = [
+        operation
+        for operation in disk.build(config(nodes), facts)
+        if isinstance(operation, disk.CreatePartition)
+    ]
+    assert len(created) == 1
+    partition = created[0]
+
+    assert partition.size == Size.parse("16GiB")
+    assert "16GiB" in partition.describe()
+    recorder = Recorder()
+    partition.apply(recorder)
+    assert recorder.only("sgdisk")[1:3] == ("--new=2:0:+16G", "--typecode=2:8300")
+
+
+def test_a_share_on_an_edited_table_requires_measured_extents() -> None:
+    """Capacity alone includes retained partitions and cannot resolve this share."""
+    with pytest.raises(InvalidLayout) as refused:
+        disk.build(
+            _edited_table_share(),
+            StorageFacts(capacities={i("disk"): Size.parse("100GiB")}),
+        )
+
+    said = str(refused.value)
+    assert "measured free extents" in said, said
+    assert "probe the table before planning" in said, said
+
+
+def test_a_dry_run_reads_free_extents_for_a_share_on_an_edited_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A preview must derive the same percentage size as the real install."""
+    from gentoo_install import cli
+    from gentoo_install.model.hardware import HardwareFacts
+    from gentoo_install.plan.operations import Operation
+
+    expected = StorageFacts(
+        free_extents={
+            i("table"): (
+                Extent(
+                    start=Size.parse("60GiB").bytes,
+                    end=Size.parse("100GiB").bytes - 1,
+                ),
+            )
+        }
+    )
+    seen: list[StorageFacts] = []
+
+    class Reading:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        def hardware(self) -> HardwareFacts:
+            return HardwareFacts()
+
+    def measured(_: InstallConfig, __: object) -> StorageFacts:
+        return expected
+
+    def capacities(_: DeviceGraph, __: object) -> dict[DeviceId, Size]:
+        return {i("disk"): Size.parse("100GiB")}
+
+    def planned(
+        installation: InstallConfig,
+        _: object,
+        *,
+        mirror: str,
+        storage_facts: StorageFacts,
+        layout: object,
+        supports_v3: bool | None,
+        hardware: HardwareFacts,
+    ) -> tuple[Operation, ...]:
+        seen.append(storage_facts)
+        return tuple(disk.build(installation, storage_facts))
+
+    monkeypatch.setattr(cli, "_require_root", lambda arguments: None)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+    monkeypatch.setattr(cli, "load_source", lambda source: _edited_table_share())
+    monkeypatch.setattr(cli, "Probe", Reading)
+    monkeypatch.setattr(cli, "probe_storage_facts", measured)
+    monkeypatch.setattr(cli, "probe_capacities", capacities)
+    monkeypatch.setattr(cli, "build", planned)
+
+    code = cli.main(["--config", str(tmp_path / "edited.toml"), "--dry-run"])
+
+    assert code == cli.EXIT_OK
+    assert seen == [expected]
+    sizes = [
+        operation.size
+        for operation in disk.build(_edited_table_share(), seen[0])
+        if isinstance(operation, disk.CreatePartition)
+    ]
+    assert sizes == [Size.parse("16GiB")]
+
+
+def test_a_share_on_an_edited_mbr_skips_gaps_that_cannot_hold_it() -> None:
+    """A share placed in a too-small gap would overlap retained space."""
+    nodes: list[Node] = [
+        Existing(id=i("disk"), selector="/dev/disk/by-id/virtio-target", wipe=False),
+        PartitionTable(id=i("table"), disk=i("disk"), table=TableType.MBR, create=False),
+        Partition(
+            id=i("added"),
+            table=i("table"),
+            index=2,
+            role=PartitionRole.DATA,
+            size=None,
+            share=Share(percent=Decimal("40")),
+        ),
+    ]
+    small = Extent(
+        start=Size.parse("1GiB").bytes,
+        end=Size.parse("5GiB").bytes - 1,
+    )
+    fitting = Extent(
+        start=Size.parse("60GiB").bytes,
+        end=Size.parse("96GiB").bytes - 1,
+    )
+    facts = StorageFacts(
+        capacities={i("disk"): Size.parse("100GiB")},
+        free_extents={i("table"): (small, fitting)},
+    )
+    created = [
+        operation
+        for operation in disk.build(config(nodes), facts)
+        if isinstance(operation, disk.CreatePartition)
+    ]
+    assert len(created) == 1
+    partition = created[0]
+
+    assert partition.start == Size.parse("60GiB")
+    assert partition.size == Size.parse("16GiB")
+    assert "from 60GiB" in partition.describe()
+    recorder = Recorder()
+    partition.apply(recorder)
+    assert recorder.only("parted")[-3:] == ("primary", "60GiB", "76GiB")
 
 
 def test_a_share_below_its_floor_is_refused_rather_than_raised() -> None:
