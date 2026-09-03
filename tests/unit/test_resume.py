@@ -453,6 +453,15 @@ def test_an_emerge_after_a_resume_still_builds_from_source(tmp_path: Path) -> No
 
     journal = Journal(tmp_path / "install.jsonl")
     journal.degraded(BINARY_PACKAGES, "the key was never signed")
+    journal.write(
+        "operation",
+        stage="packages",
+        describe="merge",
+        identity="merge",
+        seconds=0.0,
+        status="done",
+        position=0,
+    )
 
     recorder = Recorder()
     for what in already_degraded(journal):

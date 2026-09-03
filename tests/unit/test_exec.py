@@ -389,6 +389,52 @@ def test_an_unreadable_binhost_is_journalled_and_the_run_finishes(tmp_path: Path
     assert [("--getbinpkg=n" in command) for command in runner.commands] == [False, False, True, True]
 
 
+def test_a_failed_binary_fallback_is_not_replayed_on_resume(tmp_path: Path) -> None:
+    """A failed source retry leaves the binary-host choice uncommitted."""
+    journal = Journal(path=tmp_path / "install.jsonl")
+    binary_failure = "!!! Fetching Binary failed: app-editors/nano-8\n"
+    source_failure = "!!! Couldn't download 'app-editors/nano-8.tar.xz'. Aborting.\n"
+
+    class SourceFails(Runner):
+        def __init__(self) -> None:
+            super().__init__(log=lambda line: None, journal=journal)
+            self.commands: list[tuple[str, ...]] = []
+
+        def in_target(self, target: Path) -> Runner:
+            return self
+
+        def run(
+            self,
+            argv: Sequence[str],
+            *,
+            check: bool = True,
+            input_text: str | None = None,
+            timeout: float | None = None,
+        ) -> Result:
+            command = tuple(argv)
+            self.commands.append(command)
+            assert command[0] == "emerge"
+            output = source_failure if "--getbinpkg=n" in command else binary_failure
+            return Result(command, 1, output, "", 0.0)
+
+    runner = SourceFails()
+    machine = apply.Machine(
+        config=config(),
+        runner=runner,
+        probe=Probe(runner=runner, work=tmp_path),
+        work=tmp_path,
+    )
+    operation = portage.Emerge(packages=("app-editors/nano",), summary="install the editor")
+
+    with pytest.raises(CommandFailed):
+        apply.apply((operation,), machine)
+
+    records = [entry for entry in journal.replay() if entry["event"] == "operation"]
+    assert [entry["status"] for entry in records] == ["failed"]
+    assert [("--getbinpkg=n" in command) for command in runner.commands] == [False, False, True]
+    assert apply.already_degraded(Journal(path=journal.path)) == set()
+
+
 def test_a_live_findmnt_result_enables_the_lazy_unmount_fallback(tmp_path: Path) -> None:
     from gentoo_install.plan.disk import UnmountTarget
 

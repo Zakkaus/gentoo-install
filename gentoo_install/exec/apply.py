@@ -376,7 +376,10 @@ def identity(operation: Operation) -> str:
 
 
 def already_degraded(journal: Journal | None) -> set[str]:
-    """What a previous run gave up on, so a resume gives up on it too.
+    """What a completed operation gave up on, so a resume gives up on it too.
+
+    A degradation is durable only after its operation returns: a failed source
+    fallback must not make its next attempt skip every binary package.
 
     Without this a resumed run rebuilt an empty `given_up`: the operation that
     recorded an unusable binary host had already completed and was skipped, so
@@ -386,11 +389,19 @@ def already_degraded(journal: Journal | None) -> set[str]:
     """
     if journal is None:
         return set()
-    return {
-        str(entry["what"])
-        for entry in journal.resume_entries()
-        if entry.get("event") == "degraded" and entry.get("what")
-    }
+    pending: set[str] = set()
+    finished: set[str] = set()
+    for entry in journal.resume_entries():
+        if entry.get("event") == "degraded":
+            if what := entry.get("what"):
+                pending.add(str(what))
+            continue
+        if entry.get("event") != "operation":
+            continue
+        if entry.get("status") == "done":
+            finished.update(pending)
+        pending.clear()
+    return finished
 
 
 def completed(journal: Journal | None) -> frozenset[tuple[int, str]]:
