@@ -50,6 +50,7 @@
   install the initramfs builder and firmware: emerge sys-kernel/dracut sys-kernel/linux-firmware, in /gentoo-install.new
   install the storage tools: emerge sys-fs/dosfstools sys-fs/e2fsprogs, in /gentoo-install.new
   install the kernel: emerge sys-kernel/gentoo-kernel-bin, in /gentoo-install.new
+  write /etc/dracut.conf.d/10-gentoo-install.conf so dracut carries 13 cloud bus drivers whatever it detects, in /gentoo-install.new
   rebuild the initramfs from sys-kernel/gentoo-kernel-bin with the modules written above, in /gentoo-install.new
   check the installkernel payload names existing kernel files, in /gentoo-install.new
 

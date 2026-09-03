@@ -113,12 +113,13 @@ def test_dracut_carries_a_module_for_each_layer_of_the_stack() -> None:
     assert kernel.dracut_modules(config(nodes)) == ("mdraid", "crypt", "btrfs")
 
 
-def test_a_plain_layout_asks_dracut_for_nothing_extra() -> None:
+def test_a_plain_layout_writes_cloud_bus_drivers_without_storage_modules() -> None:
     assert kernel.dracut_modules(config()) == ()
-    assert not apply_kernel(config()).files.get(
-        PurePosixPath("/etc/dracut.conf.d/10-gentoo-install.conf")
+    written = apply_kernel(config()).files.get(
+        PurePosixPath("/etc/dracut.conf.d/10-gentoo-install.conf"), ""
     )
-
+    expected = 'add_drivers+=" ' + " ".join(kernel.cloud_drivers()) + ' "\n'
+    assert written == expected, written
 
 def test_the_storage_tools_follow_the_filesystems_in_use() -> None:
     assert set(kernel.storage_packages(config())) == {"sys-fs/dosfstools", "sys-fs/e2fsprogs"}

@@ -215,7 +215,10 @@ def test_bios_installs_no_efibootmgr() -> None:
 
 def test_dracut_carries_a_module_for_every_layer_of_the_stack() -> None:
     described = " ".join(operation.describe() for operation in plan(config()))
-    assert "so dracut carries" not in described  # plain ext4 needs no extra module
+    # A plain ext4 root needs no dracut module and still needs the bus drivers:
+    # a machine that cannot see its own disk does not boot to be told why.
+    assert "so dracut carries crypt" not in described
+    assert "cloud bus drivers" in described
     with_luks = " ".join(
         operation.describe() for operation in plan(load(FIXTURES / "btrfs-luks.toml"), load_catalog())
     )
