@@ -725,96 +725,103 @@ def install(
         runner = Runner(log=record, journal=journal)
         probe = Probe(runner=runner, work=work)
         probe.load()
-        config = _with_passphrases_if_asked(config, arguments, work)
-        if not arguments.skip_preflight:
-            preflight_report = preflight.check(
-                config, probe, str(target), operations=operations
-            )
-            for warning in preflight_report.warnings:
-                record(f"warning: {warning}")
-            preflight_report.raise_if_fatal()
-        if config.disk.mode is DiskMode.IN_PLACE and not _confirmed_swap(arguments, record):
-            return EXIT_ABORTED
-        machine = Machine(
-            config=running if running is not None else config,
-            runner=runner,
-            probe=probe,
-            work=work,
-            mountpoint=target,
-        )
-        identity = _run_identity(config)
-        if arguments.resume:
-            resuming = journal.resume()
-            _refuse_a_different_run(journal, identity, record)
-            _refuse_a_resume_with_no_journal(arguments.work, resuming)
-        else:
-            journal.started(**identity)
-        finished = completed(journal) if arguments.resume else frozenset()
-        if arguments.resume:
-            # Replayed before anything runs. The operation that recorded an
-            # unusable binary host has already completed and is skipped, so
-            # without this the next `Emerge` asked that host for packages the
-            # earlier run had declared untrusted.
-            for what in sorted(already_degraded(journal)):
-                machine.given_up.add(what)
-                record(f"resuming: {what} was already unavailable")
-        if finished:
-            record(f"resuming: {len(finished)} operations were finished by an earlier run")
-        # The closing stage unmounts, so the target has to still be mounted
-        # when the operator is offered a shell in it.
-        closing = tuple(one for one in operations if one.stage is Stage.FINISH)
-        body = tuple(one for one in operations if one.stage is not Stage.FINISH)
-        failure: BaseException | None = None
+        # Every exit from here, not only the two `SecretStore` already
+        # empties: a `--resume` refused for a mismatched journal leaves
+        # after the passphrase was written and before `apply` removes it,
+        # and the work directory outlives the run until the next reboot.
         try:
-            apply(body, machine, finished, state.operation_started)
-        except BaseException as error:
-            failure = _first_failure(failure, error, record)
-        stopped = failure is not None
-        try:
-            report.offer_paste(
-                work,
-                record,
-                stopped,
-                _unattended(arguments),
-                # Bound to the catalog: `offer_paste` asks in the menu's
-                # language and the answer has to be readable in it too.
-                lambda question: _asked(question, translate),
-                show_the_address,
-                translate,
-            )
-            if config.disk.mode is not DiskMode.DD:
-                _offer_a_shell(
-                    arguments, machine, record, stopped, target, config.disk.mode, translate
+            config = _with_passphrases_if_asked(config, arguments, work)
+            if not arguments.skip_preflight:
+                preflight_report = preflight.check(
+                    config, probe, str(target), operations=operations
                 )
-        except BaseException as error:
-            failure = _first_failure(failure, error, record)
-        if config.disk.mode is not DiskMode.DD:
-            # Before the closing stage: that stage unmounts the target, so a later
-            # copy lands on the install medium's tmpfs and vanishes at reboot.
-            try:
-                report.keep_log(work, target, record)
-            except BaseException as error:
-                failure = _first_failure(failure, error, record)
-        if failure is None:
-            try:
-                apply(closing, machine, finished)
-            except BaseException as error:
-                failure = _first_failure(failure, error, record)
-        if failure is not None:
-            # Only release operations run after a failure. Configuring an
-            # incomplete target can obscure the error that stopped the run.
-            _release(closing, machine, record)
-            raise failure
-        if config.disk.mode is DiskMode.DD:
-            record(f"wrote the prepared image to {config.disk.destination}")
-        else:
-            counted = journal.counts()
-            record(
-                f"installed {len(operations)} operations into {target}; "
-                f"{counted.get('binary', 0)} packages from a binary host, "
-                f"{counted.get('compiled', 0)} compiled"
+                for warning in preflight_report.warnings:
+                    record(f"warning: {warning}")
+                preflight_report.raise_if_fatal()
+            if config.disk.mode is DiskMode.IN_PLACE and not _confirmed_swap(arguments, record):
+                return EXIT_ABORTED
+            machine = Machine(
+                config=running if running is not None else config,
+                runner=runner,
+                probe=probe,
+                work=work,
+                mountpoint=target,
             )
-        return EXIT_OK
+            identity = _run_identity(config)
+            if arguments.resume:
+                resuming = journal.resume()
+                _refuse_a_different_run(journal, identity, record)
+                _refuse_a_resume_with_no_journal(arguments.work, resuming)
+            else:
+                journal.started(**identity)
+            finished = completed(journal) if arguments.resume else frozenset()
+            if arguments.resume:
+                # Replayed before anything runs. The operation that recorded an
+                # unusable binary host has already completed and is skipped, so
+                # without this the next `Emerge` asked that host for packages the
+                # earlier run had declared untrusted.
+                for what in sorted(already_degraded(journal)):
+                    machine.given_up.add(what)
+                    record(f"resuming: {what} was already unavailable")
+            if finished:
+                record(f"resuming: {len(finished)} operations were finished by an earlier run")
+            # The closing stage unmounts, so the target has to still be mounted
+            # when the operator is offered a shell in it.
+            closing = tuple(one for one in operations if one.stage is Stage.FINISH)
+            body = tuple(one for one in operations if one.stage is not Stage.FINISH)
+            failure: BaseException | None = None
+            try:
+                apply(body, machine, finished, state.operation_started)
+            except BaseException as error:
+                failure = _first_failure(failure, error, record)
+            stopped = failure is not None
+            try:
+                report.offer_paste(
+                    work,
+                    record,
+                    stopped,
+                    _unattended(arguments),
+                    # Bound to the catalog: `offer_paste` asks in the menu's
+                    # language and the answer has to be readable in it too.
+                    lambda question: _asked(question, translate),
+                    show_the_address,
+                    translate,
+                )
+                if config.disk.mode is not DiskMode.DD:
+                    _offer_a_shell(
+                        arguments, machine, record, stopped, target, config.disk.mode, translate
+                    )
+            except BaseException as error:
+                failure = _first_failure(failure, error, record)
+            if config.disk.mode is not DiskMode.DD:
+                # Before the closing stage: that stage unmounts the target, so a later
+                # copy lands on the install medium's tmpfs and vanishes at reboot.
+                try:
+                    report.keep_log(work, target, record)
+                except BaseException as error:
+                    failure = _first_failure(failure, error, record)
+            if failure is None:
+                try:
+                    apply(closing, machine, finished)
+                except BaseException as error:
+                    failure = _first_failure(failure, error, record)
+            if failure is not None:
+                # Only release operations run after a failure. Configuring an
+                # incomplete target can obscure the error that stopped the run.
+                _release(closing, machine, record)
+                raise failure
+            if config.disk.mode is DiskMode.DD:
+                record(f"wrote the prepared image to {config.disk.destination}")
+            else:
+                counted = journal.counts()
+                record(
+                    f"installed {len(operations)} operations into {target}; "
+                    f"{counted.get('binary', 0)} packages from a binary host, "
+                    f"{counted.get('compiled', 0)} compiled"
+                )
+            return EXIT_OK
+        finally:
+            _forget_staged_passphrases(work, record)
 
 
 def _first_failure(
@@ -990,9 +997,11 @@ def _with_passphrases_if_asked(
     """Ask for the passphrases a shared configuration cannot carry.
 
     Here rather than where the configuration is loaded, because the answer is
-    written to a file: `SecretStore` is emptied by `raise_if_fatal` and by
-    `cleanup_secrets`, and neither is reached from the load, so a `validate`
-    refusal or a dry run would have left a passphrase in `/run`.
+    written to a file and something has to remove it: a `validate` refusal or
+    a dry run leaves before anything that empties `SecretStore`. Reaching
+    `raise_if_fatal` and `cleanup_secrets` is not enough on its own either —
+    a `--resume` refused for a mismatched journal leaves between them — so the
+    caller empties the store in a `finally` around the whole install.
     """
     wanted = [node for node in config.disk.graph.nodes.values() if _needs_a_passphrase(node)]
     if not wanted or _unattended(arguments):
@@ -1029,6 +1038,12 @@ def _with_passphrases_if_asked(
     return replace(
         config, disk=replace(config.disk, graph=DeviceGraph.build(rebuilt))
     )
+
+
+def _forget_staged_passphrases(work: Path, record: Callable[[str], None]) -> None:
+    """Remove what the passphrase question wrote, however the run ended."""
+    for stayed in preflight.SecretStore(work).cleanup():
+        record(f"WARNING: a staged passphrase stayed: {stayed}")
 
 
 def _only_answers_a_question(arguments: argparse.Namespace) -> bool:
