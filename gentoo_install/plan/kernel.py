@@ -350,13 +350,20 @@ class WriteDracutModules(Operation):
     drivers: tuple[str, ...] = field(default_factory=cloud_drivers)
 
     def describe(self) -> str:
-        carried = f"write {DRACUT_MODULES_CONFIG} so dracut carries {', '.join(self.modules)}"
-        if not self.drivers:
+        wrote = f"write {DRACUT_MODULES_CONFIG}"
+        if self.modules:
+            carried = f"{wrote} so dracut carries {', '.join(self.modules)}"
+            if self.drivers:
+                return f"{carried}, and {len(self.drivers)} cloud bus drivers whatever it detects"
             return carried
-        return f"{carried}, and {len(self.drivers)} cloud bus drivers whatever it detects"
+        if self.drivers:
+            return f"{wrote} so dracut carries {len(self.drivers)} cloud bus drivers whatever it detects"
+        return f"{wrote} with no dracut modules or drivers"
 
     def apply(self, context: Context) -> None:
-        lines = [f'add_dracutmodules+=" {" ".join(self.modules)} "']
+        lines: list[str] = []
+        if self.modules:
+            lines.append(f'add_dracutmodules+=" {" ".join(self.modules)} "')
         if self.drivers:
             lines.append(f'add_drivers+=" {" ".join(self.drivers)} "')
         context.write(
@@ -843,8 +850,7 @@ def build(config: InstallConfig, hardware: HardwareFacts = HardwareFacts()) -> l
                 ),
             )
         )
-    if modules:
-        operations.append(WriteDracutModules(modules=modules))
+    operations.append(WriteDracutModules(modules=modules))
     # Delete first, then rebuild. The misnamed image `sys-fs/zfs` leaves is
     # often the only one in /boot, so deleting it last left generate-zbm with
     # `Unable to find latest kernel`. `emerge --config` reinstalls the image
