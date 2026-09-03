@@ -1629,6 +1629,24 @@ def test_a_share_is_of_what_the_fixed_sizes_leave_and_its_bounds_hold() -> None:
     assert _resolved('size = "20G"', "240G") == Size.parse("20G")
 
 
+def test_a_rest_partition_honours_bounds_in_its_plan() -> None:
+    bounded = _with_root_extent('size = "rest"\nmin = "20GiB"\nmax = "100GiB"')
+    facts = StorageFacts(capacities={i("disk"): Size.parse("4TiB")})
+    partition = next(
+        operation
+        for operation in disk.build(bounded, facts)
+        if isinstance(operation, disk.CreatePartition) and operation.partition == i("rootpart")
+    )
+    assert partition.size == Size.parse("100GiB")
+    assert "100GiB" in partition.describe()
+    recorder = Recorder()
+    partition.apply(recorder)
+    assert recorder.only("sgdisk")[1:3] == ("--new=2:0:+100G", "--typecode=2:8300")
+
+    with pytest.raises(InvalidLayout, match="below the"):
+        _resolved('size = "rest"\nmin = "100GiB"', "100GiB")
+
+
 def test_a_share_on_an_edited_table_uses_its_measured_free_space() -> None:
     """A retained partition is not a model node, so capacity overstates this share."""
     nodes: list[Node] = [

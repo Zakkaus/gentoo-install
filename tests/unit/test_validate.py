@@ -28,6 +28,7 @@ from gentoo_install.model.config import (
     PackagesConfig,
     PortageConfig,
     SystemConfig,
+    User,
 )
 from gentoo_install.model.device import DeviceGraph
 from gentoo_install.model.device import (
@@ -551,6 +552,28 @@ def test_hostname_uses_rfc_1123_label_and_length_boundaries() -> None:
                 system=replace(installation.system, hostname=f"{hostname}a"),
             )
         )
+
+
+@pytest.mark.parametrize(
+    ("users", "said"),
+    (
+        ((User(name="root"),), "root account"),
+        ((User(name="Bad Name"),), "useradd cannot create"),
+        ((User(name="-x"),), "useradd cannot create"),
+        ((User(name="a/b"),), "useradd cannot create"),
+        ((User(name="zakk"), User(name="zakk")), "user names must be unique"),
+    ),
+)
+def test_a_user_name_useradd_cannot_create_is_refused(users: tuple[User, ...], said: str) -> None:
+    installation = config()
+    with pytest.raises(ValidationFailed) as refused:
+        validate(
+            replace(
+                installation,
+                system=replace(installation.system, users=users),
+            )
+        )
+    assert said in str(refused.value), refused.value
 
 
 _PACKAGE_GROUP_CASES: tuple[str, ...] = (
@@ -1540,6 +1563,39 @@ def test_a_repository_name_is_checked_before_it_reaches_eselect() -> None:
             installation, portage=replace(installation.portage, repositories=("science",))
         )
     )
+
+@pytest.mark.parametrize(
+    ("overlays", "said"),
+    (
+        (
+            (Overlay(name="not a name", sync_uri="https://example.invalid/one.git"),),
+            "not a repository name",
+        ),
+        (
+            (Overlay(name="gentoo", sync_uri="https://example.invalid/one.git"),),
+            "already configured",
+        ),
+        (
+            (
+                Overlay(name="example", sync_uri="https://example.invalid/one.git"),
+                Overlay(name="example", sync_uri="https://example.invalid/two.git"),
+            ),
+            "already configured",
+        ),
+    ),
+)
+def test_an_overlay_name_is_checked_before_it_writes_repos_conf(
+    overlays: tuple[Overlay, ...], said: str
+) -> None:
+    installation = config()
+    with pytest.raises(ValidationFailed) as refused:
+        validate(
+            replace(
+                installation,
+                portage=replace(installation.portage, overlays=overlays),
+            )
+        )
+    assert said in str(refused.value), refused.value
 
 
 def test_a_table_this_run_writes_needs_a_disk_this_run_wipes() -> None:
