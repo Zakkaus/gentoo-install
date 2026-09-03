@@ -341,6 +341,54 @@ def test_a_mount_inside_a_mounted_directory_is_refused_before_any_move(
     assert (root / "usr" / "kept.txt").read_text() == "old", "nothing was moved"
 
 
+def test_a_deep_mount_inside_a_mounted_directory_is_refused_before_any_move(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A renamed parent keeps a nested mount attached, and cleanup can walk it."""
+    root = tmp_path / "root"
+    staging = root / "new"
+    for name in ("usr", "var"):
+        (root / name).mkdir(parents=True)
+        (staging / name).mkdir(parents=True)
+    protected = root / "var" / "lib" / "docker" / "operator-data"
+    protected.parent.mkdir(parents=True)
+    protected.write_text("precious")
+    (root / "usr" / "kept.txt").write_text("old")
+
+    _pretend_mounts(monkeypatch, root / "var", protected.parent)
+
+    with pytest.raises(ConversionFailed, match=r"holding lib/docker"):
+        convert.convert(staging, ("usr", "var"), copy=_copy, root=root)
+
+    assert (root / "usr" / "kept.txt").read_text() == "old", "nothing was moved"
+    assert protected.read_text() == "precious", "the mounted tree was touched"
+    assert not (root / "var.gentoo-install.old").exists()
+
+
+def test_a_mount_inside_an_ordinary_directory_is_refused_before_any_move(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A destination need not be a mount to contain a mount that rename carries."""
+    root = tmp_path / "root"
+    staging = root / "new"
+    for name in ("usr", "var"):
+        (root / name).mkdir(parents=True)
+        (staging / name).mkdir(parents=True)
+    protected = root / "var" / "log" / "operator-data"
+    protected.parent.mkdir()
+    protected.write_text("precious")
+    (root / "usr" / "kept.txt").write_text("old")
+
+    _pretend_mounts(monkeypatch, protected.parent)
+
+    with pytest.raises(ConversionFailed, match=r"holding log"):
+        convert.convert(staging, ("usr", "var"), copy=_copy, root=root)
+
+    assert (root / "usr" / "kept.txt").read_text() == "old", "nothing was moved"
+    assert protected.read_text() == "precious", "the mounted tree was touched"
+    assert not (root / "var.gentoo-install.old").exists()
+
+
 def test_a_mounted_directory_is_filled_by_copy_when_rename_cannot_cross(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
