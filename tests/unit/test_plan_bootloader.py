@@ -436,8 +436,8 @@ def test_an_image_built_without_the_unlock_daemon_is_said_rather_than_shipped() 
             self, argv: Sequence[str], *, check: bool = True, input_text: str | None = None
         ) -> CommandOutput:
             self.in_target.append(tuple(argv))
-            if argv[0] == "find":
-                return CommandOutput("/efi/EFI/zbm/kernel.EFI\n", 0)
+            if argv[0] == "generate-zbm":
+                return CommandOutput("Created new UEFI image /efi/EFI/zbm/kernel.EFI\n", 0)
             if argv[0] == "lsinitrd":
                 return CommandOutput(self.answer, 0)
             return CommandOutput("", 0)
@@ -559,9 +559,9 @@ def test_a_probe_that_did_not_run_names_itself_rather_than_the_boot() -> None:
         grub.apply(empty)
 
     built = zfsbootmenu_operation()
-    unlisted = Recorder(replies={"find": CommandOutput("find: /efi/EFI/zbm: no such file", 1)})
-    with pytest.raises(NothingToBoot, match="no EFI image under /efi/EFI/zbm"):
-        built._image(unlisted)
+    unreported = Recorder(replies={"generate-zbm": "generate-zbm produced no image\n"})
+    with pytest.raises(NothingToBoot, match="did not report an EFI image"):
+        built.apply(unreported)
 
 
 def test_a_probe_answering_without_an_exit_status_is_read_as_a_failure() -> None:
@@ -591,19 +591,48 @@ def test_a_probe_answering_without_an_exit_status_is_read_as_a_failure() -> None
 def test_an_image_found_beside_an_unreadable_entry_is_still_installed() -> None:
     """Measured with findutils 4.11.0: `find <dir> -name '*.EFI'` over a
     directory holding one entry with mode 000 prints the matches it reached on
-    stdout and exits 1. The runner merges stderr in, so both arrive together."""
-    built = zfsbootmenu_operation()
+    stdout and exits 1. The runner merges stderr in, so both arrive together.
 
+    generate-zbm reports the fresh image after it replaces the old one, so an
+    unreadable sibling cannot change the boot path by being scanned.
+    """
+    built = zfsbootmenu_operation()
+    current = "/efi/EFI/zbm/vmlinuz-6.12.EFI"
     partial = Recorder(
         replies={
-            "find": CommandOutput(
-                "/efi/EFI/zbm/vmlinuz-6.12.EFI\n"
-                "find: '/efi/EFI/zbm/locked': Permission denied\n",
-                1,
-            )
+            "generate-zbm": CommandOutput(f"Created new UEFI image {current}\n", 0),
         }
     )
-    assert built._image(partial) == "/efi/EFI/zbm/vmlinuz-6.12.EFI"
+
+    built.apply(partial)
+
+    copied = partial.only("install", "-D", "-m0644")
+    assert copied[3] == current
+    assert not partial.argv_starting("find")
+
+
+def test_zfsbootmenu_installs_the_current_image_after_backing_up_the_previous_one() -> None:
+    """`EFI.Versions: false` moves the prior image to `-backup.EFI`; its final
+    success line names the replacement that firmware must boot."""
+    operation = zfsbootmenu_operation()
+    current = f"{operation.esp}/{bootloader.ZBM_DIRECTORY}/vmlinuz-6.12.EFI"
+    backup = current.removesuffix(".EFI") + "-backup.EFI"
+    reused = Recorder(
+        replies={
+            "generate-zbm": (
+                f"Created backup {current} -> {backup}\n"
+                f"Created new UEFI image {current}\n"
+            ),
+        }
+    )
+
+    operation.apply(reused)
+
+    copied = reused.only("install", "-D", "-m0644")
+    assert copied[3] == current
+    assert reused.only("lsinitrd") == ("lsinitrd", current)
+    entry = reused.only("efibootmgr", "--create")
+    assert entry[-1] == "\\EFI\\zbm\\vmlinuz-6.12.EFI"
 
 
 def test_the_zfsbootmenu_describe_changes_with_the_command_line_it_will_set() -> None:
@@ -659,6 +688,8 @@ def test_serial_console_uses_kernel_default_or_rejects_garbage(fixture: str) -> 
 
 
 def test_systemd_boot_image_skips_nvram_and_firmware_failure_degrades() -> None:
+    from gentoo_install.errors import CommandFailed
+
     installation = load(Path("tests/fixtures/vm-sdboot.toml"))
     image = replace(
         installation,
@@ -688,9 +719,41 @@ def test_systemd_boot_image_skips_nvram_and_firmware_failure_degrades() -> None:
         if isinstance(operation, bootloader.InstallSystemdBoot)
     )
     assert bootctl.write_nvram
-    refused = Recorder(failures={"bootctl"})
+
+    class NvramRefuses(Recorder):
+        def run_in_target(self, argv: Sequence[str], *, check: bool = True) -> CommandOutput:
+            if argv[0] == "bootctl" and "--no-variables" not in argv:
+                self.in_target.append(tuple(argv))
+                raise CommandFailed("bootctl: could not write EFI variables")
+            return super().run_in_target(argv, check=check)
+
+    refused = NvramRefuses()
     bootctl.apply(refused)
     assert refused.degraded(bootloader.NVRAM_ENTRY)
+    assert refused.in_target == [
+        ("bootctl", f"--esp-path={bootctl.esp}", "--no-variables", "install"),
+        ("bootctl", f"--esp-path={bootctl.esp}", "install"),
+    ]
+
+def test_systemd_boot_loader_write_failure_stops_the_install() -> None:
+    """The loader copy precedes an optional NVRAM request."""
+    from gentoo_install.errors import CommandFailed
+
+    installation = load(Path("tests/fixtures/vm-sdboot.toml"))
+    bootctl = next(
+        operation
+        for operation in bootloader.build(installation)
+        if isinstance(operation, bootloader.InstallSystemdBoot)
+    )
+    failed = Recorder(failures={"bootctl"})
+
+    with pytest.raises(CommandFailed, match="bootctl exited 1"):
+        bootctl.apply(failed)
+
+    assert not failed.degraded(bootloader.NVRAM_ENTRY)
+    assert failed.in_target == [
+        ("bootctl", f"--esp-path={bootctl.esp}", "--no-variables", "install"),
+    ]
 
 
 def test_grub_description_names_context_resolved_luks_parameters() -> None:
@@ -752,7 +815,11 @@ def test_the_zbm_description_names_the_fallback_it_overwrites() -> None:
     system's loader.
     """
     operation = zfsbootmenu_operation()
-    written = Recorder(replies={"find": "/efi/EFI/zbm/vmlinuz.EFI\n"})
+    written = Recorder(
+        replies={
+            "generate-zbm": "Created new UEFI image /efi/EFI/zbm/vmlinuz.EFI\n",
+        }
+    )
     operation.apply(written)
 
     installed = [

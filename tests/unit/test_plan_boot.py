@@ -362,11 +362,13 @@ def zfs_installation() -> InstallConfig:
 
 
 def test_the_zbm_image_is_the_one_generate_zbm_wrote() -> None:
-    """It names the image after the kernel it built from, so the name is looked
-    up: assuming `vmlinuz.EFI` left the fallback path empty and the machine
-    unbootable."""
-    recorder = Recorder()
-    recorder.replies["find"] = "/efi/EFI/zbm/kernel.EFI\n"
+    """`EFI.Versions: false` writes `<kernel-prefix>.EFI`, and generate-zbm
+    reports the current path after moving any previous image to its backup."""
+    recorder = Recorder(
+        replies={
+            "generate-zbm": "Created new UEFI image /efi/EFI/zbm/kernel.EFI\n",
+        }
+    )
     for operation in bootloader.build(zfs_installation()):
         operation.apply(recorder)
     copied = recorder.only("install", "-D", "-m0644")
@@ -376,19 +378,21 @@ def test_the_zbm_image_is_the_one_generate_zbm_wrote() -> None:
 
 
 def test_generate_zbm_writing_nothing_is_a_failure() -> None:
-    recorder = Recorder()
-    recorder.replies["find"] = "\n"
+    recorder = Recorder(replies={"generate-zbm": ""})
     operation = next(
         o for o in bootloader.build(zfs_installation()) if isinstance(o, bootloader.InstallZfsBootMenu)
     )
-    with pytest.raises(NothingToBoot):
+    with pytest.raises(NothingToBoot, match="did not report an EFI image"):
         operation.apply(recorder)
 
 
 def test_zfsbootmenu_sets_bootfs_and_writes_both_efi_paths() -> None:
     zfs = zfs_installation()
-    recorder = Recorder()
-    recorder.replies["find"] = "/efi/EFI/zbm/kernel.EFI\n"
+    recorder = Recorder(
+        replies={
+            "generate-zbm": "Created new UEFI image /efi/EFI/zbm/vmlinuz.EFI\n",
+        }
+    )
     for operation in bootloader.build(zfs):
         operation.apply(recorder)
     assert recorder.only("zpool", "set")[2].startswith("bootfs=zpcala/")
