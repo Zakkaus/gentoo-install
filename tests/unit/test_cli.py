@@ -3563,3 +3563,56 @@ def test_a_passphrase_does_not_stay_when_a_refused_resume_ends_the_run(
     staged = work / "keys" / "approved"
     left = sorted(one.name for one in staged.iterdir()) if staged.is_dir() else []
     assert left == [], left
+
+
+def test_a_password_answered_at_the_prompt_does_not_move_the_run_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`openssl passwd -6` salts every hash it computes, so an identity taken
+    after the question differed on every run and the next `--resume` refused
+    the journal its own predecessor had written."""
+    source = tmp_path / "no-password.toml"
+    given = (FIXTURES / "ext4-bios.toml").read_text(encoding="utf-8")
+    source.write_text(
+        re.sub(r'(?m)^root_password_hash = .*$', 'root_password_hash = ""', given),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(cli, "_forget_what_was_typed", lambda: None)
+    monkeypatch.setattr(getpass, "getpass", lambda _: "hunter2hunter2")
+
+    loaded = load(source)
+    first = cli._with_a_root_password_if_asked(loaded, _driven())
+    second = cli._with_a_root_password_if_asked(loaded, _driven())
+    # The premise: the two answers are the same and their hashes are not.
+    assert first.system.root_password_hash != second.system.root_password_hash
+
+    assert cli._run_identity(loaded) == cli._run_identity(loaded)
+    assert cli._run_identity(first) != cli._run_identity(second)
+
+
+def test_install_records_the_identity_it_was_given(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The caller takes it before the questions, so the answers cannot move it."""
+    from gentoo_install.log import Journal
+
+    work = tmp_path / "work"
+    arguments = argparse.Namespace(
+        work=work,
+        target=tmp_path / "target",
+        resume=False,
+        skip_preflight=True,
+        no_shell=True,
+        menu=False,
+        dry_run=False,
+        missing_commands=False,
+        lang="en",
+    )
+    wanted = {"configuration": "written-before", "session": "s", "installer": "i"}
+    assert cli.install(load(FIXTURES / "ext4-bios.toml"), (), arguments, cli.RunState(), identity=wanted) == EXIT_OK
+
+    recorded = [
+        one for one in Journal(work / "install.jsonl").replay() if "configuration" in one
+    ]
+    assert recorded and recorded[-1]["configuration"] == "written-before", recorded

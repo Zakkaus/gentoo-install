@@ -520,10 +520,14 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
                 print("cancelled", file=sys.stderr)
                 return EXIT_ABORTED
             config = chosen
+            identity = _run_identity(config)
         else:
-            config = _with_a_root_password_if_asked(
-                _configuration_from(arguments.config, arguments), arguments
-            )
+            config = _configuration_from(arguments.config, arguments)
+            # Before the questions, and kept: every answer changes the text
+            # this hashes, and a password hash carries a fresh salt, so an
+            # identity taken afterwards never matched its own resume.
+            identity = _run_identity(config)
+            config = _with_a_root_password_if_asked(config, arguments)
         if not arguments.missing_commands:
             catalog = load_catalog()
             validate(
@@ -605,7 +609,14 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
         # the check that refuses a mounted disk has to see the empty graph a
         # conversion was given, and everything that resolves a `DeviceId` has
         # to see the graph read from the machine.
-        return install(config, operations, arguments, state, running_config(config, layout))
+        return install(
+            config,
+            operations,
+            arguments,
+            state,
+            running_config(config, layout),
+            identity=identity,
+        )
     except errors.DeviceNotFound as error:
         _print_machine_state(state)
         print(f"device: {error}", file=sys.stderr)
@@ -709,8 +720,15 @@ def install(
     arguments: argparse.Namespace,
     state: RunState,
     running: InstallConfig | None = None,
+    identity: Mapping[str, str] | None = None,
 ) -> int:
-    """Check the machine, then perform every operation in order."""
+    """Check the machine, then perform every operation in order.
+
+    `identity` is what a resume compares against, and it is the caller's
+    because the answers this function asks for do not belong in it: a password
+    hash carries a fresh salt every time it is computed, so a run that asked
+    for one recorded an identity its own resume could never match.
+    """
     work: Path = arguments.work
     translate = _closing_catalog(state, arguments)
     # A conversion replaces the running userland, so every operation after the
@@ -747,13 +765,13 @@ def install(
                 work=work,
                 mountpoint=target,
             )
-            identity = _run_identity(config)
+            recorded = dict(identity) if identity is not None else _run_identity(config)
             if arguments.resume:
                 resuming = journal.resume()
-                _refuse_a_different_run(journal, identity, record)
+                _refuse_a_different_run(journal, recorded, record)
                 _refuse_a_resume_with_no_journal(arguments.work, resuming)
             else:
-                journal.started(**identity)
+                journal.started(**recorded)
             finished = completed(journal) if arguments.resume else frozenset()
             if arguments.resume:
                 # Replayed before anything runs. The operation that recorded an
