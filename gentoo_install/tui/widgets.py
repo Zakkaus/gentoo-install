@@ -583,7 +583,7 @@ class _Menu(Generic[V, A]):
         for offset, one in enumerate(self.preamble):
             screen.write(offset + 1, 2, clip(one, columns - 4))
         above = len(self.preamble)
-        room = lines - 4 - above
+        room = max(0, lines - 4 - above)
         displayed = self._display_rows(columns)
         # A filter can hide every row, and then there is no cursor to keep on
         # screen: an empty list with a count of nothing is the answer, not a
@@ -591,13 +591,11 @@ class _Menu(Generic[V, A]):
         cursor_row = next(
             (row for row, (index, _) in enumerate(displayed) if index == cursor), 0
         )
-        top = max(0, min(cursor_row - room // 2, len(displayed) - room))
+        top = _window(cursor_row, room, len(displayed))
         # On the title row, and only when a row is off the screen: a list that
         # scrolls with nothing to say so reads as the whole list, and the
         # profile screen was read as offering thirteen of its fourteen.
-        counted = (
-            f"{cursor_row + 1}/{len(displayed)}" if len(displayed) > room else ""
-        )
+        counted = f"{cursor_row + 1}/{len(displayed)}" if room and len(displayed) > room else ""
         screen.write(0, 0, spread(clip(self.title, columns), counted, columns))
         for row, (index, text) in enumerate(displayed[top : top + room]):
             if index is None:
@@ -768,14 +766,12 @@ class TextField:
         shown = "*" * len(typed) if self.masked else "".join(typed)
         shown = _tail_that_fits(shown, room - 1)
         if self.detail:
-            # Wrapped, not clipped: the exact string to type is the last thing
-            # in this line and the first thing a clip removes. An operator
-            # whose screen cut the line short typed the row's own name instead.
-            # Bounded so the field and the footer keep their rows: a detail
-            # long enough to fill the screen would otherwise push the box off
-            # the bottom and leave nowhere to type.
-            for one in wrap_to_cells(self.detail, columns)[: max(0, lines - row - 2)]:
-                screen.write(row, 0, one)
+            # The tail names the exact answer; bounding it preserves the field
+            # and footer rows when detail fills the screen.
+            detail_lines = wrap_to_cells(self.detail, columns)
+            start = max(0, len(detail_lines) - max(0, lines - row - 2))
+            for index in range(start, len(detail_lines)):
+                screen.write(row, 0, detail_lines[index])
                 row += 1
             if row < lines - 2:
                 row += 1
@@ -1065,8 +1061,8 @@ MARKER_ROOM: Final[int] = 2
 #: Below this the interface draws nothing and says so. One pane needs a label
 #: it does not have to cut, which is what `LEFT_PANE_MINIMUM` stands for, and
 #: a title, the cursor's row, the two summary lines under it and a footer.
-#: Measured against every widget on 2026-08-21: the narrowest any of them can
-#: still put its content on is 7x5, so this floor is above all of them.
+#: Measured against the widget frames on 2026-08-21: the floor preserves
+#: structural rows, while a preamble can leave a menu body empty.
 MINIMUM_COLUMNS: Final[int] = LEFT_PANE_MINIMUM
 MINIMUM_LINES: Final[int] = 6
 
