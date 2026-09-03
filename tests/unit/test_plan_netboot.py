@@ -840,6 +840,25 @@ def test_memory_credentials_stay_in_the_payload(mode: MemoryMode) -> None:
         ) in recorder.commands
 
 
+@pytest.mark.parametrize("mode", (MemoryMode.RAM, MemoryMode.LOWRAM))
+def test_a_configuration_that_can_hold_secrets_is_not_world_readable(
+    mode: MemoryMode,
+) -> None:
+    """The configuration can carry credentials that must remain private."""
+    recorder = _answering(mode)
+    netboot.AppendConfiguration(
+        target=_target(),
+        launch=_launch(mode),
+        configuration='root_password_hash = "$6$hash"\n',
+        source="/opt/gentoo-install",
+    ).apply(recorder)
+
+    staging = PurePosixPath(f"{ESP}/{netboot.PLACE}/payload")
+    payload = staging if mode is MemoryMode.RAM else staging / "apkovl"
+    configuration = payload / netboot.PAYLOAD.lstrip("/") / "config.toml"
+    assert recorder.modes[configuration] == 0o600
+
+
 def test_the_installer_travels_with_its_own_configuration() -> None:
     """The configuration was written by this revision, so the environment runs
     this revision rather than whatever a later download would bring."""

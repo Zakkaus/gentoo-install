@@ -554,20 +554,20 @@ class AppendConfiguration(Operation):
         if self.keys:
             if self.launch.root_password:
                 return (
-                    "put the installer and the configuration in the initramfs, with {} key(s)"
+                    "put the installer and the configuration in config.toml in the initramfs, with {} key(s)"
                     " in authorized_keys and the root password in root-password",
                     (str(len(self.keys)),),
                 )
             return (
-                "put the installer and the configuration in the initramfs, with {} key(s) in authorized_keys",
+                "put the installer and the configuration in config.toml in the initramfs, with {} key(s) in authorized_keys",
                 (str(len(self.keys)),),
             )
         if self.launch.root_password:
             return (
-                "put the installer and the configuration in the initramfs and the root password in root-password",
+                "put the installer and the configuration in config.toml in the initramfs and the root password in root-password",
                 (),
             )
-        return "put the installer and the configuration in the initramfs", ()
+        return "put the installer and the configuration in config.toml in the initramfs", ()
 
     def required_host_commands(self) -> frozenset[str]:
         commands = {"cpio", "dd", "find", "mkdir", "python3", "rm", "tar"}
@@ -598,7 +598,7 @@ class AppendConfiguration(Operation):
         )
         inside = payload_staging / PAYLOAD.lstrip("/")
         context.run(["mkdir", "--parents", str(inside)])
-        context.write(inside / "config.toml", self.configuration)
+        context.write(inside / "config.toml", self.configuration, mode=0o600)
         if self.keys:
             key_text = "".join(f"{one}\n" for one in self.keys)
             context.write(inside / "authorized_keys", key_text, mode=0o600)
