@@ -3213,3 +3213,31 @@ def test_a_path_component_that_is_a_file_is_not_read_as_an_absent_file(
     assert machine.read(PurePosixPath("/etc/absent")) == ""
     with pytest.raises(TargetEscape, match="not a directory in the target"):
         machine.read(PurePosixPath("/etc/portage/make.conf"))
+
+
+def test_two_staged_passphrases_get_two_files(tmp_path: Path) -> None:
+    """One `keys/tui` for the whole run meant a manual layout with two
+    encrypted devices wrote the second answer over the first and pointed both
+    nodes at it: the device the first was meant for was formatted with the
+    other one, and nothing said so."""
+    from gentoo_install.exec import report as reporting
+
+    first = Path(reporting.stage_passphrase("root-secret", tmp_path))
+    second = Path(reporting.stage_passphrase("data-secret", tmp_path))
+    assert first != second, first
+    assert first.read_text() == "root-secret"
+    assert second.read_text() == "data-secret"
+    assert first.stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / "keys").stat().st_mode & 0o777 == 0o700
+
+
+def test_cleanup_removes_what_the_menu_staged(tmp_path: Path) -> None:
+    """`SecretStore` emptied `keys/approved` alone, and the menu writes beside
+    it, so a passphrase typed into the menu was removed by nothing."""
+    from gentoo_install.exec import report as reporting
+    from gentoo_install.exec.preflight import SecretStore
+
+    staged = Path(reporting.stage_passphrase("typed-in-the-menu", tmp_path))
+    assert staged.is_file()
+    assert SecretStore(tmp_path).cleanup() == ()
+    assert not staged.exists(), staged

@@ -8,6 +8,7 @@ import fcntl
 import shutil
 import sys
 import stat
+import tempfile
 import tomllib
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
@@ -213,9 +214,20 @@ def save_config(config: InstallConfig, where: Path) -> str:
 
 
 def stage_passphrase(passphrase: str, work: Path) -> str:
-    """Write a passphrase under the run's volatile work directory."""
-    where = work / "keys" / "tui"
-    where.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    """Write a passphrase under the run's volatile work directory.
+
+    One file per answer. A single `keys/tui` for the whole run meant a manual
+    layout with two encrypted devices wrote the second passphrase over the
+    first and pointed both nodes at it: the first one the operator typed
+    existed nowhere, and the device it was meant for was formatted with the
+    other one. The name carries no device and no digest of the answer, so it
+    says nothing about what was typed.
+    """
+    keys = work / "keys"
+    keys.mkdir(parents=True, exist_ok=True, mode=0o700)
+    handle, name = tempfile.mkstemp(prefix="tui-", dir=keys)
+    os.close(handle)
+    where = Path(name)
     write_file(where, passphrase, 0o600)
     return str(where)
 
