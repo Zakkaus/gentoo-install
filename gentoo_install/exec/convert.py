@@ -58,27 +58,27 @@ def _unescape(field: str) -> str:
 
 
 def _mounts_inside(directory: Path, points: frozenset[str]) -> list[str]:
-    """Name every entry of `directory` that is itself a mount point.
+    """Name every mount point below `directory`, at any depth.
 
     A directory that cannot be listed is refused rather than reported as
-    holding nothing. The caller decides from this answer whether the rename
-    is safe, and `[]` from an `OSError` said exactly what `[]` from a
-    directory with nothing mounted below it says: `rename(2)` then answers
-    EBUSY partway through the entries, which is the state its own comment
-    calls one with no clean rollback.
-
-    One level is the depth that matters: renaming a directory with a mount
-    nested further down succeeds, and only renaming the mount point itself
-    answers EBUSY.
+    holding nothing. Moving its contents has no clean rollback after an entry
+    has moved.
     """
     try:
-        entries = sorted(os.listdir(directory))
+        with os.scandir(directory):
+            pass
     except OSError as error:
         raise ConversionFailed(
-            f"{directory} cannot be listed, so whether it holds a mount this "
-            f"conversion cannot move is unknown: {error}"
+            f"{directory} cannot be listed, so this irreversible replacement "
+            f"is refused: {error}"
         ) from error
-    return [one for one in entries if str(directory / one) in points]
+    directory_text = str(directory)
+    prefix = "/" if directory_text == "/" else f"{directory_text}/"
+    return sorted(
+        point[len(prefix) :]
+        for point in points
+        if point != directory_text and point.startswith(prefix)
+    )
 
 
 class Arrival(Enum):
@@ -207,26 +207,23 @@ def convert(
             raise ConversionFailed(f"the staging directory has no {name}")
         if os.path.lexists(old):
             raise ConversionFailed(f"{old} is left from an earlier attempt")
-        # Read once and used twice: the second read decided which replacement
-        # and rollback this entry gets, so a mount appearing between the two
-        # skipped the nested check above and still took the mounted path.
+        # Classify this destination from the snapshot that checked descendants;
+        # a later read could choose an unchecked replacement path.
         mounted = str(destination) in points
-        if mounted:
-            # Counted before anything moves: `rename(2)` answers EBUSY for a
-            # mount point, and finding that out halfway through the entries is
-            # a state with no clean rollback.
+        present = os.path.lexists(destination)
+        if present and not destination.is_symlink():
+            # Checked before anything moves: cleanup must never traverse a
+            # mount that a renamed tree carried into its backup.
             nested = _mounts_inside(destination, points)
             if nested:
                 raise ConversionFailed(
-                    f"{destination} is a separate mount holding {', '.join(nested)}, "
-                    "which rename cannot move"
+                    f"{destination} is holding {', '.join(nested)} mount points, "
+                    "which must not be moved aside"
                 )
         # A distribution without one of these is converted, not refused: a
         # merged-usr Debian has no `/lib64` at all, and renaming what is not
         # there fails half way through with the rest already swapped.
-        destinations.append(
-            (name, destination, staged, old, os.path.lexists(destination), mounted)
-        )
+        destinations.append((name, destination, staged, old, present, mounted))
     # Mount points last: replacing one by content is the only step whose
     # rollback touches more than two renames, so nothing else has to be undone
     # after one of them succeeded.
