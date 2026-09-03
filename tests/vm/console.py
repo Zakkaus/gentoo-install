@@ -224,6 +224,7 @@ class SerialConsole:
         self._errors = errors
         self._buffer = b""
         self._last_chunk = b""
+        self._bytes_read = 0
         self._buffer_limit = buffer_limit
         self._tokens: Iterator[int] = itertools.count(1)
 
@@ -258,7 +259,7 @@ class SerialConsole:
         ceiling = started + timeout
         idle_deadline = started + idle if idle else ceiling
         deadline = min(ceiling, idle_deadline)
-        seen = len(self._buffer)
+        seen = self._bytes_read
         while time.monotonic() < deadline:
             clean = strip_ansi(self._buffer)
             found = matcher.search(clean)
@@ -268,8 +269,8 @@ class SerialConsole:
                 self._buffer = clean[found.end() :]
                 return clean[: found.end()]
             self._read_once()
-            if idle and len(self._buffer) != seen:
-                seen = len(self._buffer)
+            if idle and self._bytes_read != seen:
+                seen = self._bytes_read
                 idle_deadline = time.monotonic() + idle
                 deadline = min(ceiling, idle_deadline)
         silent = bool(idle) and idle_deadline < ceiling
@@ -410,6 +411,7 @@ class SerialConsole:
             if self._sock.closed:
                 raise ConsoleClosed(self._why_closed())
             return
+        self._bytes_read += len(chunk)
         self._log.write(chunk)
         self._log.flush()
         self._last_chunk = chunk
