@@ -1761,6 +1761,96 @@ def test_a_desktop_takes_back_the_fonts_and_framework_it_proposed() -> None:
     assert not (set(none.packages.applications) & proposed), none.packages.applications
 
 
+def test_a_desktop_withdraws_proposals_kept_by_a_second_desktop() -> None:
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    at.tag = "zh-TW"
+    chinese = screens.with_language(config(), "zh-TW")
+    picked = replace(
+        chinese, packages=replace(chinese.packages, desktop="plasma")
+    )
+    plasma = tui_packages._desktop_proposes(picked, chinese, at, "plasma")
+    proposed = {
+        *tui_packages.CJK_DESKTOP_FONTS,
+        tui_packages.DESKTOP_INPUT_FRAMEWORK["plasma"],
+        tui_packages.AUDIO_GROUP,
+    }
+    assert proposed <= set(plasma.packages.applications), plasma.packages.applications
+    tui_packages._record_derived(
+        at, plasma, tui_packages.derive_effects(chinese, plasma, at)
+    )
+
+    with_graphics = tui_packages.graphics_screen(
+        FakeScreen(keys=[" ", "\n", "\n"], lines=30), plasma, at
+    ).unwrap()
+    assert with_graphics.packages.graphics == ("intel",)
+
+    selected_full = replace(
+        with_graphics,
+        packages=replace(with_graphics.packages, desktop="plasma-full"),
+    )
+    plasma_full = tui_packages._desktop_proposes(
+        selected_full, with_graphics, at, "plasma-full"
+    )
+    tui_packages._record_derived(
+        at,
+        plasma_full,
+        tui_packages.derive_effects(with_graphics, plasma_full, at),
+    )
+
+    selected_none = replace(
+        plasma_full, packages=replace(plasma_full.packages, desktop="")
+    )
+    without_desktop = tui_packages._desktop_proposes(
+        selected_none, plasma_full, at, ""
+    )
+
+    assert not (proposed & set(without_desktop.packages.applications)), (
+        without_desktop.packages.applications
+    )
+    assert without_desktop.packages.display_manager == ""
+    assert without_desktop.system.networking is SystemConfig().networking
+
+
+def test_a_driver_proposal_survives_an_unrelated_choice_until_unticked() -> None:
+    from gentoo_install.tui.context import (
+        ValueKind,
+        ValueProvenance,
+        ValueSource,
+    )
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    proposed = tui_packages.graphics_screen(
+        FakeScreen(keys=[" ", "\n", "\n"], lines=30), config(), at
+    ).unwrap()
+    driver = ValueProvenance(
+        ValueKind.VIDEO_CARD, "intel", ValueSource.DERIVED
+    )
+    assert proposed.portage.video_cards == ("intel",)
+    assert driver in at.provenance, at.provenance
+
+    pipewire = tui_packages.AUDIO_GROUP
+    unrelated = tui_packages.packages_screen(
+        FakeScreen(keys=["/", *pipewire, "\x1b", " ", "\n", "\n"], lines=30),
+        proposed,
+        at,
+    ).unwrap()
+    assert pipewire in unrelated.packages.applications
+    assert unrelated.portage.video_cards == ("intel",)
+    assert driver in at.provenance, at.provenance
+
+    withdrawn = tui_packages.graphics_screen(
+        FakeScreen(keys=[" ", "\n"], lines=30), unrelated, at
+    ).unwrap()
+    assert withdrawn.packages.graphics == ()
+    assert withdrawn.portage.video_cards == ()
+    assert driver not in at.provenance, at.provenance
+
+
 def test_a_graphical_desktop_proposes_the_sound_server_it_needs() -> None:
     """Plasma reaches PipeWire through `kpipewire` whatever the plan says.
 

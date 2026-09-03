@@ -145,17 +145,14 @@ def desktop_screen(screen: Screen, config: InstallConfig, context: Context) -> A
     )
     changed = _desktop_proposes(changed, config, context, desktop)
     login = LOGIN_SCREEN.get(desktop, "")
-    effects = derive_effects(config, changed, context, kept_manager)
-    answered = settle(
+    return settle(
         screen,
         context,
         config,
         changed,
         kept_display_manager=kept_manager,
+        record_desktop_proposals=True,
     )
-    if answered.chosen:
-        _record_derived(context, answered.unwrap(), effects)
-    return answered
 #: What each desktop's own login screen is. Proposed rather than fixed: the
 #: row stays editable, and pulling the login screen out of the desktop profile
 #: was right — leaving it empty was not, because the row is then required and
@@ -266,19 +263,11 @@ def derive_effects(
             and AUDIO_GROUP not in before.packages.applications
             else ""
         ),
-        withdrawn_use=tuple(
-            one.value
-            for one in context.provenance
-            if one.kind is ValueKind.USE_FLAG
-            and one.source is ValueSource.DERIVED
-            and not _has_operator(context, ValueKind.USE_FLAG, one.value)
+        withdrawn_use=_withdrawn_derived(
+            automatic_values.use_flags, after, context, ValueKind.USE_FLAG
         ),
-        withdrawn_video_cards=tuple(
-            one.value
-            for one in context.provenance
-            if one.kind is ValueKind.VIDEO_CARD
-            and one.source is ValueSource.DERIVED
-            and not _has_operator(context, ValueKind.VIDEO_CARD, one.value)
+        withdrawn_video_cards=_withdrawn_derived(
+            automatic_values.video_cards, after, context, ValueKind.VIDEO_CARD
         ),
     )
 
@@ -297,6 +286,46 @@ def apply_effects(after: InstallConfig, effects: Effects) -> InstallConfig:
             video_cards=(*kept_cards, *effects.video_cards),
         ),
     )
+
+
+def _withdrawn_derived(
+    derive: Callable[[InstallConfig, Groups], tuple[automatic_values.Added, ...]],
+    after: InstallConfig,
+    context: Context,
+    kind: ValueKind,
+) -> tuple[str, ...]:
+    """Derived pins no active group still requests."""
+    derived = {
+        one.value
+        for one in context.provenance
+        if one.kind is kind
+        and one.source is ValueSource.DERIVED
+        and not _has_operator(context, kind, one.value)
+    }
+    if not derived:
+        return ()
+    if kind is ValueKind.USE_FLAG:
+        unpinned = replace(
+            after,
+            portage=replace(
+                after.portage,
+                use=tuple(value for value in after.portage.use if value not in derived),
+            ),
+        )
+    elif kind is ValueKind.VIDEO_CARD:
+        unpinned = replace(
+            after,
+            portage=replace(
+                after.portage,
+                video_cards=tuple(
+                    value for value in after.portage.video_cards if value not in derived
+                ),
+            ),
+        )
+    else:
+        raise AssertionError(f"{kind} has no automatic values")
+    automatic = {one.value for one in derive(unpinned, context.groups)}
+    return tuple(sorted(derived - automatic))
 
 
 #: Interface languages whose desktop wants CJK glyphs. `ko` and `ja` are here
@@ -469,6 +498,7 @@ def settle(
     before: InstallConfig,
     after: InstallConfig,
     kept_display_manager: str = "",
+    record_desktop_proposals: bool = False,
 ) -> Answer[InstallConfig]:
     """Confirm what a choice changes outside its own row, then write it down.
 
@@ -485,7 +515,18 @@ def settle(
     """
     effects = derive_effects(before, after, context, kept_display_manager)
     if not effects.has_changes:
-        return Answer(Outcome.CHOSE, after)
+        pinned = (
+            apply_effects(after, effects)
+            if effects.withdrawn_use or effects.withdrawn_video_cards
+            else after
+        )
+        _record_derived(
+            context,
+            pinned,
+            effects,
+            desktop_proposals=record_desktop_proposals,
+        )
+        return Answer(Outcome.CHOSE, pinned)
     translate = context.translate
     lines = []
     if effects.video_cards:
@@ -559,12 +600,25 @@ def settle(
     if answered.unwrap() == "open" and where is not None:
         opened = where(screen, pinned, context)
         if opened.chosen:
-            return Answer(Outcome.CHOSE, opened.unwrap())
+            settled = opened.unwrap()
+            _record_derived(
+                context,
+                settled,
+                effects,
+                desktop_proposals=record_desktop_proposals,
+            )
+            return Answer(Outcome.CHOSE, settled)
         if opened.outcome is Outcome.CANCELLED:
             # Cancelling reaches the application's leave confirmation. Reading
             # it as `keep what was pinned` committed a desktop and a profile
             # the operator had refused.
             return Answer(Outcome.CANCELLED)
+    _record_derived(
+        context,
+        pinned,
+        effects,
+        desktop_proposals=record_desktop_proposals,
+    )
     return Answer(Outcome.CHOSE, pinned)
 
 
@@ -578,8 +632,14 @@ def _has_operator(context: Context, kind: ValueKind, value: str) -> bool:
     return ValueProvenance(kind, value, ValueSource.OPERATOR) in context.provenance
 
 
-def _record_derived(context: Context, after: InstallConfig, effects: Effects) -> None:
-    """Replace the previous choice's derived values with the new choice's."""
+def _record_derived(
+    context: Context,
+    after: InstallConfig,
+    effects: Effects,
+    *,
+    desktop_proposals: bool = True,
+) -> None:
+    """Keep still-selected derived values and replace withdrawn ones."""
     # Only the kinds this proposal owns: it used to drop every derived record,
     # so choosing a desktop after ZFSBootMenu erased the overlay's and taking
     # the bootloader back left an overlay nobody had selected.
@@ -590,10 +650,25 @@ def _record_derived(context: Context, after: InstallConfig, effects: Effects) ->
         ValueKind.DISPLAY_MANAGER,
         ValueKind.APPLICATION,
     }
+    retained = {
+        ValueProvenance(kind, value, ValueSource.DERIVED)
+        for kind, values in (
+            (ValueKind.USE_FLAG, after.portage.use),
+            (ValueKind.VIDEO_CARD, after.portage.video_cards),
+            (ValueKind.NETWORKING, (after.system.networking.value,)),
+            (ValueKind.DISPLAY_MANAGER, (after.packages.display_manager,)),
+            (ValueKind.APPLICATION, after.packages.applications),
+        )
+        for value in values
+    }
     context.provenance = {
         one
         for one in context.provenance
-        if not (one.kind in owned and one.source is ValueSource.DERIVED)
+        if not (
+            one.kind in owned
+            and one.source is ValueSource.DERIVED
+            and one not in retained
+        )
     }
     context.provenance.update(
         ValueProvenance(ValueKind.USE_FLAG, value, ValueSource.DERIVED)
@@ -603,27 +678,28 @@ def _record_derived(context: Context, after: InstallConfig, effects: Effects) ->
         ValueProvenance(ValueKind.VIDEO_CARD, value, ValueSource.DERIVED)
         for value in effects.video_cards
     )
-    if effects.networking_changed:
-        context.provenance.add(
-            ValueProvenance(
-                ValueKind.NETWORKING,
-                after.system.networking.value,
-                ValueSource.DERIVED,
+    if desktop_proposals:
+        if effects.networking_changed:
+            context.provenance.add(
+                ValueProvenance(
+                    ValueKind.NETWORKING,
+                    after.system.networking.value,
+                    ValueSource.DERIVED,
+                )
             )
-        )
-    if effects.display_manager_changed:
-        context.provenance.add(
-            ValueProvenance(
-                ValueKind.DISPLAY_MANAGER,
-                after.packages.display_manager,
-                ValueSource.DERIVED,
+        if effects.display_manager_changed:
+            context.provenance.add(
+                ValueProvenance(
+                    ValueKind.DISPLAY_MANAGER,
+                    after.packages.display_manager,
+                    ValueSource.DERIVED,
+                )
             )
+        context.provenance.update(
+            ValueProvenance(ValueKind.APPLICATION, value, ValueSource.DERIVED)
+            for value in (*effects.fonts, effects.input_framework, effects.audio)
+            if value
         )
-    context.provenance.update(
-        ValueProvenance(ValueKind.APPLICATION, value, ValueSource.DERIVED)
-        for value in (*effects.fonts, effects.input_framework, effects.audio)
-        if value
-    )
 
 
 def _record_operator(context: Context, kind: ValueKind, values: Sequence[str]) -> None:
