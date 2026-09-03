@@ -2623,13 +2623,16 @@ def test_a_console_that_keeps_printing_is_not_ended_by_the_ceiling() -> None:
 
         def __init__(self) -> None:
             self._buffer = b""
+            self._bytes_read = 0
             self.reads = 0
 
         def _read_once(self) -> None:
             self.reads += 1
             clock.sleep(0.01)
             if not self.quiet:
-                self._buffer += b"dev-libs/one/Manifest\n"
+                chunk = b"dev-libs/one/Manifest\n"
+                self._buffer += chunk
+                self._bytes_read += len(chunk)
 
     # Short enough to run, and the same shape: the idle window is a fifth of
     # the ceiling, and output arrives well inside it.
@@ -2646,6 +2649,46 @@ def test_a_console_that_keeps_printing_is_not_ended_by_the_ceiling() -> None:
         quiet.expect("MARK_1_DONE", timeout=1.0, idle=0.2)
     waited = clock.monotonic() - started
     assert waited < 0.6, f"silence ended it at {waited:.2f}s, not at the ceiling"
+
+
+def test_console_activity_past_buffer_limit_is_not_idle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A retained tail is diagnostic state, not an activity counter."""
+    import time
+
+    from tests.vm.console import ConsoleIdle, ConsoleTimeout, SerialConsole
+
+    clock = [0.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    output = b"dev-libs/one/Manifest\n"
+
+    class Printing:
+        closed = False
+
+        def __init__(self) -> None:
+            self.reads = 0
+
+        def recv(self, size: int) -> bytes:
+            self.reads += 1
+            clock[0] += 0.01
+            return output
+
+        def sendall(self, data: bytes) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    guest = Printing()
+    limit = 2 * len(output)
+    console = SerialConsole(guest, BytesIO(), buffer_limit=limit)
+    with pytest.raises(ConsoleTimeout) as timed:
+        console.expect("MARK_1_DONE", timeout=1.0, idle=0.2)
+    assert not isinstance(timed.value, ConsoleIdle)
+    assert guest.reads > 2
+    assert len(console._buffer) == limit
+    assert clock[0] == pytest.approx(1.0)
 
 
 def test_a_cn_run_clones_the_overlay_from_a_chinese_mirror(tmp_path: Path) -> None:
@@ -4744,6 +4787,7 @@ def test_a_conversion_reads_its_exit_code_and_not_the_echo() -> None:
 
         def __init__(self, answer: bytes) -> None:
             self._buffer = b""
+            self._bytes_read = 0
             self.answer = answer
             self.sent: list[str] = []
             # From ten, which is where the marker in the echo first carries a
