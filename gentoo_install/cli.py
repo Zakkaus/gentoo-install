@@ -536,7 +536,9 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
             # this hashes, and a password hash carries a fresh salt, so an
             # identity taken afterwards never matched its own resume.
             identity = _run_identity(config)
-            config = _with_a_root_password_if_asked(config, arguments)
+            config = _with_a_root_password_if_asked(
+                config, arguments, _closing_catalog(state, arguments)
+            )
         if not arguments.missing_commands:
             catalog = load_catalog()
             validate(
@@ -757,7 +759,7 @@ def install(
         # after the passphrase was written and before `apply` removes it,
         # and the work directory outlives the run until the next reboot.
         try:
-            config = _with_passphrases_if_asked(config, arguments, work)
+            config = _with_passphrases_if_asked(config, arguments, work, translate)
             if not arguments.skip_preflight:
                 preflight_report = preflight.check(
                     config, probe, str(target), operations=operations
@@ -1019,7 +1021,7 @@ def _passphrase_minimum(node: Node) -> int:
 
 
 def _with_passphrases_if_asked(
-    config: InstallConfig, arguments: argparse.Namespace, work: Path
+    config: InstallConfig, arguments: argparse.Namespace, work: Path, translate: Catalog
 ) -> InstallConfig:
     """Ask for the passphrases a shared configuration cannot carry.
 
@@ -1039,12 +1041,12 @@ def _with_passphrases_if_asked(
         minimum = _passphrase_minimum(node)
         for _ in range(PASSWORD_TRIES):
             _forget_what_was_typed()
-            first = getpass.getpass(f"passphrase for {node.id}: ")
+            first = getpass.getpass(translate("passphrase for {}: ").format(node.id))
             if len(first) < minimum:
-                print(f"at least {minimum} characters", file=sys.stderr)
+                print(translate("at least {} characters").format(minimum), file=sys.stderr)
                 continue
-            if first != getpass.getpass("again: "):
-                print("the two did not match", file=sys.stderr)
+            if first != getpass.getpass(translate("again: ")):
+                print(translate("the two did not match"), file=sys.stderr)
                 continue
             store.stage(node.id, first)
             staged[node.id] = str(store.path(node.id))
@@ -1084,7 +1086,7 @@ def _only_answers_a_question(arguments: argparse.Namespace) -> bool:
 
 
 def _with_a_root_password_if_asked(
-    config: InstallConfig, arguments: argparse.Namespace
+    config: InstallConfig, arguments: argparse.Namespace, translate: Catalog
 ) -> InstallConfig:
     """Ask for a root password when the configuration leaves no way in.
 
@@ -1110,11 +1112,11 @@ def _with_a_root_password_if_asked(
     runner = Runner(log=lambda _: None, echo=False)
     for _ in range(PASSWORD_TRIES):
         _forget_what_was_typed()
-        first = getpass.getpass("root password for this machine: ")
+        first = getpass.getpass(translate("root password for this machine: "))
         if not first:
             continue
-        if first != getpass.getpass("again: "):
-            print("the two did not match", file=sys.stderr)
+        if first != getpass.getpass(translate("again: ")):
+            print(translate("the two did not match"), file=sys.stderr)
             continue
         return replace(
             config,

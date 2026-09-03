@@ -799,3 +799,8 @@
 "the install finished" = "安裝已完成"
 "{outcome}. send the log to {host}, which is public?" = "{outcome}。要把日誌送到 {host} 嗎？那是公開的"
 "y|yes" = "y|yes|是|好"
+"root password for this machine: " = "這台機器的 root 密碼："
+"again: " = "再輸入一次："
+"the two did not match" = "兩次輸入不一致"
+"passphrase for {}: " = "{} 的密語："
+"at least {} characters" = "至少 {} 個字元"

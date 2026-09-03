@@ -798,3 +798,8 @@
 "the install finished" = "インストールが完了しました"
 "{outcome}. send the log to {host}, which is public?" = "{outcome}。ログを {host} に送りますか。公開されます"
 "y|yes" = "y|yes|はい"
+"root password for this machine: " = "このマシンの root パスワード："
+"again: " = "もう一度入力："
+"the two did not match" = "2 回の入力が一致しません"
+"passphrase for {}: " = "{} のパスフレーズ："
+"at least {} characters" = "{} 文字以上が必要です"

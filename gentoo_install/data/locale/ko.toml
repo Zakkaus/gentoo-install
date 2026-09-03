@@ -798,3 +798,8 @@
 "{outcome}. send the log to {host}, which is public?" = "{outcome}. 로그 전송 대상은 공개된 호스트 {host}입니다. 전송하시겠습니까?"
 "y|yes" = "y|yes|예"
 "Encryption is a field of each partition, under Partitions." = "암호화는 \"파티션\" 화면의 각 파티션에 있는 항목입니다."
+"root password for this machine: " = "이 머신의 root 비밀번호: "
+"again: " = "다시 입력: "
+"the two did not match" = "두 입력이 일치하지 않습니다"
+"passphrase for {}: " = "{} 암호 문구: "
+"at least {} characters" = "{}자 이상이어야 합니다"
