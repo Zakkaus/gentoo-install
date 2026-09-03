@@ -670,20 +670,22 @@ def test_little_memory_warns_only_when_the_build_wants_it(tmp_path: Path) -> Non
     assert any("tmpfs" in warning for warning in asked.warnings), asked.warnings
 
 
-def test_a_digests_file_without_the_archive_is_an_integrity_error(tmp_path: Path) -> None:
-    digests = tmp_path / "stage3.tar.xz.DIGESTS"
-    digests.write_text("# SHA512 HASH\nabc  stage3-other.tar.xz\n")
+def test_a_digests_file_without_the_archive_is_an_integrity_error() -> None:
+    signed = fetch._VerifiedDigests(
+        name="stage3.tar.xz.DIGESTS", text="# SHA512 HASH\nabc  stage3-other.tar.xz\n"
+    )
     with pytest.raises(IntegrityError, match="no SHA512 line"):
-        fetch._expected_sha512(digests, "stage3-amd64-systemd-1.tar.xz")
+        fetch._expected_sha512(signed, "stage3-amd64-systemd-1.tar.xz")
 
 
 def test_a_digest_that_does_not_match_stops_the_install(tmp_path: Path) -> None:
     archive = tmp_path / "stage3-amd64-systemd-1.tar.xz"
     archive.write_bytes(b"not really a stage3")
-    digests = tmp_path / "stage3-amd64-systemd-1.tar.xz.DIGESTS"
-    digests.write_text(f"# SHA512 HASH\n{'0' * 128}  {archive.name}\n")
+    signed = fetch._VerifiedDigests(
+        name=f"{archive.name}.DIGESTS", text=f"# SHA512 HASH\n{'0' * 128}  {archive.name}\n"
+    )
     with pytest.raises(IntegrityError, match="SHA512"):
-        fetch._verify_digest(archive, digests)
+        fetch._verify_digest(archive, signed)
 
 
 def test_a_device_that_is_not_a_block_device_is_not_reported_as_mounted(tmp_path: Path) -> None:
