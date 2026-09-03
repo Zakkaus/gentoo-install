@@ -191,7 +191,7 @@ The system configuration can configure zram independently of the device graph an
 **Portage.**
 - The configuration covers the profile, `MAKEOPTS`, `USE`, `ACCEPT_KEYWORDS`, `L10N`, mirrors and repository synchronization.
 - The gentoo-zh and gig overlays can be selected independently.
-- Selecting `zh-TW`, `zh-CN`, `ja` or `ko` as the interface language also selects the gentoo-zh patched binary kernel and its overlay; selecting `en` does not.
+- Selecting `zh-TW`, `zh-CN`, `ja` or `ko` as the interface language selects the locale, timezone and mirror region; it does not select a kernel or overlay.
 - Official and gentoo-zh binary package sources have separate settings and keys.
 
 **Session proxy.**
