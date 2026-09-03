@@ -555,6 +555,33 @@ def test_an_official_key_without_its_local_signature_falls_back_to_source() -> N
     ) in working.in_target
 
 
+def test_a_host_already_degraded_is_not_trusted() -> None:
+    """Trusting a host ConfigureBinhost will omit is unnecessary; its peer is independent."""
+    community = portage.TrustBinhostKey(
+        binhost="gentoo-zh",
+        fingerprint=portage.GENTOOZH_FINGERPRINT,
+        key_path=portage.GENTOOZH_KEY,
+    )
+    recorder = Recorder()
+    recorder.degrade(portage.binhost_trust("gentoo-zh"), "the key package did not merge")
+
+    community.apply(recorder)
+
+    assert not recorder.in_target
+    portage.TrustBinhostKey(
+        binhost="gentoo",
+        fingerprint=portage.RELENG_FINGERPRINT,
+        key_path=portage.RELEASE_KEY,
+    ).apply(recorder)
+    assert (
+        "gpg",
+        "--homedir",
+        "/etc/portage/gnupg",
+        "--import",
+        str(portage.RELEASE_KEY),
+    ) in recorder.in_target
+
+
 def test_the_official_binhost_is_configured_after_its_key_is_trusted() -> None:
     installation = with_portage(binhost=Binhost(official=True, community=BinhostChannel.OFF))
     operations = portage.build(installation, MIRROR)
@@ -832,6 +859,30 @@ def test_a_degraded_binhost_reaches_the_source_path_at_all(
     emerge = next(argv for argv in recorder.in_target if argv[0] == "emerge")
     assert "--usepkg=n" in emerge and "--getbinpkg=n" in emerge
 
+@pytest.mark.parametrize(
+    ("hosts", "source_only"),
+    (
+        (("gentoo",), True),
+        (("gentoo", "gentoo-zh"), False),
+    ),
+    ids=("only-host-degraded", "peer-host-usable"),
+)
+def test_emerge_uses_source_only_when_every_configured_binhost_is_degraded(
+    hosts: tuple[str, ...], source_only: bool
+) -> None:
+    """A host-specific failure does not disable a healthy configured peer."""
+    recorder = Recorder()
+    recorder.degrade(portage.binhost_trust("gentoo"), "its index could not be read")
+
+    portage.Emerge(
+        packages=("sys-boot/grub",),
+        summary="install the bootloader",
+        hosts=hosts,
+    ).apply(recorder)
+
+    emerge = recorder.only("emerge")
+    assert ("--usepkg=n" in emerge) is source_only
+    assert ("--getbinpkg=n" in emerge) is source_only
 
 def test_a_failed_community_key_leaves_the_official_host_alone() -> None:
     """The official host's key comes from `getuto`, so one community key that
@@ -854,6 +905,57 @@ def test_a_failed_community_key_leaves_the_official_host_alone() -> None:
 
     portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(recorder)
     assert "--getbinpkg=y" in next(argv for argv in recorder.in_target if argv[0] == "emerge")
+
+
+def test_a_failed_community_key_merge_keeps_the_official_binhost_usable() -> None:
+    """The optional community key is not evidence against the official host."""
+    installation = with_portage(
+        binhost=Binhost(official=True, community=BinhostChannel.STABLE)
+    )
+    operations = portage.build(installation, MIRROR)
+    official = next(
+        one
+        for one in operations
+        if isinstance(one, portage.ConfigureBinhost) and one.name == "gentoo"
+    )
+    key = next(
+        one
+        for one in operations
+        if isinstance(one, portage.Emerge)
+        and one.packages == ("sec-keys/openpgp-keys-gentoozh",)
+    )
+    community = next(
+        one
+        for one in operations
+        if isinstance(one, portage.ConfigureBinhost) and one.name == "gentoo-zh"
+    )
+    settled = next(
+        one for one in operations if isinstance(one, portage.SettleBinhostFeature)
+    )
+    assert operations.index(official) < operations.index(key) < operations.index(community)
+    assert operations.index(community) < operations.index(settled)
+
+    recorder = Recorder(failures={"emerge"})
+    recorder.files[portage.MAKE_CONF] = 'FEATURES="getbinpkg"\n'
+    official.apply(recorder)
+    key.apply(recorder)
+    community.apply(recorder)
+    settled.apply(recorder)
+
+    trust = portage.binhost_trust("gentoo-zh")
+    assert recorder.degraded(trust)
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+    assert official.destinations()[0] in recorder.files
+    assert community.destinations()[0] not in recorder.files
+    assert 'FEATURES="getbinpkg"' in recorder.files[portage.MAKE_CONF]
+
+    recorder.failures.clear()
+    portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(
+        recorder
+    )
+    emerge = [argv for argv in recorder.in_target if argv[0] == "emerge"][-1]
+    assert "--getbinpkg=y" in emerge
+    assert "--usepkg=n" not in emerge
 
 
 def test_a_selected_binary_fetch_failure_retries_from_source() -> None:
@@ -1139,26 +1241,20 @@ def test_a_name_that_would_not_resolve_is_tried_again() -> None:
         assert "--retry 3" in command, command
 
 
-def test_both_binhost_detectors_read_one_marker() -> None:
-    """The failing path finds the line and the succeeding path parses the host
-    and the url out of it. The two spelled Portage's diagnostic separately, so
-    a reworded one would have left half of them silent while the other half
-    went on working.
-    """
+def test_both_binhost_paths_read_one_marker() -> None:
+    """The paths share one parser, so a reworded marker cannot split them."""
     from gentoo_install.plan import portage as plan_portage
 
-    assert plan_portage._binhost_unreadable(BINHOST_TIMED_OUT)
-    assert plan_portage._unreadable_index(BINHOST_TIMED_OUT)
+    assert tuple(plan_portage._unreadable_indexes(BINHOST_TIMED_OUT))
 
     # One marker: a diagnostic that does not carry it is seen by neither.
     reworded = BINHOST_TIMED_OUT.replace(
         plan_portage.BINHOST_INDEX_FAILURE, "Could not read binhost index"
     )
-    assert plan_portage._binhost_unreadable(reworded) is None
-    assert plan_portage._unreadable_index(reworded) is None
+    assert not tuple(plan_portage._unreadable_indexes(reworded))
 
-    # Both spellings answer the sample above, so only the source says whether
-    # there is one marker or two: the pattern has to quote the constant.
+
+    # One parser reads both paths, so the pattern has to quote the constant.
     import ast
     import inspect
 
@@ -1202,7 +1298,7 @@ def test_the_binhost_fallback_fixture_degrades_the_plan_to_source() -> None:
         f"!!! [gentoo] Error fetching binhost package info from '{endpoint}'\n"
         "!!! HTTP Error 404: Not Found\n"
     )
-    reason = f"binary host index unreadable: [gentoo] Error fetching binhost package info from '{endpoint}'"
+    reason = f"gentoo could not read its package index at {endpoint}"
     recorder = Recorder()
     attempts: list[tuple[str, ...]] = []
 
@@ -1221,10 +1317,11 @@ def test_the_binhost_fallback_fixture_degrades_the_plan_to_source() -> None:
                 atom="app-editors/nano",
                 requesters=("the `editor` group",),
             ),
-        )
+        ),
+        hosts=("gentoo",),
     ).apply(recorder)
 
-    assert recorder.degradations == {portage.BINARY_PACKAGES: reason}
+    assert recorder.degradations == {portage.binhost_trust("gentoo"): reason}
     assert [("--usepkg=n" in attempt, "--getbinpkg=n" in attempt) for attempt in attempts] == [
         (False, False),
         (False, False),
@@ -1253,11 +1350,13 @@ def test_a_binary_host_that_cannot_be_read_degrades_the_resolve_to_source() -> N
     check = portage.VerifyPackages(
         requests=(
             portage.PackageRequest(atom="gnome-base/gnome", requesters=("the `gnome` group",)),
-        )
+        ),
+        hosts=("gentoo",),
     )
     check.apply(recorder)
 
-    assert recorder.degraded(portage.BINARY_PACKAGES)
+    assert recorder.degraded(portage.binhost_trust("gentoo"))
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
     # One retry with binaries still on before the whole install is committed to
     # compiling, the same as `Emerge` makes.
     assert [("--getbinpkg=n" in one) for one in attempts] == [False, False, True], attempts
@@ -1280,6 +1379,53 @@ def test_a_binary_host_that_cannot_be_read_degrades_the_resolve_to_source() -> N
     with pytest.raises(ConfigError, match="Error fetching binhost package info"):
         check.apply(already)
     assert len(tried) == 1, tried
+
+
+def test_an_unreadable_community_index_during_verification_keeps_the_official_host_usable() -> None:
+    """A failed index identifies its host, not another host that can serve packages."""
+    recorder = Recorder()
+    recorder.files[portage.MAKE_CONF] = 'FEATURES="getbinpkg"\n'
+    official = portage.ConfigureBinhost(
+        name="gentoo", sync_uri="https://official/", verify=True
+    )
+    community = portage.ConfigureBinhost(
+        name="gentoo-zh", sync_uri="https://community/", verify=True
+    )
+    official.apply(recorder)
+    community.apply(recorder)
+    community_index = BINHOST_TIMED_OUT.replace("[gentoo]", "[gentoo-zh]")
+    attempts: list[tuple[str, ...]] = []
+
+    def answer(argv: Sequence[str]) -> CommandOutput:
+        if argv[0] != "emerge":
+            return CommandOutput("", 0)
+        attempts.append(tuple(argv))
+        if "--getbinpkg=n" in argv:
+            return CommandOutput("[ebuild  N    ] app-misc/community-1\n", 0)
+        return CommandOutput(community_index, 1)
+
+    recorder.answering = answer
+    portage.VerifyPackages(
+        requests=(
+            portage.PackageRequest(
+                atom="app-misc/community", requesters=("the `community` group",)
+            ),
+        )
+    ).apply(recorder)
+
+    assert recorder.degraded(portage.binhost_trust("gentoo-zh"))
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+    assert [("--getbinpkg=n" in attempt) for attempt in attempts] == [False, False, True]
+    portage.SettleBinhostFeature(hosts=("gentoo", "gentoo-zh")).apply(recorder)
+    assert 'FEATURES="getbinpkg"' in recorder.files[portage.MAKE_CONF]
+
+    recorder.answering = lambda argv: CommandOutput("", 0)
+    portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(
+        recorder
+    )
+    emerge = [argv for argv in recorder.in_target if argv[0] == "emerge"][-1]
+    assert "--getbinpkg=y" in emerge
+    assert "--usepkg=n" not in emerge
 
 
 def test_a_rejection_that_is_not_the_binary_host_is_never_degraded() -> None:
@@ -2728,9 +2874,8 @@ def test_an_overlay_key_that_cannot_be_fetched_degrades_rather_than_ends_the_run
     packages are signed with, and its distfile is on no Gentoo mirror: a guest
     whose route to `distfiles.gentoozh.org` was down answered `404` from the
     local mirror, `Temporary failure in name resolution` from the rest, and
-    the whole install ended with exit 4 — disk partitioned, stage3 unpacked,
-    machine unusable. Every binary-host failure degrades to source."""
-    from gentoo_install.plan.portage import BINARY_PACKAGES, Emerge, SourcePolicy
+    machine unusable. The optional community key must not stop the run."""
+    from gentoo_install.plan.portage import Emerge, SourcePolicy, binhost_trust
 
     recorder = Recorder()
     recorder.failures.add("emerge")
@@ -2739,19 +2884,20 @@ def test_an_overlay_key_that_cannot_be_fetched_degrades_rather_than_ends_the_run
         summary="install the key the community binary packages are signed with",
         source=SourcePolicy.build_all(),
         repository_bootstrap=True,
-        degrades=BINARY_PACKAGES,
+        degrades=binhost_trust("gentoo-zh"),
     )
 
     operation.apply(recorder)
 
-    assert recorder.degraded(BINARY_PACKAGES), recorder.given_up
-    assert "openpgp-keys-gentoozh" in recorder.degradations[BINARY_PACKAGES]
+    trust = binhost_trust("gentoo-zh")
+    assert recorder.degraded(trust), recorder.given_up
+    assert "openpgp-keys-gentoozh" in recorder.degradations[trust]
 
 
 def test_the_plan_marks_that_key_as_one_the_run_may_lose() -> None:
     """The operation degrades only because the plan says it may. Without this
     the constructor test above passes on an object no planner ever builds."""
-    from gentoo_install.plan.portage import BINARY_PACKAGES, Emerge
+    from gentoo_install.plan.portage import Emerge, binhost_trust
 
     installation = with_portage(
         binhost=Binhost(official=True, community=BinhostChannel.STABLE)
@@ -2764,7 +2910,7 @@ def test_the_plan_marks_that_key_as_one_the_run_may_lose() -> None:
     ]
 
     assert len(keys) == 1, [one.describe() for one in operations]
-    assert keys[0].degrades == BINARY_PACKAGES, keys[0]
+    assert keys[0].degrades == binhost_trust("gentoo-zh"), keys[0]
 
 
 def test_an_emerge_the_machine_needs_still_ends_the_run() -> None:
@@ -2806,14 +2952,62 @@ def test_a_host_that_answers_no_index_is_recorded_rather_than_passed_over() -> N
 
     portage.Emerge(packages=("net-misc/openssh",), summary="install ssh").apply(recorder)
 
-    assert recorder.degraded(portage.BINARY_PACKAGES)
-    reason = recorder.degradations[portage.BINARY_PACKAGES]
+    trust = portage.binhost_trust("gentoo")
+    assert recorder.degraded(trust)
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+    reason = recorder.degradations[trust]
     assert "mirror.xtom.com.hk" in reason, reason
 
     # The emerge itself succeeded, so it is not retried and not re-run from
     # source: Portage has already built everything it was asked for.
     emerges = [argv for argv in recorder.in_target if argv[0] == "emerge"]
     assert len(emerges) == 1, emerges
+
+
+def test_each_unreadable_index_is_recorded_for_its_host() -> None:
+    """A successful emerge can report more than one inaccessible binary host."""
+    recorder = Recorder()
+    indexes = INDEX_REFUSED + INDEX_REFUSED.replace("[gentoo]", "[gentoo-zh]")
+    recorder.answering = lambda argv: (
+        CommandOutput(indexes, 0) if argv[0] == "emerge" else CommandOutput("", 0)
+    )
+
+    portage.Emerge(packages=("net-misc/openssh",), summary="install ssh").apply(recorder)
+
+    assert recorder.degraded(portage.binhost_trust("gentoo"))
+    assert recorder.degraded(portage.binhost_trust("gentoo-zh"))
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+
+
+def test_an_unreadable_community_index_keeps_the_official_binhost_usable() -> None:
+    """An index diagnostic identifies one host, not every configured host."""
+    recorder = Recorder()
+    recorder.files[portage.MAKE_CONF] = 'FEATURES="getbinpkg"\n'
+    portage.ConfigureBinhost(name="gentoo", sync_uri="https://official/", verify=True).apply(
+        recorder
+    )
+    community_index = INDEX_REFUSED.replace("[gentoo]", "[gentoo-zh]")
+    recorder.answering = lambda argv: (
+        CommandOutput(community_index, 0)
+        if argv[0] == "emerge" and argv[-1] == "app-misc/community"
+        else CommandOutput("", 0)
+    )
+
+    portage.Emerge(packages=("app-misc/community",), summary="install community").apply(
+        recorder
+    )
+
+    assert recorder.degraded(portage.binhost_trust("gentoo-zh"))
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
+    portage.SettleBinhostFeature(hosts=("gentoo",)).apply(recorder)
+    assert 'FEATURES="getbinpkg"' in recorder.files[portage.MAKE_CONF]
+
+    portage.Emerge(packages=("sys-boot/grub",), summary="install the bootloader").apply(
+        recorder
+    )
+    emerge = [argv for argv in recorder.in_target if argv[0] == "emerge"][-1]
+    assert "--getbinpkg=y" in emerge
+    assert "--usepkg=n" not in emerge
 
 
 def test_a_healthy_binhost_records_nothing() -> None:
@@ -2896,21 +3090,25 @@ def test_the_recorded_reason_carries_portage_own_diagnosis() -> None:
     the reader to the mirror; the guest's resolver is where the fault was."""
     from gentoo_install.plan import portage as plan_portage
 
-    said = plan_portage._unreadable_index(BINHOST_UNRESOLVED)
+    said = next(plan_portage._unreadable_indexes(BINHOST_UNRESOLVED), None)
     assert said is not None
-    assert "name resolution" in said, said
-    assert "answered no package index" not in said, said
+    assert said.host == "gentoo"
+    assert "name resolution" in said.reason, said
+    assert "answered no package index" not in said.reason, said
 
     # The timeout sample carries its own words, and neither reason invents a
     # cause the log does not hold.
-    timed_out = plan_portage._unreadable_index(BINHOST_TIMED_OUT)
-    assert timed_out is not None and "timed out" in timed_out, timed_out
+    timed_out = next(plan_portage._unreadable_indexes(BINHOST_TIMED_OUT), None)
+    assert timed_out is not None and "timed out" in timed_out.reason, timed_out
 
     # Portage sometimes prints the first line alone; that still answers.
-    alone = plan_portage._unreadable_index(
-        "!!! [gentoo] Error fetching binhost package info from 'https://example.invalid/x'\n"
+    alone = next(
+        plan_portage._unreadable_indexes(
+            "!!! [gentoo] Error fetching binhost package info from 'https://example.invalid/x'\n"
+        ),
+        None,
     )
-    assert alone is not None and "example.invalid" in alone, alone
+    assert alone is not None and "example.invalid" in alone.reason, alone
 
 
 
@@ -3317,7 +3515,8 @@ def test_a_retry_that_succeeded_still_records_an_unreadable_index() -> None:
     recorder = Killed()
     portage.Emerge(packages=("app-editors/vim",), summary="install vim").apply(recorder)
 
-    assert recorder.degraded(portage.BINARY_PACKAGES)
+    assert recorder.degraded(portage.binhost_trust("gentoo"))
+    assert not recorder.degraded(portage.BINARY_PACKAGES)
 
 
 def test_a_source_retry_killed_by_the_machine_says_so() -> None:

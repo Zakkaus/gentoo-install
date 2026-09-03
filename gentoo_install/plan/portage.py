@@ -15,7 +15,7 @@ import signal
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import Final, Sequence
+from typing import Final, Iterator, Sequence
 
 from ..errors import CommandFailed, ConfigError
 from ..model import mirrors
@@ -209,6 +209,32 @@ def binhost_trust(name: str) -> str:
     """What one host's own key degrades. The official host's key comes from
     `getuto`, so a community key that failed must not switch it off too."""
     return f"binary packages from {name}"
+
+
+_BINHOST_NAMES: Final[tuple[str, ...]] = ("gentoo", "gentoo-zh")
+
+
+def _known_binhosts(context: Context, hosts: tuple[str, ...]) -> tuple[str, ...]:
+    """The plan's hosts, or the stanzas later operations actually received."""
+    if hosts:
+        return hosts
+    return tuple(name for name in _BINHOST_NAMES if context.read(_binrepos_path(name)))
+
+
+def _binary_host_available(
+    context: Context, *, binary_host: bool, hosts: tuple[str, ...]
+) -> bool:
+    """Whether a configured binary host remains usable."""
+    if not binary_host or context.degraded(BINARY_PACKAGES):
+        return False
+    if hosts:
+        return any(not context.degraded(binhost_trust(name)) for name in hosts)
+    if not any(context.degraded(binhost_trust(name)) for name in _BINHOST_NAMES):
+        return True
+    if known := _known_binhosts(context, ()):
+        return any(not context.degraded(binhost_trust(name)) for name in known)
+    # An operation without host metadata cannot assume an unrecorded peer exists.
+    return False
 
 #: `*/*-bin` is deliberately absent: it would exclude `gentoo-kernel-bin`, the
 #: one package this installer asks a binary host for.
@@ -492,8 +518,8 @@ class SettleBinhostFeature(Operation):
     `binrepos.conf` when there is not. Left alone the installed system says it
     fetches binary packages and has nothing naming where from.
 
-    A degradation during the merges is a different thing and does not reach
-    here: the host is configured and verified, and one package did not arrive.
+    A community key merge can reach here before its host is configured. Its
+    host-scoped degradation removes that host only; another host stays usable.
     """
 
     stage: Stage = Stage.PORTAGE
@@ -1088,6 +1114,8 @@ class Emerge(Operation):
     #: not asked for; `build()` now schedules `DisableBinhost(name="gentoo")`
     #: before any emerge, so that host is gone rather than merely unasked for.
     binary_host: bool = True
+    #: A host-scoped failure falls back to source only when no configured peer remains.
+    hosts: tuple[str, ...] = ()
     #: What to degrade rather than fail, when this emerge is what enables an
     #: optional path. Empty means the install stops, which is right for
     #: everything the machine needs to boot.
@@ -1129,7 +1157,10 @@ class Emerge(Operation):
 
     def apply(self, context: Context) -> None:
         command = self._argv(
-            context, source_only=context.degraded(BINARY_PACKAGES) or not self.binary_host
+            context,
+            source_only=not _binary_host_available(
+                context, binary_host=self.binary_host, hosts=self.hosts
+            ),
         )
         try:
             result = context.run_in_target(command, check=False)
@@ -1224,15 +1255,18 @@ class Emerge(Operation):
     def _note_an_unreadable_index(self, context: Context, result: object) -> None:
         """A host that answers no index does not fail the emerge: Portage says
         so, compiles everything and exits 0. Recorded here or nowhere, and
-        recorded once, because it says so on every emerge.
+        recorded once for that host, because it says so on every emerge.
 
         Every reader of a zero exit, not the first one: a retry that succeeded
         left the run saying it fetches binary packages from a host whose index
         it had failed to read.
         """
-        unreadable = _unreadable_index(str(result))
-        if unreadable is not None and not context.degraded(BINARY_PACKAGES):
-            context.degrade(BINARY_PACKAGES, unreadable)
+        if context.degraded(BINARY_PACKAGES):
+            return
+        for unreadable in _unreadable_indexes(str(result)):
+            trust = binhost_trust(unreadable.host)
+            if not context.degraded(trust):
+                context.degrade(trust, unreadable.reason)
 
     def _one_more_binary_try(self, context: Context, command: list[str]) -> str | None:
         """Run the same emerge again, and answer what still names a binary
@@ -1331,14 +1365,35 @@ _INDEX_UNREADABLE: Final[re.Pattern[str]] = re.compile(
 )
 
 
-def _unreadable_index(said: str) -> str | None:
-    """The reason to record when a host's index could not be read."""
-    found = _INDEX_UNREADABLE.search(said)
-    if found is None:
-        return None
-    detail = (found.group("detail") or "").strip()
-    where = f"{found.group('host')} could not read its package index at {found.group('url')}"
-    return f"{where}: {detail}" if detail else where
+@dataclass(frozen=True)
+class _UnreadableBinhostIndex:
+    host: str
+    reason: str
+
+
+def _names_an_unreadable_index(output: str) -> str:
+    """The line proving the failure was the binary host and not a package.
+
+    Looser than `_INDEX_UNREADABLE` on purpose: that pattern reads the host
+    out of Portage's usual two-line shape, and a line in any other shape still
+    says the index could not be read.
+    """
+    for raw in output.splitlines():
+        line = raw.strip()
+        if BINHOST_INDEX_FAILURE in line:
+            return line.removeprefix("!!! ")
+    return ""
+
+
+def _unreadable_indexes(said: str) -> Iterator[_UnreadableBinhostIndex]:
+    """The hosts and reasons to record when their indexes could not be read."""
+    for found in _INDEX_UNREADABLE.finditer(said):
+        detail = (found.group("detail") or "").strip()
+        host = found.group("host")
+        where = f"{host} could not read its package index at {found.group('url')}"
+        yield _UnreadableBinhostIndex(
+            host=host, reason=f"{where}: {detail}" if detail else where
+        )
 
 
 def _binhost_killed_emerge(result: CommandOutput) -> str | None:
@@ -1457,7 +1512,7 @@ class TrustBinhostKey(Operation):
         )
 
     def apply(self, context: Context) -> None:
-        if context.degraded(BINARY_PACKAGES):
+        if context.degraded(BINARY_PACKAGES) or context.degraded(binhost_trust(self.binhost)):
             return
         try:
             self._trust(context)
@@ -1584,6 +1639,8 @@ class VerifyPackages(Operation):
     #: As `Emerge.binary_host`: the pretend has to resolve against the same
     #: package set the real merge will use, or it accepts what emerge refuses.
     binary_host: bool = True
+    #: A host-scoped failure leaves binaries on when this tuple has a usable peer.
+    hosts: tuple[str, ...] = ()
 
     def describe_parts(self) -> tuple[str, tuple[str, ...]]:
         return "resolve {} together before installing the requested packages", (
@@ -1593,7 +1650,11 @@ class VerifyPackages(Operation):
     def apply(self, context: Context) -> None:
         atoms = tuple(request.atom for request in self.requests)
         output = self._resolve(
-            context, atoms, source_only=context.degraded(BINARY_PACKAGES) or not self.binary_host
+            context,
+            atoms,
+            source_only=not _binary_host_available(
+                context, binary_host=self.binary_host, hosts=self.hosts
+            ),
         )
         if output.returncode == 0:
             return
@@ -1673,25 +1734,25 @@ class VerifyPackages(Operation):
         the guaranteed path, so an index that cannot be read degrades to it
         rather than ending the install.
         """
-        unreadable = _binhost_unreadable(str(failed))
-        if unreadable is None or context.degraded(BINARY_PACKAGES):
+        said = str(failed)
+        unreadable = next(_unreadable_indexes(said), None)
+        # The marker without the host, as the deleted `_binhost_unreadable`
+        # matched it: a line Portage prints in another shape still names a
+        # host that cannot be read, and failing the install there is worse
+        # than degrading the whole feature.
+        loose = _names_an_unreadable_index(said)
+        if not loose or context.degraded(BINARY_PACKAGES):
             return failed
         # The same retry `Emerge` makes before giving up on binaries: one
         # dropped connection would otherwise compile the whole install.
         again = self._resolve(context, atoms, source_only=False)
-        if again.returncode == 0 or _binhost_unreadable(str(again)) is None:
+        if again.returncode == 0 or not _names_an_unreadable_index(str(again)):
             return again
-        context.degrade(BINARY_PACKAGES, f"binary host index unreadable: {unreadable}")
+        if unreadable is None or not _known_binhosts(context, self.hosts):
+            context.degrade(BINARY_PACKAGES, f"binary host index unreadable: {loose}")
+        else:
+            context.degrade(binhost_trust(unreadable.host), unreadable.reason)
         return self._resolve(context, atoms, source_only=True)
-
-
-def _binhost_unreadable(output: str) -> str | None:
-    """The line proving the failure was the binary host and not a package."""
-    for raw in output.splitlines():
-        line = raw.strip()
-        if BINHOST_INDEX_FAILURE in line:
-            return line.removeprefix("!!! ")
-    return None
 
 
 def _requesters_ask(request: PackageRequest) -> str:
@@ -1767,6 +1828,7 @@ def build(
     video_cards: tuple[str, ...] = (),
 ) -> list[Operation]:
     portage = config.portage
+    hosts = _binhost_names(portage)
     gentoo = PurePosixPath("/var/db/repos/gentoo")
     operations: list[Operation] = [
         InstallStage3(
@@ -1827,6 +1889,7 @@ def build(
                 packages=("dev-vcs/git",),
                 summary="install git, which every later repository sync needs",
                 repository_bootstrap=True,
+                hosts=hosts,
             ),
             ConfigureRepository(
                 name="gentoo",
@@ -1888,6 +1951,7 @@ def build(
                 packages=("dev-vcs/git",),
                 summary="install git, which the overlays are cloned with",
                 repository_bootstrap=True,
+                hosts=hosts,
             )
         )
     for overlay in portage.overlays:
@@ -1924,6 +1988,7 @@ def build(
                 packages=("app-eselect/eselect-repository",),
                 summary="install eselect-repository, which the named overlays are added with",
                 repository_bootstrap=True,
+                hosts=hosts,
             )
         )
         operations += [
@@ -1941,7 +2006,8 @@ def build(
                 summary="install the key the community binary packages are signed with",
                 source=SourcePolicy.build_all(),
                 repository_bootstrap=True,
-                degrades=BINARY_PACKAGES,
+                degrades=binhost_trust("gentoo-zh"),
+                hosts=hosts,
             ),
             TrustBinhostKey(
                 binhost="gentoo-zh",
@@ -1950,9 +2016,6 @@ def build(
             ),
             ConfigureBinhost(name="gentoo-zh", sync_uri=community_binhost(portage), verify=True),
         ]
-    hosts = tuple(
-        one.name for one in operations if isinstance(one, ConfigureBinhost)
-    )
     if hosts:
         # After every `ConfigureBinhost`, because it is their outcome this
         # reads: `WriteMakeConf` wrote `getbinpkg` before any of them ran.
@@ -2098,9 +2161,20 @@ def _proxy_toml(proxy: ProxyConfig) -> str:
     )
 
 
+def _binhost_names(portage: PortageConfig) -> tuple[str, ...]:
+    """The names this configuration asks the plan to make usable."""
+    if portage.binhost.official:
+        return (
+            ("gentoo", "gentoo-zh")
+            if portage.binhost.community is not BinhostChannel.OFF
+            else ("gentoo",)
+        )
+    return ("gentoo-zh",) if portage.binhost.community is not BinhostChannel.OFF else ()
+
+
 def uses_binhost(portage: PortageConfig) -> bool:
     """Whether any binary host is configured at all."""
-    return portage.binhost.official or portage.binhost.community is not BinhostChannel.OFF
+    return bool(_binhost_names(portage))
 
 
 def _distfiles(portage: PortageConfig) -> tuple[str, ...]:
