@@ -3616,3 +3616,34 @@ def test_install_records_the_identity_it_was_given(
         one for one in Journal(work / "install.jsonl").replay() if "configuration" in one
     ]
     assert recorded and recorded[-1]["configuration"] == "written-before", recorded
+
+
+def test_a_memory_launch_refuses_a_passphrase_it_cannot_ask_for(tmp_path: Path) -> None:
+    """The root password is answered on the host and travels in the payload.
+    A passphrase cannot: carrying it would put it on the esp, which is where
+    `SECURITY.md` says it never goes. So the run stops before it arms one."""
+    from dataclasses import replace as _replace
+
+    from gentoo_install.exec.probe import BootMethod
+    from gentoo_install.model.config import MemoryLaunch, MemoryMode
+    from gentoo_install.model.device import DeviceGraph, Luks
+
+    started = load(FIXTURES / "vm-luks.toml")
+    rebuilt = [
+        _replace(node, passphrase_file="") if isinstance(node, Luks) else node
+        for node in started.disk.graph.nodes.values()
+    ]
+    unlocked = _replace(
+        started, disk=_replace(started.disk, graph=DeviceGraph.build(rebuilt))
+    )
+
+    class Booting(RealProbe):
+        def boot_method(self) -> BootMethod:
+            return BootMethod.UEFI_GRUB
+
+    with pytest.raises(errors.PreflightFailed, match="names no passphrase_file"):
+        cli._validate_memory_launch(
+            unlocked,
+            MemoryLaunch(mode=MemoryMode.LOWRAM),
+            Booting(runner=Runner(log=lambda line: None), work=tmp_path),
+        )
