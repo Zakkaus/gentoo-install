@@ -1453,7 +1453,8 @@ def resolve_share(
 
     A share is a share of what the table can hand out after every absolute
     size on it, so `40%` beside `60%` beside an esp and a swap is a layout
-    that fits. `None` still means the rest, which is what `sgdisk` is told.
+    that fits. `None` means the rest; a bounded rest becomes a size only when
+    its maximum would otherwise be exceeded.
 
     Resolved here rather than at `apply()` so that `describe()` prints the
     number the run will use: a `--dry-run` that says `40%` and an install that
@@ -1465,25 +1466,27 @@ def resolve_share(
     function's docstring says why: answered separately, an operator was told
     their sizes fitted and the install refused them an hour later.
     """
-    if partition.share is None:
+    share = partition.share
+    if share is None:
         return partition.size
-    if partition.share.percent is None:
-        return _bounded(None, partition)
+    if share.percent is None:
+        return _bounded_rest(graph, partition, facts)
     table = _expect(graph, partition.table, PartitionTable)
     base = share_base(graph, table, facts)
     if base is None:
         if not table.create:
             raise InvalidLayout(
-                f"{partition.id} asks for {partition.share.percent}% of free space on "
+                f"{partition.id} asks for {share.percent}% of free space on "
                 f"{table.id}, but no measured free extents were provided; probe the "
                 "table before planning"
             )
         raise InvalidLayout(
-            f"{partition.id} asks for {partition.share.percent}% of {table.disk}, "
+            f"{partition.id} asks for {share.percent}% of {table.disk}, "
             f"and this machine did not report that disk's size"
         )
-    wanted = Size(int(base.bytes * partition.share.percent / 100)).align_down()
+    wanted = Size(int(base.bytes * share.percent / 100)).align_down()
     return _bounded(wanted, partition)
+
 
 
 def share_base(
@@ -1513,6 +1516,59 @@ def share_base(
         table.table is TableType.GPT, SectorSize(512)
     )
     return Size(max(0, usable.bytes - fixed))
+
+def _bounded_rest(
+    graph: DeviceGraph, partition: Partition, facts: StorageFacts
+) -> Size | None:
+    share = partition.share
+    assert share is not None
+    if share.minimum is None and share.maximum is None:
+        return None
+    available = _rest_available(graph, partition, facts)
+    if share.minimum is not None and available < share.minimum:
+        raise InvalidLayout(
+            f"{partition.id} has {available} left, below the {share.minimum} it asks for"
+        )
+    if share.maximum is not None and share.maximum < available:
+        return share.maximum
+    return None
+
+
+def _rest_available(
+    graph: DeviceGraph, partition: Partition, facts: StorageFacts
+) -> Size:
+    table = _expect(graph, partition.table, PartitionTable)
+    if not table.create:
+        extents = facts.free_extents.get(table.id)
+        if extents is None:
+            raise InvalidLayout(
+                f"{partition.id} takes a bounded rest of {table.id}, but no measured free "
+                "extents were provided; probe the table before planning"
+            )
+        start, end = _free_extent_for(graph, table, partition, extents, facts)
+        return Size(max(0, end.bytes - start.bytes))
+    base = share_base(graph, table, facts)
+    if base is None:
+        raise InvalidLayout(
+            f"{partition.id} takes a bounded rest of {table.disk}, and this machine did "
+            "not report that disk's size"
+        )
+    claimed = 0
+    for sibling in graph.of_type(Partition):
+        share = sibling.share
+        if (
+            sibling.table != table.id
+            or sibling.index >= partition.index
+            or share is None
+            or share.percent is None
+        ):
+            continue
+        resolved = resolve_share(graph, sibling, facts)
+        if resolved is None:
+            raise InvalidLayout(f"{sibling.id} does not resolve to a size")
+        claimed += resolved.bytes
+    return Size(max(0, base.bytes - claimed))
+
 
 
 def _bounded(wanted: Size | None, partition: Partition) -> Size | None:
@@ -1603,6 +1659,20 @@ def _into_free_space(
     Every added partition of one table is placed in extent order, so two of
     them do not both take the start of the same gap.
     """
+    start, _ = _free_extent_for(
+        graph, table, partition, free_extents, storage_facts
+    )
+    return start
+
+
+def _free_extent_for(
+    graph: DeviceGraph,
+    table: PartitionTable,
+    partition: Partition,
+    free_extents: tuple[Extent, ...],
+    storage_facts: StorageFacts,
+) -> tuple[Size, Size]:
+    """The selected free extent's start and end."""
     added = [
         one
         for one in sorted(graph.of_type(Partition), key=lambda node: node.index)
@@ -1622,7 +1692,7 @@ def _into_free_space(
             if at.bytes + needed > extent.end + 1:
                 continue
             if one.id == partition.id:
-                return at
+                return at, Size(extent.end + 1).align_down()
             cursor[extent.start] = (at + wanted).align_up() if wanted is not None else at
             break
         else:

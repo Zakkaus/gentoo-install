@@ -89,6 +89,9 @@ PACKAGE_GROUP_FIELDS: Final[tuple[str, ...]] = (
 )
 
 HTTP_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
+#: `useradd` rejects bad account names after storage is written, so its rule lives here.
+_USER_NAME: Final[re.Pattern[str]] = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+
 _HOSTNAME_LABEL: Final[re.Pattern[str]] = re.compile(
     r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 )
@@ -451,8 +454,18 @@ _REPOSITORY_NAME: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_+
 
 
 def _repository_name_problems(config: InstallConfig) -> list[str]:
-    problems = []
-    shipped = {overlay.name for overlay in config.portage.overlays} | {"gentoo"}
+    problems: list[str] = []
+    shipped = {"gentoo"}
+    for overlay in config.portage.overlays:
+        name = overlay.name
+        if _REPOSITORY_NAME.fullmatch(name) is None:
+            problems.append(f"{name!r} is not a repository name")
+        elif name in shipped:
+            # Two `repos.conf` sections of the same name, and the later
+            # sync-uri replaces the earlier one.
+            problems.append(f"{name} is already configured with its own sync-uri")
+        else:
+            shipped.add(name)
     for name in config.portage.repositories:
         if _REPOSITORY_NAME.fullmatch(name) is None:
             problems.append(f"{name!r} is not a repository name")
@@ -461,6 +474,7 @@ def _repository_name_problems(config: InstallConfig) -> list[str]:
             # sync-uri replaces the earlier one.
             problems.append(f"{name} is already configured with its own sync-uri")
     return problems
+
 
 
 def _l10n_problems(config: InstallConfig) -> list[str]:
@@ -479,12 +493,31 @@ def _locale_problems(config: InstallConfig) -> list[str]:
     return problems
 
 
+def _user_name_problems(system: SystemConfig) -> list[str]:
+    problems = [
+        f"system.users[{index}].name is {user.name!r}, which useradd cannot create"
+        for index, user in enumerate(system.users)
+        if _USER_NAME.fullmatch(user.name) is None
+    ]
+    problems += [
+        f"system.users[{index}].name is root, which is already the target's root account"
+        for index, user in enumerate(system.users)
+        if user.name == "root"
+    ]
+    problems += [
+        f"{count} system.users entries are named {name!r}; user names must be unique"
+        for name, count in Counter(user.name for user in system.users).items()
+        if count > 1
+    ]
+    return problems
+
+
 def _system_value_problems(
     config: InstallConfig,
     available_timezones: Collection[str] | _ShippedValuesNotRead,
 ) -> list[str]:
     system = config.system
-    problems: list[str] = []
+    problems = _user_name_problems(system)
     hostname = system.hostname
     if len(hostname) > _HOSTNAME_MAXIMUM or any(
         _HOSTNAME_LABEL.fullmatch(label) is None for label in hostname.split(".")
