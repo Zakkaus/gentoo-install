@@ -87,11 +87,16 @@ UNSERVED_PROFILES: Final[dict[str, str]] = {
 def unserved_profile_problems(profile: str) -> tuple[str, ...]:
     """The stage3 requirements of profile path segments this installer cannot fetch."""
     segments = set(profile.split("/"))
-    return tuple(
-        f"profile {profile} needs its own stage3: {reason}"
+    reasons = [
+        reason
         for segment, reason in sorted(UNSERVED_PROFILES.items())
         if segment in segments
-    )
+    ]
+    if "prefix" in segments:
+        reasons.append("prefix has no stage3 this installer can unpack into a Linux root")
+    if {"split-usr", "no-multilib"} <= segments:
+        reasons.append("no stage3 is published for both split-usr and no-multilib")
+    return tuple(f"profile {profile} needs its own stage3: {reason}" for reason in reasons)
 
 
 class NetworkField(Enum):
@@ -871,22 +876,20 @@ def traits_of(
     # reads what a device is built from, and a reused array is built from
     # nothing this model knows. Runtime facts identify the assembled array.
     mounted = esp_mount(graph)
-    beneath = {node.id for node in _chain(graph, mounted.id)} if mounted else set()
-    for reused in graph.of_type(Existing):
-        if reused.id not in beneath:
-            continue
-        metadata = facts.metadata_for(reused.id)
-        # `NOT_PROBED` is a plan built without facts and answers nothing.
-        # `UNAVAILABLE` is mdadm asked and unable to say, which cannot be read
-        # as `ABSENT`: an esp on a 1.2 array boots nothing.
-        if metadata is MdraidMetadataState.UNAVAILABLE:
-            found.add(Trait.ESP_MDRAID_UNREADABLE)
-            continue
-        if not isinstance(metadata, RaidMetadata):
-            continue
-        found.add(Trait.ESP_ON_MDRAID)
-        if metadata.superblock_at_start:
-            found.add(Trait.ESP_MDRAID_SUPERBLOCK_AT_START)
+    if mounted is not None:
+        for esp_device in _existing_beneath(graph, mounted.id):
+            metadata = facts.metadata_for(esp_device)
+            # `NOT_PROBED` is a plan built without facts and answers nothing.
+            # `UNAVAILABLE` is mdadm asked and unable to say, which cannot be read
+            # as `ABSENT`: an esp on a 1.2 array boots nothing.
+            if metadata is MdraidMetadataState.UNAVAILABLE:
+                found.add(Trait.ESP_MDRAID_UNREADABLE)
+                continue
+            if not isinstance(metadata, RaidMetadata):
+                continue
+            found.add(Trait.ESP_ON_MDRAID)
+            if metadata.superblock_at_start:
+                found.add(Trait.ESP_MDRAID_SUPERBLOCK_AT_START)
 
     for table in _nodes_under(graph, config.disk.root, PartitionTable):
         if table.table is TableType.GPT and not _has_bios_boot(graph, table.id):
@@ -905,7 +908,7 @@ def traits_of(
     # for.
     if config.system.authorized_keys and not config.kernel.remote_unlock.enabled:
         found.add(Trait.AUTHORIZED_KEYS)
-        if not _a_key_can_log_in(config.system):
+        if config.system.sshd and not _a_key_can_log_in(config.system):
             found.add(Trait.NO_ACCOUNT_A_KEY_CAN_REACH)
     if config.kernel.remote_unlock.enabled:
         found.add(Trait.REMOTE_UNLOCK)

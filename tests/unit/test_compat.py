@@ -325,6 +325,7 @@ def a_key_no_account_can_use() -> InstallConfig:
         system=SystemConfig(
             root_password_hash="$6$salt$" + "x" * 86,
             authorized_keys=("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI zakk@host",),
+            sshd=True,
         ),
     )
 
@@ -1456,3 +1457,87 @@ def test_every_kernel_package_trait_has_a_reader() -> None:
     assert [one for one in traits if one not in read] == [], sorted(
         one for one in traits if one not in read
     )
+
+
+def test_an_unavailable_disk_below_a_new_esp_is_not_an_unreadable_esp() -> None:
+    from gentoo_install.model.validate import validate
+
+    installation = config()
+    facts = StorageFacts(mdraid_metadata={i("disk"): MdraidMetadataState.UNAVAILABLE})
+
+    assert Trait.ESP_MDRAID_UNREADABLE not in traits_of(installation, facts)
+    validate(installation, storage_facts=facts)
+
+
+def test_authorized_keys_without_sshd_do_not_need_an_ssh_account() -> None:
+    from gentoo_install.model.validate import validate
+
+    base = config()
+    installation = replace(
+        base,
+        system=replace(
+            base.system,
+            authorized_keys=(VALID_KEY,),
+            sshd=False,
+            sshd_root_login=True,
+            users=(
+                User(
+                    name="zakk",
+                    sudo=True,
+                    password_hash=base.system.root_password_hash,
+                ),
+            ),
+        ),
+    )
+
+    present = traits_of(installation)
+    assert Trait.NO_ACCOUNT_A_KEY_CAN_REACH not in present
+    validate(installation)
+
+
+@pytest.mark.parametrize(
+    "profile",
+    (
+        "default/linux/amd64/23.0/split-usr",
+        "default/linux/amd64/23.0/split-usr/desktop",
+    ),
+)
+def test_split_usr_profiles_select_the_published_splitusr_stage3(profile: str) -> None:
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.model.validate import validate
+    from gentoo_install.plan.portage import variant_of
+
+    base = config()
+    installation = replace(
+        base,
+        portage=replace(base.portage, profile=profile),
+        system=replace(base.system, init=InitSystem.OPENRC),
+    )
+
+    assert compat.unserved_profile_problems(profile) == ()
+    validate(installation)
+    assert variant_of(installation) == "openrc-splitusr"
+
+
+@pytest.mark.parametrize(
+    "profile",
+    (
+        "default/linux/amd64/23.0/split-usr/no-multilib",
+        "default/linux/amd64/23.0/no-multilib/prefix",
+    ),
+)
+def test_profiles_without_a_matching_stage3_are_refused(profile: str) -> None:
+    from gentoo_install.errors import ValidationFailed
+    from gentoo_install.model.config import InitSystem
+    from gentoo_install.model.validate import validate
+
+    base = config()
+    installation = replace(
+        base,
+        portage=replace(base.portage, profile=profile),
+        system=replace(base.system, init=InitSystem.OPENRC),
+    )
+
+    assert compat.unserved_profile_problems(profile)
+    with pytest.raises(ValidationFailed, match="needs its own stage3"):
+        validate(installation)
