@@ -313,6 +313,15 @@ def _validate_memory_launch(
         raise errors.PreflightFailed(
             f"--{launch.mode.value} cannot arm a one-shot boot entry on this machine"
         )
+    unanswered = [node.id for node in config.disk.graph.nodes.values() if _needs_a_passphrase(node)]
+    if unanswered:
+        # Refused rather than asked here: the answer would have to travel in
+        # the payload, and that puts a passphrase on the esp, which is the one
+        # place `SECURITY.md` promises it never reaches.
+        raise errors.PreflightFailed(
+            f"--{launch.mode.value} reboots into an environment with nobody to ask, and "
+            f"{', '.join(unanswered)} names no passphrase_file"
+        )
     if launch.mode is MemoryMode.RAM and not config.disk.graph.of_type(ZfsPool):
         print(
             "warning: --ram is slower for a layout without ZFS; --lowram uses the smaller Alpine netboot",
