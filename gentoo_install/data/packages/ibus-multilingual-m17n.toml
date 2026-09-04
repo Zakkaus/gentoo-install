@@ -1,4 +1,5 @@
 # m17n covers languages without a dedicated IBus engine.
+# Several m17n engines mean no single source represents this group.
 packages = ["app-i18n/ibus-m17n"]
 label = "m17n"
 input_framework = "ibus"
