@@ -88,6 +88,25 @@ class FailedStorageListing(Runner):
         return Result(argv=tuple(argv), returncode=1, stdout="not available\n", stderr="", seconds=0.0)
 
 
+class LsblkTree(Runner):
+    """Real `lsblk` output for the partitioned NVMe disks above."""
+
+    def __init__(self) -> None:
+        super().__init__(log=lambda line: None)
+        self.asked: list[tuple[str, ...]] = []
+
+    def run(self, argv: Sequence[str], **rest: object) -> Result:
+        asked = tuple(argv)
+        self.asked.append(asked)
+        with_children = "--nodeps" not in asked
+        if "PKNAME" in asked:
+            output = "nvme1n1p2\nnvme1n1\n" if with_children else "nvme1n1\n"
+        elif "TYPE" in asked:
+            output = "disk\npart\npart\npart\npart\n" if with_children else "disk\n"
+        else:
+            raise AssertionError(asked)
+        return Result(argv=asked, returncode=0, stdout=output, stderr="", seconds=0.0)
+
 def test_storage_layout_reads_each_storage_fact(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -218,6 +237,29 @@ def test_an_unreadable_partition_listing_does_not_answer_as_empty(
 
     with pytest.raises(CommandFailed, match="lsblk could not read the partitions"):
         Probe(runner=Failing(log=lambda line: None), work=tmp_path).partitions("/dev/vda")
+
+
+def test_disk_of_path_omits_device_mapper_children(tmp_path: Path) -> None:
+    listing = LsblkTree()
+    reader = Probe(runner=listing, work=tmp_path)
+
+    assert reader.disk_of_path("/dev/nvme1n1p2") == "/dev/nvme1n1"
+    assert listing.asked == [
+        ("lsblk", "--noheadings", "--nodeps", "--output", "PKNAME", "/dev/nvme1n1p2")
+    ]
+
+
+def test_whole_disk_omits_partition_children(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "is_block_device", lambda self: True)
+    listing = LsblkTree()
+    reader = Probe(runner=listing, work=tmp_path)
+
+    assert reader.whole_disk("/dev/nvme0n1") is True
+    assert listing.asked == [
+        ("lsblk", "--noheadings", "--nodeps", "--output", "TYPE", "/dev/nvme0n1")
+    ]
 
 
 
