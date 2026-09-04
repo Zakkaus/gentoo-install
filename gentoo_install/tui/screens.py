@@ -2022,7 +2022,7 @@ def console_font_screen(
     items: list[Item[ConsoleFontSize]] = []
     for size in ConsoleFontSize:
         candidate = replace(config, system=replace(config.system, console_font=size))
-        broken = [one for one in compat.violations(candidate) if one not in shared]
+        broken = [one for one in _compatibility_violations(candidate) if one not in shared]
         items.append(
             Item(
                 label=size.value,
@@ -2861,13 +2861,15 @@ def remote_unlock_screen(
     """
     translate = context.translate
     unlock = config.kernel.remote_unlock
-    # Refused here rather than at the Install row: both rules live in
-    # `compat.py`, and this is the screen the answer is given on. Asked of a
-    # candidate with it enabled, because the rules fire on that trait.
+    # Asked here with remote unlock enabled because its rules fire on that trait;
+    # violations already present belong to the screen where their answer is given.
     candidate = replace(
         config, kernel=replace(config.kernel, remote_unlock=replace(unlock, enabled=True))
     )
-    blocking = compat.violations(candidate)
+    already_broken = _compatibility_violations(config)
+    blocking = [
+        one for one in _compatibility_violations(candidate) if one not in already_broken
+    ]
     if blocking and not unlock.enabled:
         say(screen, context, context.translate(blocking[0].reason))
         return Answer(Outcome.BACK)

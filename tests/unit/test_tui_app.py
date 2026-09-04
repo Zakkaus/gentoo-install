@@ -2163,6 +2163,30 @@ def test_the_console_font_is_a_row_and_the_size_with_no_cjk_says_why() -> None:
     )
     assert chosen.unwrap().system.console_font is ConsoleFontSize.SIZE_16X32
 
+def test_in_place_console_font_ignores_bootloader_rules_without_a_graph() -> None:
+    from gentoo_install.model.config import ConsoleFontSize
+    from gentoo_install.model.device import DeviceGraph, DeviceId
+
+    base = config()
+    converted = replace(
+        base,
+        disk=replace(
+            base.disk,
+            graph=DeviceGraph.build([]),
+            root=DeviceId(""),
+            mode=DiskMode.IN_PLACE,
+        ),
+        bootloader=replace(base.bootloader, kind=Bootloader.SYSTEMD_BOOT),
+    )
+    answer = screens.console_font_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n", "q"], lines=24, columns=110),
+        converted,
+        context(),
+    )
+    assert answer.outcome is Outcome.CHOSE
+    assert answer.unwrap().system.console_font is ConsoleFontSize.SIZE_16X32
+
+
 
 def test_empty_makeopts_summary_names_the_machine_it_installs_onto() -> None:
     """An empty value is resolved by the plan, so its summary says whose cores.
@@ -2858,6 +2882,20 @@ def test_remote_unlock_is_refused_without_a_key_and_without_encryption() -> None
         answer = screens.remote_unlock_screen(screen, wanted, at)
         assert answer.outcome is Outcome.BACK
         assert expected in "\n".join(screen.frames[0])
+
+def test_remote_unlock_ignores_an_unrelated_login_violation() -> None:
+    base = config(encrypted_root())
+    broken_login = replace(
+        base,
+        system=replace(base.system, root_password_hash=""),
+        bootloader=replace(base.bootloader, kind=Bootloader.SYSTEMD_BOOT),
+    )
+    screen = FakeScreen(keys=["\n"], lines=24, columns=110)
+    answer = screens.remote_unlock_screen(screen, broken_login, context())
+    drawn = "\n".join(screen.frames[0])
+    assert answer.outcome is Outcome.BACK
+    assert "dracut-crypt-ssh" in drawn
+    assert "root password hash" not in drawn
 
 
 def test_remote_unlock_is_offered_once_both_hold() -> None:
