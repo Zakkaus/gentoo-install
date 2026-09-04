@@ -192,14 +192,6 @@ def install_mode_screen(
     mode = answer.unwrap()
     if mode is config.disk.mode:
         return Answer(Outcome.CHOSE, config)
-    # The plan the operator confirmed erasing belongs to the mode they are
-    # leaving. `confirm_screen` skips a selector already in `confirmed`, so a
-    # confirmation given for a partition plan authorised the dd write to the
-    # same disk, which is the mistake the comment above that screen records
-    # for a second disk added in manual partitioning.
-    context.confirmed.clear()
-    context.layout = manual.Layout()
-    context.manual = False
     if mode is DiskMode.IN_PLACE:
         agreed = _confirm_the_swap(screen, context)
         if agreed is not None:
@@ -208,10 +200,14 @@ def install_mode_screen(
         kept = _answers_this_mode_discards(config)
         if kept and not _agrees_to_discard(screen, context, kept):
             return Answer(Outcome.CHOSE, config)
-        # Cleared with the disk keys: this mode writes the image as it is
-        # and configures nothing in it, and `validate` refuses a configuration
-        # that describes a machine it will not produce. Left standing they
-        # would block an install from a menu that no longer shows those rows.
+    # A prior plan's consent must not authorise a new mode on the same disk.
+    # Clear it only after the confirmation succeeds, so decline keeps the table.
+    context.confirmed.clear()
+    context.layout = manual.Layout()
+    context.manual = False
+    if mode is DiskMode.DD:
+        # DD writes the image as-is, so settings would describe another machine.
+        # Keeping them would block the menu rows this mode removes.
         return Answer(
             Outcome.CHOSE,
             replace(
