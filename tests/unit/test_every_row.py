@@ -150,6 +150,36 @@ def test_every_required_row_can_be_answered_from_the_menu() -> None:
         assert one.edit is not None or one.key == "firmware", one.key
 
 
+def test_an_unavailable_install_mode_is_already_settled() -> None:
+    """A required detected default cannot need a visit when its row cannot open."""
+    from gentoo_install.model import compat
+    from gentoo_install.tui import app
+
+    at = context()
+    base = config(ext4_on_gpt())
+    installation = replace(
+        base,
+        portage=replace(
+            base.portage,
+            mirrors=replace(base.portage.mirrors, site="osuosl"),
+        ),
+    )
+    mode = next(one for one in every_row() if one.key == "mode")
+    assert mode.unavailable(installation, at)
+    at.confirmed.update(compat.destroyed_selectors(installation))
+    required = [
+        one
+        for group in settings.SETTINGS
+        for one in (group.rows if any(row.required for row in group.rows) else (group,))
+        if one.required
+    ]
+    at.visited.update(one.key for one in required if one.key != mode.key)
+
+    assert settings.settled(mode, installation, at)
+    assert mode.key not in [one.key for one in settings.unanswered(installation, at)]
+    assert app._blocked(installation, at) == ""
+
+
 def test_leaving_a_row_alone_changes_nothing() -> None:
     """Escape leaves a row unchanged, except the documented mirror default.
 

@@ -2679,7 +2679,7 @@ def test_a_detected_row_has_to_be_opened_and_not_only_filled_in() -> None:
     """The mirror and the disk start on a value read from this machine, so a
     check for `UNSET` alone let an install erase a drive nobody looked at.
 
-    Only those rows. A row with no detected default is answered by its value:
+    Only available rows. A row with no detected default is answered by its value:
     requiring a visit there made the Install row say `root password: still
     needs an answer` beside a row that read `set`.
     """
@@ -2698,7 +2698,9 @@ def test_a_detected_row_has_to_be_opened_and_not_only_filled_in() -> None:
         for one in (group.rows if any(r.required for r in group.rows) else (group,))
         if one.required
     ]
-    detected = [one for one in required if one.detected]
+    detected = [
+        one for one in required if one.detected and not one.unavailable(ready, at)
+    ]
     named = settings.unanswered(ready, at)
     assert {one.label for one in detected} <= {one.label for one in named}
     assert "Root password" not in {one.label for one in named}
@@ -4524,6 +4526,81 @@ def test_writing_an_image_asks_before_discarding_the_other_answers() -> None:
     assert gone.unwrap().disk.mode is DiskMode.DD
     assert gone.unwrap().system.hostname != "lab5"
 
+@pytest.mark.parametrize(
+    ("keys", "conversion_refused", "image_write_refused", "outcome"),
+    (
+        (
+            ["KEY_DOWN", "KEY_DOWN", "\n", "\n"],
+            Refusal(""),
+            Refusal(""),
+            Outcome.CHOSE,
+        ),
+        (
+            ["KEY_DOWN", "\n", *"nope", "\n"],
+            Refusal(""),
+            Refusal("image writing is unavailable"),
+            Outcome.BACK,
+        ),
+    ),
+)
+def test_declining_a_mode_change_keeps_the_manual_layout(
+    keys: list[str],
+    conversion_refused: Refusal,
+    image_write_refused: Refusal,
+    outcome: Outcome,
+) -> None:
+    """A declined mode confirmation keeps the manual table and consent."""
+    at = context()
+    disk = at.choice.disk
+    layout = manual.Layout(
+        disks=[
+            manual.Disk(
+                selector=disk,
+                slices=[
+                    manual.Slice(
+                        index=1,
+                        role=PartitionRole.ESP,
+                        size=Size.parse("512MiB"),
+                        mountpoint="/efi",
+                    ),
+                    manual.Slice(
+                        index=2,
+                        role=PartitionRole.DATA,
+                        size=Size.parse("20GiB"),
+                        filesystem=FilesystemType.EXT4,
+                        mountpoint="/",
+                    ),
+                    manual.Slice(
+                        index=3,
+                        role=PartitionRole.DATA,
+                        size=Size.parse("10GiB"),
+                        filesystem=FilesystemType.EXT4,
+                        mountpoint="/home",
+                        status=manual.SliceStatus.KEEP,
+                        selector=f"{disk}3",
+                    ),
+                ],
+            )
+        ]
+    )
+    at.confirmed = {disk}
+    at.layout = layout
+    at.manual = True
+    before = config()
+    at.conversion_refused = conversion_refused
+    at.image_write_refused = image_write_refused
+
+    answer = screens.install_mode_screen(
+        FakeScreen(keys=keys, lines=24, columns=110), before, at
+    )
+
+    assert answer.outcome is outcome
+    if answer.chosen:
+        assert answer.unwrap() == before
+    assert at.confirmed == {disk}
+    assert at.layout is layout
+    assert at.manual
+
 
 def test_the_install_row_refuses_while_something_required_is_missing() -> None:
     """Described but choosable, the row started an install that could not run.
@@ -4551,11 +4628,8 @@ def test_the_install_row_refuses_while_something_required_is_missing() -> None:
 
 
 def test_the_install_row_says_its_reason_once() -> None:
-    """The pane headed itself with `disabled_because` and app.py passed the
-    same sentence again as the detail lines, so the right pane read `Install
-    mode, Drive, ...: still needs an answer` and then each of those parts
-    again underneath. Counted in the right pane only, because every part is
-    also a row label in the left one."""
+    """The pane headed itself with `disabled_because` and app.py repeated the
+    same reason in its detail lines, so every blocked setting appeared twice."""
     at = context()
     blank = replace(config(), system=replace(config().system, root_password_hash=""))
     screen = FakeScreen(
@@ -4566,10 +4640,10 @@ def test_the_install_row_says_its_reason_once() -> None:
         "\n".join(line.split("|", 1)[1] for line in frame if "|" in line)
         for frame in screen.frames
     ]
-    carrying = [pane for pane in panes if "Install mode" in pane and "Mirrors" in pane]
+    carrying = [pane for pane in panes if "Drive" in pane and "Mirrors" in pane]
     assert carrying, "no right pane carried the install row's reason"
     for pane in carrying:
-        for part in ("Install mode", "Drive", "Mirrors", "make.conf"):
+        for part in ("Drive", "Mirrors", "make.conf"):
             assert pane.count(part) == 1, f"{part} appears {pane.count(part)} times:\n{pane}"
 
 

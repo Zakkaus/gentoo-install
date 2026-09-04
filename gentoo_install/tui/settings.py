@@ -105,8 +105,8 @@ class Setting:
 def settled(setting: Setting, config: InstallConfig, context: Context) -> bool:
     """Whether a required row counts as answered.
 
-    A row with a detected default has to be opened as well as filled: the
-    mirror and the disk both start on a value read from this machine, and an
+    An available row with a detected default has to be opened as well as filled:
+    the mirror and the disk both start on a value read from this machine, and an
     install that erases a drive nobody looked at is the failure the
     requirement exists to prevent.
 
@@ -114,6 +114,9 @@ def settled(setting: Setting, config: InstallConfig, context: Context) -> bool:
     has no detected default, so requiring a visit made the Install row say it
     still needed an answer beside a row that read `set`.
     """
+    # A disabled row has no answer the operator can supply.
+    if setting.unavailable(config, context):
+        return True
     if setting.value(config, context) == UNSET:
         return False
     if not setting.required or not setting.detected:
