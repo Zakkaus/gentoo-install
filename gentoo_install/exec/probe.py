@@ -728,7 +728,9 @@ class Probe:
         entry for `path_of` to find and asking by id raised `DeviceNotFound`
         at bootloader installation.
         """
-        result = self.runner.run(["lsblk", "--noheadings", "--output", "PKNAME", path])
+        result = self.runner.run(
+            ["lsblk", "--noheadings", "--nodeps", "--output", "PKNAME", path]
+        )
         parent = result.stdout.strip().splitlines()
         return f"/dev/{parent[0].strip()}" if parent and parent[0].strip() else path
 
@@ -1321,7 +1323,7 @@ class Probe:
         except OSError:
             return False
         said = self.runner.run(
-            ["lsblk", "--noheadings", "--output", "TYPE", selector], check=False
+            ["lsblk", "--noheadings", "--nodeps", "--output", "TYPE", selector], check=False
         )
         return said.returncode == 0 and said.stdout.strip() == "disk"
 
