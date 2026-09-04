@@ -93,7 +93,7 @@ class Group:
     #: deriving behavior from package or group names.
     input_language: str = ""
     #: Engine identifier written into a desktop setting when upstream metadata
-    #: establishes one. Empty keeps the installed engine under manual control.
+    #: establishes one. Empty leaves multi-engine groups under manual control.
     input_source: str = ""
     #: The Fontconfig family exposed by a font package. Regional templates are
     #: resolved from the system locale by the font plan.

@@ -18,6 +18,11 @@ from .recorder import Recorder
 
 from .layouts import config
 
+# Multiple engine IDs mean one source cannot represent either provider.
+DYNAMIC_IBUS_PROVIDERS = frozenset(
+    {"ibus-chinese-tables", "ibus-multilingual-m17n"}
+)
+
 
 def test_build_resolves_the_selected_package_groups_once(
     monkeypatch: pytest.MonkeyPatch,
@@ -118,6 +123,17 @@ def test_input_engines_declare_the_language_they_type() -> None:
     ]
     assert engines
     assert all(group.input_language for group in engines)
+
+
+def test_ibus_input_engines_declare_a_source_or_are_dynamic() -> None:
+    catalog = load_catalog()
+    without_source = {
+        group.name
+        for group in catalog.values()
+        if group.input_framework == "ibus" and group.input_method and not group.input_source
+    }
+
+    assert without_source == DYNAMIC_IBUS_PROVIDERS
 
 
 def test_font_groups_declare_a_family_and_category() -> None:

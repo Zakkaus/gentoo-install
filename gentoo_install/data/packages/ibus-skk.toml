@@ -5,3 +5,4 @@ accept_keywords = ["app-i18n/ibus-skk ~amd64"]
 input_framework = "ibus"
 input_method = "skk"
 input_language = "Japanese"
+input_source = "skk"

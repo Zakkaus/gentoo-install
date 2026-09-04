@@ -1,4 +1,5 @@
 # The Chinese table data requires the IBus table engine that loads it.
+# Several table engines mean no single source represents this group.
 packages = ["app-i18n/ibus-table", "app-i18n/ibus-table-chinese"]
 label = "Chinese tables"
 input_framework = "ibus"
