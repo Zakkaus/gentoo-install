@@ -22,6 +22,7 @@ from ..model.config import (
     BinhostChannel,
     Firmware,
     InstallConfig,
+    KernelConfig,
     Overlay,
     PackagesConfig,
     PortageConfig,
@@ -206,6 +207,8 @@ class Context:
         #: disk authorised a second one the prompt never named.
         self.confirmed: set[str] = set()
         self.provenance: set[ValueProvenance] = set()
+        #: Console CJK restores the kernel it automatically replaced.
+        self.kernel_before_console_cjk: KernelConfig | None = None
         #: Which settings the operator has opened. Set here rather than by the
         #: caller: a `Context` built anywhere else answered `settled` with an
         #: AttributeError.

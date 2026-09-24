@@ -4989,34 +4989,30 @@ def test_changing_the_install_mode_takes_back_the_erase_confirmation() -> None:
     assert not at.layout.disks
 
 
-def test_turning_console_cjk_off_takes_back_what_turning_it_on_added() -> None:
-    """Adding without a withdrawal is the shape `#1125` already fixed once.
-
-    Turning the console CJK row on sets `KernelSource.CJK_BIN`, adds
-    `gentoo-zh` and turns the community binary host on. The row flipped one
-    flag, so the machine kept the whole CJK package family, the overlay and a
-    trusted binary host with the feature off: `RequestCjkKernel` reads that
-    flag and writes `-cjk`.
-    """
+def test_turning_console_cjk_off_restores_the_replaced_kernel() -> None:
+    """The automatic CJK switch is undone when Console CJK is turned off."""
     from gentoo_install.model.config import BinhostChannel, KernelSource
     from gentoo_install.tui.context import GENTOO_ZH
 
     at = context()
-    chinese = screens.console_cjk_screen(FakeScreen(keys=["\n"]), config(), at).unwrap()
+    original = replace(
+        config(),
+        kernel=replace(
+            config().kernel, source=KernelSource.DIST_SOURCE, version="6.12.16"
+        ),
+    )
+    chinese = screens.console_cjk_screen(FakeScreen(keys=["\n"]), original, at).unwrap()
     assert chinese.kernel.source is KernelSource.CJK_BIN
     assert any(one.name == GENTOO_ZH for one in chinese.portage.overlays)
     assert chinese.portage.binhost.community is BinhostChannel.STABLE
 
     off = screens.console_cjk_screen(FakeScreen(keys=["\n"]), chinese, at).unwrap()
     assert not off.system.console_cjk
-    assert off.kernel.source is KernelSource.DIST_BIN
+    assert off.kernel == original.kernel
     assert not [one for one in off.portage.overlays if one.name == GENTOO_ZH]
     assert off.portage.binhost.community is BinhostChannel.OFF
     validate(off)
 
-    # Back on, and off again, leaves the same machine: the record is what
-    # decides, so a second withdrawal is not a second removal of something
-    # that is no longer there.
     again = screens.console_cjk_screen(FakeScreen(keys=["\n"]), off, at).unwrap()
     assert again.system.console_cjk
 

@@ -1958,10 +1958,8 @@ def console_cjk_screen(
 ) -> Answer[InstallConfig]:
     """Flipped where it stands: the row reads `in use` or `not used` already.
 
-    Turning it off takes the cjktty kernel with it. `RequestCjkKernel` reads
-    this flag and writes `-cjk`, so leaving that kernel selected merges the
-    whole CJK family with the patch compiled out of the package that exists
-    to carry it.
+    Turning it off restores a kernel this toggle replaced. An independently chosen
+    CJK kernel falls back to default to avoid merging it with `-cjk`.
     """
     wanted = not config.system.console_cjk
     changed = replace(config, system=replace(config.system, console_cjk=wanted))
@@ -1984,6 +1982,7 @@ def console_cjk_screen(
             )
             # The override and pin name the old package, so neither can survive
             # selecting the CJK package.
+            context.kernel_before_console_cjk = config.kernel
             changed = replace(
                 changed,
                 kernel=replace(
@@ -1997,23 +1996,20 @@ def console_cjk_screen(
             mark_derived(context, ValueKind.OVERLAY, GENTOO_ZH)
         return Answer(Outcome.CHOSE, replace(changed, portage=with_gentoo_zh(changed)))
     if not has_cjktty:
+        context.kernel_before_console_cjk = None
         return Answer(Outcome.CHOSE, changed)
-    # The dataclass default, not a second literal: the kernel this row falls
-    # back to is the one a configuration that never chose has.
-    fallback = KernelConfig().source
+    # The default covers a CJK kernel chosen independently of this toggle.
+    fallback = context.kernel_before_console_cjk or KernelConfig()
+    fallback_package = fallback.package or KERNEL_PACKAGES[fallback.source].atom
     say(
         screen,
         context,
         context.translate("Console CJK is off, so the kernel goes back to {}.").format(
-            KERNEL_PACKAGES[fallback].atom
+            fallback_package
         ),
     )
-    # A cjktty override names the package, so clearing the source alone
-    # leaves the old atom selected.
-    changed = replace(
-        changed,
-        kernel=replace(changed.kernel, source=fallback, package="", version=""),
-    )
+    changed = replace(changed, kernel=fallback)
+    context.kernel_before_console_cjk = None
     return Answer(Outcome.CHOSE, _withdrawing_a_derived_overlay(changed, context))
 
 
