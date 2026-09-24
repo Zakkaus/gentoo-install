@@ -999,7 +999,9 @@ def kernel_version_screen(
     title = package
     if ceiling:
         title = f"{package}  {translate('sys-fs/zfs module ceiling')} {ceiling}"
-    menu: Menu[str] = Menu(title=title, items=items, footer=footer(translate))
+    menu: Menu[str] = Menu(
+        title=title, items=items, footer=footer(translate), current=config.kernel.version
+    )
     answer = menu.run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)

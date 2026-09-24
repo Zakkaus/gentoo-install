@@ -1905,12 +1905,14 @@ def test_a_zfs_root_is_offered_no_kernel_the_module_will_not_build_for() -> None
     assert screens.kernel_version_screen(plain, config(), at).unwrap().kernel.version == "7.1.7"
 
 
-def test_the_unpinned_row_pins_nothing() -> None:
+def test_a_pinned_kernel_version_reopens_on_its_pin() -> None:
     at = context()
     at.kernel_versions = lambda atom: (("7.1.7", False),)
     pinned = replace(config(), kernel=replace(config().kernel, version="7.1.7"))
+
     answer = screens.kernel_version_screen(FakeScreen(keys=["\n"], lines=20), pinned, at)
-    assert answer.unwrap().kernel.version == ""
+
+    assert answer.unwrap().kernel.version == "7.1.7"
 
 
 def test_a_required_row_with_no_answer_is_drawn_red() -> None:
