@@ -524,3 +524,33 @@ def test_a_machine_with_no_default_route_is_not_reported(tmp_path: Path) -> None
         )
         == []
     )
+
+
+def test_inspect_emits_each_in_place_conversion_warning(tmp_path: Path) -> None:
+    """The in-place branch carries warnings from both conversion probes."""
+
+    class InPlace(_WithNetwork):
+        def home_accounts(self) -> tuple[tuple[str, int, str], ...]:
+            return (("/home/alice", 1000, "alice"),)
+
+        def live_medium(self) -> str:
+            return ""
+
+    started = config()
+    conversion = replace(
+        started,
+        disk=replace(
+            started.disk,
+            mode=DiskMode.IN_PLACE,
+            graph=DeviceGraph.build(()),
+            root=i(""),
+        ),
+    )
+    report = preflight.inspect(
+        conversion,
+        _machine(preflight.required_commands(conversion)),
+        InPlace(runner=Runner(log=lambda line: None), work=tmp_path),
+    )
+
+    assert any("/home/alice" in warning for warning in report.warnings), report.warnings
+    assert any("192.0.2.10/24 on eth0" in warning for warning in report.warnings), report.warnings
