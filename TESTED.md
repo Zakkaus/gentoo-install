@@ -77,6 +77,8 @@ The ordinary path: partition, format, unpack a stage3, configure, boot.
 | `da8beec2d8689` | `vm-lvm`, `vm-cjk-kernel`, `vm-luks`, `vm-xfs`, `vm-mdraid`, `vm-btrfs`, `openrc-sdboot`, `vm-greetd`, `ext4-bios`, `vm-gnome` — ten of twelve, the first round with the grow-only heartbeat behind it. **Both failures are the same group and neither is the install**: `btrfs-luks` and `vm-desktop` were ended inside `emerge kde-plasma/plasma-meta x11-base/xorg-server kde-apps/konsole kde-apps/dolphin` with the node itself at 0% and the guest's disk counter flat, while the heartbeat printed nothing because `install.txt` was not growing. The redirect the detached install writes into block-buffers where `tee` into a pty used to line-buffer, so a long C++ link leaves both the console and the file silent. `vm-gnome` at 78.9m and `vm-greetd` at 56.5m are the counter-evidence that this is the plasma group's output and not a graphical install: both draw a session and both passed in the same round. Fixed after this round by giving the detached install a pty with `script -q -e -c`; that fix has no record of its own yet |
 | `ee51a5dadde9d` | `static-ip`, `vm-bios-luks`, `vm-zfs`, `vm-zfs-encrypted`, `vm-zfs-mirror`, `vm-raidz`, `zbm-unlock`, `zfs-zbm`, `ext2`, `ext3`, `vm-greetd` — eleven of twelve, and the round that closes the hangup diagnosis. The three the round before lost inside `emerge sys-apps/systemd` — `vm-zfs-encrypted`, `vm-zfs-mirror`, `zbm-unlock` — all passed here, **and all three lost the console while doing it**: their logs hold two, three and four `starting serial terminal on interface serial0` lines, so the connection dropped once, twice and three times and the install survived each. **The twelfth, `btrfs-luks`, is not a regression in the installer**: the detached install was still running and the console had nothing to show, because `tail -n 0` starts at the end of a file the redirect block-buffers where `tee` into a pty used to line-buffer. It passed at 126.6m the round before and was ended at 55.8m here. Fixed after this round by having the follower print `install.txt`'s size when it grows |
 | `786c72dca9d5b` | `static-ip`, `vm-lvm`, `vm-sdboot`, `vm-f2fs`, `vm-unlock`, `mbr-edit`, `vm-cjk-kernel`, `vm-zfs-encrypted`, `vm-zfs`, `vm-raidz`, `zfs-zbm`, `ext4-bios` — twelve of twelve, eleven in the round and `ext4-bios` in a rerun at the same revision. **The rerun is what the round's one failure is worth**: the watchdog ended it inside `emerge sys-boot/grub` for a console that had been silent 1200s with the node at 0%, and the log's last three lines are a compiler invocation cut mid-word, `starting serial terminal on interface serial0`, and `[2]+ Terminated tail -n 0 -F .../install.txt`. `Terminated` is SIGTERM, and the only SIGTERM the harness sends that `tail` is the follower's own `sleep 3; kill $follower`, which is reached only once `install.rc` exists — so the install had finished and the silence was the silence after it. It passed alone in 34.0 minutes. **What this does not establish:** anything about a desktop fixture, which this round does not carry |
+| `140ad7104b2aa` | `vm-bios-luks`, `mbr-edit`, `vm-luks` and three more — six of nine. The round's log was on `/scratch/ram`, a tmpfs, and was gone before this row was written: these three names are the ones read out of it while it ran, and the other three passes and the three fixtures without one cannot be named |
+| `f8f705dc1733b` | `vm-xfs`, `vm-bios-luks`, `vm-lvm`, `vm-binpkg`, `mbr-edit`, `vm-ram` — six of six, and `vm-convert` from the same round is under mode 2. `vm-ram` here is that configuration installed from the live medium, not a `--ram` launch |
 
 Every row from `08015b221d73` onward ran `--region cn --site nju --sync
 webrsync --distfiles http://10.31.0.2/gentoo`, with one exception named in the
@@ -256,6 +258,7 @@ written.
 
 | Revision | Fixture | Result |
 |---|---|---|
+| `f8f705dc1733b` | `vm-convert` | the same again in 62.9 minutes |
 | `2a37189a898a0` | `vm-convert` | the same again in 116.1 minutes, and the first at a revision that counts GRUB's modules before the reboot: the count passed, so this machine had them and booted |
 | `d32b9d4aa6fb4` | `vm-convert` | the same again in 125.8 minutes, and the first row where the `/etc` sentinel was measured: a file written there before the swap was gone afterwards, so `/etc` was replaced rather than merged |
 | `d97a5eb98c743` | `vm-convert` | the same again in 95.4 minutes, at a revision carrying the verdict that names the installer's own reason. The home-marker check that changed the same day belongs to the local conversion runner and is not in this row |
@@ -264,8 +267,8 @@ written.
 The cluster runs a conversion by installing a system first and converting what
 that produced, so these rows cover both halves and the reboot between them.
 
-The conversion is not reliable. Six cluster conversions have reached the
-reboot: five booted, and one stopped at `grub rescue>` for a missing
+The conversion is not reliable. Seven cluster conversions have reached the
+reboot: six booted, and one stopped at `grub rescue>` for a missing
 `/boot/grub/x86_64-efi/normal.mod` while the conversion itself exited `0`. Two
 earlier ones never reached a login prompt at revisions that did not record the
 console, so what they stopped at is unknown. The open defect is row 238 of
