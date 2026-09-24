@@ -6623,6 +6623,7 @@ def test_screendump_reads_a_real_qemu_screen(tmp_path: Path) -> None:
     checked against nothing."""
     import shutil
     import subprocess
+    import time
 
     from tests.vm.monitor import TEXT_CELL_HEIGHT, TEXT_CELL_WIDTH, screendump
 
@@ -6638,8 +6639,15 @@ def test_screendump_reads_a_real_qemu_screen(tmp_path: Path) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    text_mode = (80 * TEXT_CELL_WIDTH, 25 * TEXT_CELL_HEIGHT)
     try:
+        # QEMU draws a 640x480 surface until SeaBIOS sets text mode, and on a
+        # loaded machine the monitor answers first: four gates at once measured 640.
+        deadline = time.monotonic() + 30
         screen = screendump(socket_path, tmp_path / "shot.ppm")
+        while (screen.width, screen.height) != text_mode and time.monotonic() < deadline:
+            time.sleep(0.2)
+            screen = screendump(socket_path, tmp_path / "shot.ppm")
     finally:
         guest.terminate()
         guest.wait(timeout=30)
