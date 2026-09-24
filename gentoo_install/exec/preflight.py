@@ -8,6 +8,7 @@ user fixing one condition per run learns about the next one a run later.
 
 from __future__ import annotations
 
+from ipaddress import ip_interface
 from dataclasses import dataclass
 from pathlib import Path
 from typing import AbstractSet, Final, Iterable, Mapping, Sequence
@@ -351,8 +352,8 @@ def _replaced_network(config: InstallConfig, probe: Probe) -> list[str]:
     )
     if config.system.addresses:
         after = "the configuration writes " + ", ".join(config.system.addresses)
-        kept = {one.split("/")[0] for one in config.system.addresses}
-        if not kept & {address.split("/")[0] for _, address, _ in holding}:
+        kept = {ip_interface(one).ip for one in config.system.addresses}
+        if not kept & {ip_interface(address).ip for _, address, _ in holding}:
             after += ", none of which this machine holds now"
     else:
         after = "the configuration names no address, so the converted system asks a DHCP server"

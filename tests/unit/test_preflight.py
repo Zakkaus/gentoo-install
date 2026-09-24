@@ -473,6 +473,29 @@ def test_a_conversion_says_when_the_configured_address_is_a_different_one(
     )
     assert "none of which this machine holds now" in said[0], said
 
+def test_a_conversion_matches_equivalent_ipv6_address_spellings(tmp_path: Path) -> None:
+    from gentoo_install.exec import preflight as checking
+
+    class CanonicalAddress(_WithNetwork):
+        routes: ClassVar[tuple[str, ...]] = ("default via 2001:db8::ffff dev eth0",)
+        addresses: ClassVar[tuple[tuple[str, str, bool], ...]] = (
+            ("eth0", "2001:db8::1:0:0:5/64", False),
+        )
+
+    started = config()
+    equivalent = replace(
+        started,
+        system=replace(
+            started.system,
+            addresses=("2001:0db8:0000:0000:0001:0000:0000:0005/64",),
+        ),
+    )
+    said = checking._replaced_network(
+        equivalent, CanonicalAddress(runner=Runner(log=lambda line: None), work=tmp_path)
+    )
+
+    assert "none of which this machine holds now" not in said[0], said
+
 
 def test_a_machine_with_no_default_route_is_not_reported(tmp_path: Path) -> None:
     """Nothing to compare against, and a line naming no route reads as though
