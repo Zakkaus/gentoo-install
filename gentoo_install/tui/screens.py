@@ -2332,11 +2332,10 @@ class LanguageDefaults:
     locale: str
     timezone: str
     mirror_region: MirrorRegion
-    #: True for the languages the cjktty patch is the point of. It pulls in
-    #: gentoo-zh, so it is not a default for a language that would not use the
-    #: rest of that overlay.
 
 
+#: Console CJK has no language default: its cjktty kernel and gentoo-zh
+#: dependency are both selected from the Console CJK row.
 #: One row per interface language. Keyed by the same tags as the catalogs.
 LANGUAGE_DEFAULTS: Final[dict[str, LanguageDefaults]] = {
     "en": LanguageDefaults("en_US.UTF-8", "UTC", MirrorRegion.GLOBAL),
