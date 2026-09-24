@@ -2807,6 +2807,20 @@ def test_cpu_flags_reopens_on_the_configured_baseline() -> None:
     answer = screens.cpu_flags_screen(FakeScreen(keys=["\n"], lines=20, columns=96), config(), at)
     assert answer.unwrap().portage.cpu_flags == ()
 
+def test_custom_cpu_flags_reopen_on_the_persisted_value() -> None:
+    """A saved flag tuple stays selected when the local CPU differs."""
+    at = context()
+    at.cpu_flags = ("avx2", "aes")
+    persisted = replace(
+        config(), portage=replace(config().portage, cpu_flags=("sse4_2",))
+    )
+
+    reopened = screens.cpu_flags_screen(
+        FakeScreen(keys=["\n"], lines=20, columns=96), persisted, at
+    ).unwrap()
+
+    assert reopened.portage.cpu_flags == ("sse4_2",)
+
 
 def test_dhcp_reopens_as_dhcp() -> None:
     answer = screens.address_screen(FakeScreen(keys=["\n"]), config(), context())

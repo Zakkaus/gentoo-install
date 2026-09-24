@@ -2071,12 +2071,15 @@ def cpu_flags_screen(
             detail=translate("what the profile sets, and what a binary host builds"),
         ),
     ]
+    current = config.portage.cpu_flags
+    if current not in {one.value for one in items}:
+        items.append(Item(label=" ".join(current), value=current))
     answer = Menu(
         title=translate("CPU flags"),
         preamble=(translate("These flags select the instruction set used to compile packages."),),
         items=items,
         footer=footer(translate),
-        current=config.portage.cpu_flags,
+        current=current,
     ).run(screen)
     if not answer.chosen:
         return Answer(answer.outcome)
