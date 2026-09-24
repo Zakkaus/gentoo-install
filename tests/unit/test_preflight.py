@@ -435,6 +435,29 @@ def test_a_conversion_says_what_the_machine_reaches_the_network_with(
     # address is not what the operator is connected through.
     assert "192.168.122.1" not in said[0], said
 
+def test_a_conversion_names_every_interface_in_a_multipath_default_route(
+    tmp_path: Path,
+) -> None:
+    """`ip -oneline` folds every default-route nexthop onto one record."""
+    from gentoo_install.exec import preflight as checking
+
+    class Multipath(_WithNetwork):
+        routes: ClassVar[tuple[str, ...]] = (
+            "default \\\tnexthop via 198.51.100.254 dev eth0 weight 1 "
+            "\\\tnexthop via 203.0.113.254 dev eth1 weight 1",
+        )
+        addresses: ClassVar[tuple[tuple[str, str, bool], ...]] = (
+            ("eth0", "198.51.100.10/24", False),
+            ("eth1", "203.0.113.10/24", False),
+        )
+
+    said = checking._replaced_network(
+        config(), Multipath(runner=Runner(log=lambda line: None), work=tmp_path)
+    )
+
+    assert "198.51.100.10/24 on eth0" in said[0], said
+    assert "203.0.113.10/24 on eth1" in said[0], said
+
 
 def test_a_conversion_says_when_the_configured_address_is_a_different_one(
     tmp_path: Path,
