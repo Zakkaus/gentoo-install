@@ -283,6 +283,26 @@ def test_memory_modes_require_a_one_shot_boot_entry(
     assert "cannot arm a one-shot boot entry" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("mode", ("--ram", "--lowram"))
+def test_memory_modes_refuse_an_unarmable_machine_before_the_menu(
+    mode: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """On a live medium the refusal came after twenty screens and reopened the
+    language screen, which read as the installer restarting."""
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(RealProbe, "boot_method", lambda self: BootMethod.NONE)
+    monkeypatch.setattr(cli, "_unattended", lambda arguments: False)
+    monkeypatch.setattr(cli, "_needs_network", lambda arguments: False)
+
+    def menu(*given: object) -> None:
+        raise AssertionError("the menu opened on a machine it cannot arm")
+
+    monkeypatch.setattr(cli, "_from_menu", menu)
+    code = main([mode])
+    assert code == EXIT_PREFLIGHT
+    assert "cannot arm a one-shot boot entry" in capsys.readouterr().err
+
+
 def test_ram_warns_but_proceeds_for_a_layout_without_zfs(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
