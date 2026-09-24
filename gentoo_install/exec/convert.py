@@ -9,14 +9,13 @@ import re
 import shutil
 import sys
 from enum import Enum
-from pathlib import Path
-from typing import Callable, Sequence
+from pathlib import Path, PurePosixPath
+from typing import Callable, Final, Literal, Sequence
 
 from ..errors import ConversionFailed
 
 #: Copies one tree into a destination the caller names, preserving what a
-#: stage3 needs. The plan hands over `cp --archive`: `shutil.copytree` restores
-#: neither xattrs nor file capabilities.
+#: stage3 needs. `cp --archive` preserves xattrs and file capabilities.
 Copier = Callable[[Path, Path], None]
 
 
@@ -25,6 +24,158 @@ WarningReporter = Callable[[str], None]
 
 def _stderr_warning(message: str) -> None:
     print(message, file=sys.stderr)
+
+_PT_INTERP: Final[int] = 3
+_LIBRARY_DIRECTORIES: tuple[str, ...] = ("lib", "lib64", "usr/lib", "usr/lib64")
+
+
+def staged_copier(
+    staging: Path, run: Callable[[Sequence[str]], object]
+) -> Copier:
+    """Return a copier that remains runnable after a mounted `/usr` moves."""
+    cp = _staged_executable(staging, staging / "bin" / "cp", "copy tool")
+    interpreter = _elf_interpreter(cp)
+    command: tuple[str, ...]
+    if interpreter is None:
+        command = (str(cp),)
+    else:
+        loader = _staged_executable(
+            staging, _interpreter_path(staging, interpreter), "dynamic loader"
+        )
+        libraries = _staged_library_directories(staging)
+        if not libraries:
+            raise ConversionFailed(
+                f"{cp} is dynamically linked but {staging} has no library directory"
+            )
+        command = (
+            str(loader),
+            "--library-path",
+            ":".join(str(path) for path in libraries),
+            str(cp),
+        )
+
+    def copy(source: Path, destination: Path) -> None:
+        run(
+            (
+                *command,
+                "--archive",
+                "--one-file-system",
+                str(source),
+                str(destination),
+            )
+        )
+
+    return copy
+
+
+def _staged_executable(staging: Path, path: Path, what: str) -> Path:
+    """Return an executable after refusing a symlink out of the staging root."""
+    resolved = _resolved_in_staging(staging, path, what)
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise ConversionFailed(f"the staged {what} {path} is not executable")
+    return resolved
+
+
+def _resolved_in_staging(staging: Path, path: Path, what: str) -> Path:
+    """Resolve `path`, rejecting an absolute symlink into the running system."""
+    try:
+        root = staging.resolve(strict=True)
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise ConversionFailed(
+            f"the staged {what} {path} could not be read: {error}"
+        ) from error
+    if root != resolved and root not in resolved.parents:
+        raise ConversionFailed(f"the staged {what} {path} resolves outside {staging}")
+    return resolved
+
+
+def _interpreter_path(staging: Path, interpreter: str) -> Path:
+    """Return the staged location of an ELF interpreter path."""
+    written = PurePosixPath(interpreter)
+    if not written.is_absolute() or ".." in written.parts:
+        raise ConversionFailed(
+            f"the staged copy tool names an invalid interpreter {interpreter!r}"
+        )
+    return staging.joinpath(*written.parts[1:])
+
+
+def _staged_library_directories(staging: Path) -> tuple[Path, ...]:
+    """Return the distinct standard library directories inside `staging`."""
+    found: list[Path] = []
+    for name in _LIBRARY_DIRECTORIES:
+        candidate = staging / name
+        if not candidate.exists() and not candidate.is_symlink():
+            continue
+        resolved = _resolved_in_staging(staging, candidate, "library directory")
+        if not resolved.is_dir():
+            raise ConversionFailed(
+                f"the staged library directory {candidate} is not a directory"
+            )
+        if resolved not in found:
+            found.append(resolved)
+    return tuple(found)
+
+
+def _elf_interpreter(binary: Path) -> str | None:
+    """Read the dynamic loader path from the staged copy tool's ELF header."""
+    try:
+        contents = binary.read_bytes()
+    except OSError as error:
+        raise ConversionFailed(
+            f"the staged copy tool {binary} could not be read: {error}"
+        ) from error
+    if len(contents) < 6 or contents[:4] != b"\x7fELF":
+        raise ConversionFailed(f"the staged copy tool {binary} is not an ELF executable")
+    if contents[5] == 1:
+        byteorder: Literal["little", "big"] = "little"
+    elif contents[5] == 2:
+        byteorder = "big"
+    else:
+        raise ConversionFailed(
+            f"the staged copy tool {binary} has an unknown ELF byte order"
+        )
+    # ELF32 and ELF64 store the program-header fields at different offsets.
+    if contents[4] == 1:
+        header_size, table_at, entry_at, count_at = 52, 28, 42, 44
+        program_size, offset_at, size_at, number_size = 32, 4, 16, 4
+    elif contents[4] == 2:
+        header_size, table_at, entry_at, count_at = 64, 32, 54, 56
+        program_size, offset_at, size_at, number_size = 56, 8, 32, 8
+    else:
+        raise ConversionFailed(f"the staged copy tool {binary} has an unknown ELF class")
+    if len(contents) < header_size:
+        raise ConversionFailed(f"the staged copy tool {binary} has a truncated ELF header")
+    table = int.from_bytes(contents[table_at : table_at + number_size], byteorder)
+    entry_size = int.from_bytes(contents[entry_at : entry_at + 2], byteorder)
+    count = int.from_bytes(contents[count_at : count_at + 2], byteorder)
+    if count == 0:
+        return None
+    if entry_size < program_size or table + entry_size * count > len(contents):
+        raise ConversionFailed(f"the staged copy tool {binary} has invalid program headers")
+    for index in range(count):
+        start = table + index * entry_size
+        if int.from_bytes(contents[start : start + 4], byteorder) != _PT_INTERP:
+            continue
+        offset = int.from_bytes(
+            contents[start + offset_at : start + offset_at + number_size], byteorder
+        )
+        size = int.from_bytes(
+            contents[start + size_at : start + size_at + number_size], byteorder
+        )
+        if offset + size > len(contents):
+            raise ConversionFailed(f"the staged copy tool {binary} has an invalid interpreter")
+        written = contents[offset : offset + size]
+        terminator = written.find(b"\0")
+        if terminator <= 0:
+            raise ConversionFailed(f"the staged copy tool {binary} has an invalid interpreter")
+        try:
+            return written[:terminator].decode("ascii")
+        except UnicodeDecodeError as error:
+            raise ConversionFailed(
+                f"the staged copy tool {binary} has a non-ASCII interpreter"
+            ) from error
+    return None
 
 
 #: Where a mounted directory's own entries are moved while it is replaced.
@@ -260,10 +411,9 @@ def convert(
         # merged-usr Debian has no `/lib64` at all, and renaming what is not
         # there fails half way through with the rest already swapped.
         destinations.append((name, destination, staged, old, present, mounted))
-    # Mount points last: replacing one by content is the only step whose
-    # rollback touches more than two renames, so nothing else has to be undone
-    # after one of them succeeded.
-    destinations.sort(key=lambda entry: entry[5])
+    # Mount points first: their copies run the staged `cp` at its path inside
+    # `staging`, and renaming the staged `usr` into place removes that path.
+    destinations.sort(key=lambda entry: not entry[5])
 
     swapped: list[tuple[str, Path, Path, Path, bool, bool]] = []
     #: How each entry of a replaced mount point arrived, so the rollback is

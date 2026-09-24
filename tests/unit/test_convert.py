@@ -4,6 +4,7 @@ from __future__ import annotations
 import errno
 import os
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -13,18 +14,89 @@ from gentoo_install.exec import convert
 
 
 def _copy(source: Path, destination: Path) -> None:
-    """What the plan hands over as `cp --archive`, in the test's own terms.
-
-    `copytree` here rather than a runner: what these tests hold is the ordering
-    and the rollback, and the plan's own test holds that the command really is
-    `cp --archive`.
-    """
+    """Copy one test tree without invoking a command."""
     import shutil
 
     if source.is_dir() and not source.is_symlink():
         shutil.copytree(source, destination, symlinks=True)
     else:
         shutil.copy2(source, destination, follow_symlinks=False)
+
+
+def _elf_cp(path: Path, interpreter: str | None) -> None:
+    written = (interpreter + "\0").encode() if interpreter is not None else b""
+    header_size = 64
+    program_size = 56 if interpreter is not None else 0
+    interpreter_offset = header_size + program_size
+    contents = bytearray(interpreter_offset + len(written))
+    contents[:6] = b"\x7fELF\x02\x01"
+    contents[32:40] = header_size.to_bytes(8, "little")
+    contents[52:54] = header_size.to_bytes(2, "little")
+    contents[54:56] = program_size.to_bytes(2, "little")
+    contents[56:58] = (1 if interpreter is not None else 0).to_bytes(2, "little")
+    if interpreter is not None:
+        contents[header_size : header_size + 4] = (3).to_bytes(4, "little")
+        contents[header_size + 8 : header_size + 16] = interpreter_offset.to_bytes(8, "little")
+        contents[header_size + 32 : header_size + 40] = len(written).to_bytes(8, "little")
+        contents[interpreter_offset:] = written
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(contents)
+    path.chmod(0o755)
+
+
+def test_a_dynamic_staged_cp_runs_through_its_own_loader(tmp_path: Path) -> None:
+    staging = tmp_path / "new"
+    cp = staging / "bin" / "cp"
+    interpreter = "/lib/ld-musl-x86_64.so.1"
+    loader = staging / interpreter.removeprefix("/")
+    _elf_cp(cp, interpreter)
+    loader.parent.mkdir(parents=True)
+    loader.write_text("loader")
+    loader.chmod(0o755)
+    (staging / "usr" / "lib").mkdir(parents=True)
+    commands: list[tuple[str, ...]] = []
+
+    def run(argv: Sequence[str]) -> None:
+        commands.append(tuple(argv))
+
+    copy = convert.staged_copier(staging, run)
+    copy(staging / "var" / "cache", Path("/var/cache"))
+
+    assert commands == [
+        (
+            str(loader),
+            "--library-path",
+            f"{staging / 'lib'}:{staging / 'usr' / 'lib'}",
+            str(cp),
+            "--archive",
+            "--one-file-system",
+            str(staging / "var" / "cache"),
+            "/var/cache",
+        )
+    ]
+
+
+def test_a_static_staged_cp_runs_directly(tmp_path: Path) -> None:
+    staging = tmp_path / "new"
+    cp = staging / "bin" / "cp"
+    _elf_cp(cp, None)
+    commands: list[tuple[str, ...]] = []
+
+    def run(argv: Sequence[str]) -> None:
+        commands.append(tuple(argv))
+
+    copy = convert.staged_copier(staging, run)
+    copy(staging / "var" / "cache", Path("/var/cache"))
+
+    assert commands == [
+        (
+            str(cp),
+            "--archive",
+            "--one-file-system",
+            str(staging / "var" / "cache"),
+            "/var/cache",
+        )
+    ]
 
 
 def _directory(path: Path, content: str) -> None:
@@ -507,6 +579,94 @@ def test_a_failed_cross_device_copy_restores_all_replaced_directories(
     inner_failure = failure.value.__cause__
     assert isinstance(inner_failure, ConversionFailed)
     assert inner_failure.__cause__ is copy_failure
+
+
+def test_a_rename_failing_after_a_mounted_swap_restores_its_contents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mount points are swapped first, so an ordinary rename that fails
+    afterwards has to put the old contents back into the mount point."""
+    root = tmp_path / "root"
+    staging = root / "new"
+    for name in ("usr", "var"):
+        (root / name).mkdir(parents=True)
+        (staging / name).mkdir(parents=True)
+    (root / "usr" / "content").write_text("old usr")
+    (staging / "usr" / "content").write_text("new usr")
+    (root / "var" / "old-log").write_text("old var")
+    (staging / "var" / "cache").mkdir()
+
+    _pretend_mounts(monkeypatch, root / "var")
+    real_rename = os.rename
+
+    def refusing_rename(source: Path | str, destination: Path | str) -> None:
+        if Path(source) == staging / "usr":
+            raise OSError(errno.EACCES, "Permission denied")
+        real_rename(source, destination)
+
+    monkeypatch.setattr("os.rename", refusing_rename)
+
+    with pytest.raises(ConversionFailed):
+        convert.convert(staging, ("usr", "var"), copy=_copy, root=root)
+
+    assert (root / "usr" / "content").read_text() == "old usr"
+    assert (root / "var" / "old-log").read_text() == "old var"
+    assert not (root / "var" / "cache").exists()
+    assert (staging / "var" / "cache").is_dir()
+    assert not (root / "var" / convert.KEPT_ASIDE).exists()
+
+
+def test_the_staged_cp_is_still_there_when_a_mounted_var_is_copied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A merged-usr machine with `/usr` on the root filesystem and `/var` on its
+    own mount. Renaming the staged `usr` into place first took the staged `cp`
+    and its loader with it, and the `/var` copy answered `ld-linux-x86-64.so.2
+    is not installed`."""
+    root = tmp_path / "root"
+    staging = root / "gentoo-install.new"
+    interpreter = "/lib64/ld-linux-x86-64.so.2"
+    _elf_cp(staging / "usr" / "bin" / "cp", interpreter)
+    loader = staging / "usr" / interpreter.removeprefix("/")
+    loader.parent.mkdir()
+    loader.write_text("loader")
+    loader.chmod(0o755)
+    (staging / "bin").symlink_to("usr/bin")
+    (staging / "lib64").symlink_to("usr/lib64")
+    (staging / "var" / "cache").mkdir(parents=True)
+    (root / "usr").mkdir()
+    (root / "usr" / "content").write_text("old usr")
+    (root / "bin").symlink_to("usr/bin")
+    (root / "lib64").symlink_to("usr/lib64")
+    (root / "var").mkdir()
+    (root / "var" / "old-log").write_text("old var")
+
+    _pretend_mounts(monkeypatch, root / "var")
+    real_rename = os.rename
+
+    def cross_device_rename(source: Path | str, destination: Path | str) -> None:
+        if Path(source).parent == staging / "var":
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        real_rename(source, destination)
+
+    def run(argv: Sequence[str]) -> None:
+        # `execve` fails on a loader, binary or library directory that is gone.
+        command = argv[: argv.index("--archive")]
+        needed = [one for one in command if one.startswith("/")]
+        needed += command[command.index("--library-path") + 1].split(":")
+        for one in needed:
+            if not Path(one).exists():
+                raise CommandFailed(f"{one} is not installed")
+        _copy(Path(argv[-2]), Path(argv[-1]))
+
+    copy = convert.staged_copier(staging, run)
+    monkeypatch.setattr(os, "rename", cross_device_rename)
+    convert.convert(staging, ("bin", "lib64", "usr", "var"), copy=copy, root=root)
+
+    assert (root / "var" / "cache").is_dir()
+    assert not (root / "var" / "old-log").exists(), "replaced, not merged"
+    assert (root / "usr" / "bin" / "cp").is_file(), "the staged usr is in place"
+    assert not (root / "usr" / "content").exists()
 
 
 def test_a_merged_usr_symlink_is_removed_rather_than_left_beside_the_new_one(

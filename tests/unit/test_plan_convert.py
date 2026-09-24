@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
-from collections.abc import Callable
 from typing import Any, Sequence, cast
 
 import pytest
@@ -913,45 +912,6 @@ def test_the_staging_root_is_unmounted_from_the_deepest_mount_up() -> None:
     assert not any(one.endswith("/home") for one in unmounted), unmounted
 
 
-def test_the_swap_copies_with_cp_archive_rather_than_a_python_copy() -> None:
-    """A mount point rename cannot cross is filled by copy, and what does the
-    copying decides whether the new userland keeps its file capabilities.
-    `shutil.copytree` restores neither those nor xattrs, and the same reason
-    already made the stage3 unpack use GNU tar rather than `tarfile`.
-    """
-    from pathlib import Path
-
-    from .recorder import Recorder
-
-    copied: list[tuple[str, str]] = []
-
-    class Crossing(Recorder):
-        """A seam that calls the copier, the way the real one does for a
-        directory a rename cannot cross."""
-
-        def swap_directories(
-            self,
-            staging: PurePosixPath,
-            names: Sequence[str],
-            copy: Callable[[Path, Path], None],
-        ) -> None:
-            copy(Path("/gentoo-install.new/var/cache"), Path("/var/cache"))
-            copied.append((str(staging), str(tuple(names))))
-
-    recorder = Crossing()
-    SwapDirectories(names=("var",)).apply(recorder)
-
-    assert copied, "the converter was never called"
-    written = [argv for argv in recorder.commands if argv and argv[0] == "cp"]
-    assert written == [
-        (
-            "cp",
-            "--archive",
-            "--one-file-system",
-            "/gentoo-install.new/var/cache",
-            "/var/cache",
-        )
-    ], recorder.commands
 
 
 def test_nothing_that_runs_after_the_swap_is_pointed_at_the_staging_root() -> None:

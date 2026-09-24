@@ -17,9 +17,8 @@ import signal
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 import re
-from collections.abc import Callable
 from typing import ClassVar, Final, Protocol, Sequence
 
 from ..errors import CommandFailed
@@ -171,10 +170,7 @@ class Context(Protocol):
         """
 
     def swap_directories(
-        self,
-        staging: PurePosixPath,
-        names: Sequence[str],
-        copy: Callable[[Path, Path], None],
+        self, staging: PurePosixPath, names: Sequence[str]
     ) -> None:
         """Replace each named directory of the running system from `staging`.
 
