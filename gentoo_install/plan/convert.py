@@ -115,14 +115,18 @@ class _StagingContext:
 
 @dataclass(frozen=True, kw_only=True)
 class SwapDirectories(Operation):
-    """Atomically replace the selected live-system directories."""
+    """Replace the selected live-system directories."""
 
     stage: Stage = Stage.BOOTLOADER
     names: tuple[str, ...] = REPLACED_DIRECTORIES
     staging: PurePosixPath = PurePosixPath("/gentoo-install.new")
 
-    def describe(self) -> str:
-        return f"atomically swap {', '.join('/' + name for name in self.names)} from {self.staging}"
+    def describe_parts(self) -> tuple[str, tuple[str, ...]]:
+        return (
+            "replace {} from {}; replace the contents of mounted directories, rename "
+            "unmounted directories, then remove old directories",
+            (", ".join(f"/{name}" for name in self.names), str(self.staging)),
+        )
 
     def apply(self, context: Context) -> None:
         context.swap_directories(self.staging, self.names)
