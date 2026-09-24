@@ -798,6 +798,44 @@ def test_the_overview_translates_converted_operation_labels() -> None:
     assert translated in drawn.last
 
 
+def test_the_overview_translates_staged_operation_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gentoo_install.i18n import Catalog
+    from gentoo_install.plan import system as plan_system
+    from gentoo_install.plan.convert import Staged
+    from gentoo_install.plan.operations import Operation
+    from gentoo_install.tui import overview
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    inner = plan_system.SetTimezone(timezone="Asia/Taipei")
+    operation = Staged(stage=inner.stage, inner=inner)
+
+    def only_staged(
+        installation: InstallConfig, groups: object, *, layout: object = None
+    ) -> list[Operation]:
+        del installation, groups, layout
+        return [operation]
+
+    monkeypatch.setattr(overview, "plan_build", only_staged)
+    at = context()
+    at.translate = Catalog("zh-CN")
+    drawn = FakeScreen(keys=["q"], lines=120, columns=130)
+
+    overview_screen(drawn, config(ext4_on_gpt()), at)
+
+    parts = inner.describe_parts()
+    assert parts is not None
+    template, values = parts
+    expected = at.translate("{}, in {}").format(
+        at.translate(template).format(*values), operation.staging
+    )
+    assert at.translate("{}, in {}") != "{}, in {}"
+    assert expected != operation.describe()
+    assert expected in drawn.last
+
+
 def test_the_overview_renders_an_unconverted_operation(monkeypatch: pytest.MonkeyPatch) -> None:
     from dataclasses import dataclass
 
