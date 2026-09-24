@@ -230,6 +230,48 @@ def test_memory_key_is_resolved_before_the_boot_entry_is_written(tmp_path: Path)
     assert keys == (public_key,)
 
 
+@pytest.mark.skipif(shutil.which("curl") is None, reason="needs the real curl")
+def test_memory_key_fetched_by_url_is_not_read_with_the_progress_meter() -> None:
+    """curl draws its meter on stderr when stdout is a pipe, and the runner
+    merges the two, so an unsilenced fetch refused `github:` as an unknown type."""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import threading
+
+    public_key = (
+        "ssh-ed25519 "
+        "AAAAC3NzaC1lZDI1NTE5AAAAIB+85deBslaLOMFw71dx23wo7fFT76GVcEyQS9IdVvvT "
+        "netboot@example"
+    )
+
+    class Keys(BaseHTTPRequestHandler):
+        # The name is `http.server`'s, not a choice.
+        def do_GET(self) -> None:
+            body = f"{public_key}\n".encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *arguments: Any) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Keys)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        keys = cli._memory_ssh_keys(
+            MemoryLaunch(
+                MemoryMode.RAM, ssh_key=f"http://127.0.0.1:{server.server_port}/zakkaus.keys"
+            ),
+            Runner(log=lambda line: None),
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert keys == (public_key,)
+
+
 @pytest.mark.parametrize("mode", ("--ram", "--lowram"))
 def test_memory_modes_require_a_one_shot_boot_entry(
     mode: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
