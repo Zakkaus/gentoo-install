@@ -413,7 +413,7 @@ class FetchMemoryImage(Operation):
             else _alpine_release(context, self.target.architecture, self.region)
         )
         image = place / name
-        context.run(["curl", "--fail", "--location", "--output", str(image), url])
+        context.run([*CURL, "--output", str(image), url])
         said = context.run(["sha256sum", str(image)])
         got = said.split()[0] if said.split() else ""
         if got != checksum:
@@ -513,6 +513,10 @@ APKOVL: Final[str] = "gentoo-install.apkovl.tar.gz"
 #: The marker that keeps Alpine's default boot services on a machine that
 #: brings its own apkovl. `initramfs-init` removes it after reading it.
 DEFAULT_SERVICES: Final[str] = "/etc/.default_boot_services"
+
+#: The runner merges stderr into stdout, and curl draws its progress meter on
+#: stderr whenever stdout is not a terminal, so every parsed answer began with it.
+CURL: Final[tuple[str, ...]] = ("curl", "--fail", "--silent", "--show-error", "--location")
 
 #: The login profile that sources the first screen in each environment. CJK
 #: root uses bash; Alpine root uses ash and reads `.profile`.
@@ -1413,7 +1417,7 @@ def _cjk_release(context: Context, machine: str) -> tuple[str, str, str]:
     from_mirror = _cjk_from_mirror(context, named)
     if from_mirror is not None:
         return from_mirror
-    said = context.run(["curl", "--fail", "--location", CJK_RELEASES])
+    said = context.run([*CURL, CJK_RELEASES])
     try:
         release = json.loads(said)
     except json.JSONDecodeError as error:
@@ -1432,7 +1436,7 @@ def _cjk_release(context: Context, machine: str) -> tuple[str, str, str]:
         )
     if not assets.get(f"{iso}.sha256"):
         raise DownloadFailed(f"{iso} is published with no companion .sha256")
-    digest = context.run(["curl", "--fail", "--location", assets[f"{iso}.sha256"]])
+    digest = context.run([*CURL, assets[f"{iso}.sha256"]])
     return iso, assets[iso], _first_word(digest, iso)
 
 
@@ -1442,21 +1446,21 @@ def _cjk_from_mirror(context: Context, named: str) -> tuple[str, str, str] | Non
     `None` rather than an exception: a mirror that is down is not a reason to
     stop, and the release index is asked next.
     """
-    index = context.run(["curl", "--fail", "--location", CJK_MIRROR], check=False)
+    index = context.run([*CURL, CJK_MIRROR], check=False)
     if isinstance(index, CommandOutput) and index.returncode != 0:
         return None
     builds = CJK_BUILD.findall(index)
     if not builds:
         return None
     inside = f"{CJK_MIRROR.rstrip('/')}/{max(builds)}/"
-    listed = context.run(["curl", "--fail", "--location", inside], check=False)
+    listed = context.run([*CURL, inside], check=False)
     if isinstance(listed, CommandOutput) and listed.returncode != 0:
         return None
     names = CJK_ASSET.findall(listed)
     iso = next((one for one in names if one.endswith(".iso") and f"-{named}-" in one), "")
     if not iso or f"{iso}.sha256" not in names:
         return None
-    digest = context.run(["curl", "--fail", "--location", f"{inside}{iso}.sha256"])
+    digest = context.run([*CURL, f"{inside}{iso}.sha256"])
     return iso, f"{inside}{iso}", _first_word(digest, iso)
 
 
@@ -1470,7 +1474,7 @@ def _alpine_release(
     standard library and this file's shape is two levels deep.
     """
     index = ALPINE_RELEASES.format(base=ALPINE_MIRRORS[region], architecture=machine)
-    said = context.run(["curl", "--fail", "--location", index])
+    said = context.run([*CURL, index])
     for record in said.split("\n-\n"):
         fields = dict(_yaml_pairs(record))
         if fields.get("flavor") != ALPINE_NETBOOT_FLAVOUR:
