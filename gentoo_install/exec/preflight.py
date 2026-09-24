@@ -175,9 +175,6 @@ def assess_commands(
 #: has already been partitioned.
 ZFS_PASSPHRASE_MINIMUM: Final[int] = 8
 
-#: The first uid `useradd` hands out on Gentoo, and what separates a
-#: person's home directory from a system account that happens to own one.
-UID_MIN: Final[int] = 1000
 
 #: Below this, compiling in a tmpfs is what runs the machine out of memory.
 TMPFS_MINIMUM: Final[int] = 8 * 1024**3
@@ -367,20 +364,23 @@ def _orphaned_home_directories(config: InstallConfig, probe: Probe) -> list[str]
     """Home directories whose owner the converted machine will not have.
 
     `/home` is not among the directories a conversion replaces and `/etc` is,
-    so the files stay and the accounts that own them do not. A name the
-    configuration recreates still gets whatever uid `useradd` picks, which is
-    why the old one is named here rather than only the account.
+    so the files stay and the accounts that own them do not. `/home`, not a uid
+    threshold, is the boundary: the source distribution decides its user range,
+    and any account with a directory there loses its name.
     """
     wanted = {user.name for user in config.system.users}
     problems: list[str] = []
     for path, uid, name in probe.home_accounts():
+        # Every stage3 has root, and root owns `lost+found` on a separate `/home`.
+        if uid == 0:
+            continue
         if name and name in wanted:
             problems.append(
                 f"{path} belongs to uid {uid} ({name}), and the conversion recreates that "
                 "account without a uid setting; useradd may choose a different uid, which can "
                 "leave its files unreadable to it"
             )
-        elif uid >= UID_MIN:
+        else:
             problems.append(
                 f"{path} belongs to uid {uid}"
                 + (f" ({name})" if name else "")
