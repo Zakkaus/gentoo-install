@@ -11,7 +11,7 @@ from gentoo_install.errors import CommandFailed, DownloadFailed
 from gentoo_install.plan.operations import CommandOutput
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Final, Sequence
 
 from gentoo_install.model.device import DeviceId
@@ -172,10 +172,7 @@ class Recorder:
         return PurePosixPath(f"/run/gentoo-install/keys/{device}")
 
     def swap_directories(
-        self,
-        staging: PurePosixPath,
-        names: Sequence[str],
-        copy: Callable[[Path, Path], None],
+        self, staging: PurePosixPath, names: Sequence[str]
     ) -> None:
         # Recorded rather than performed: the real one renames the running
         # system's directories, and a unit test must not.

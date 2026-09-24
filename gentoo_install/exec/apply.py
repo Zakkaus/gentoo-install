@@ -245,15 +245,12 @@ class Machine:
             )
         return found.returncode == 0
 
-    def swap_directories(
-        self,
-        staging: PurePosixPath,
-        names: Sequence[str],
-        copy: Callable[[Path, Path], None],
-    ) -> None:
+    def swap_directories(self, staging: PurePosixPath, names: Sequence[str]) -> None:
         from . import convert as converting
 
-        converting.convert(Path(str(staging)), names, copy=copy, warn=self.runner.warning)
+        staged = Path(str(staging))
+        copy = converting.staged_copier(staged, self.runner.run)
+        converting.convert(staged, names, copy=copy, warn=self.runner.warning)
 
     def populate_boot(self, staging: PurePosixPath) -> None:
         from . import convert as converting

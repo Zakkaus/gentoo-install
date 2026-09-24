@@ -125,14 +125,7 @@ class SwapDirectories(Operation):
         return f"atomically swap {', '.join('/' + name for name in self.names)} from {self.staging}"
 
     def apply(self, context: Context) -> None:
-        def copy(source: Path, destination: Path) -> None:
-            # `cp --archive`, not `shutil.copytree`: a stage3 carries file
-            # capabilities and xattrs that Python's copy does not restore.
-            context.run(
-                ["cp", "--archive", "--one-file-system", str(source), str(destination)]
-            )
-
-        context.swap_directories(self.staging, self.names, copy)
+        context.swap_directories(self.staging, self.names)
 
 
 FSTAB: Final[PurePosixPath] = PurePosixPath("/etc/fstab")
