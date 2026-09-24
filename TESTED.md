@@ -258,6 +258,7 @@ written.
 
 | Revision | Fixture | Result |
 |---|---|---|
+| `6c9fea0bcd8c6` | `vm-convert` | the same again in 33.0 minutes, at the revision that replaces mount points before renaming the staged `usr`. The machine it converts is `vm-xfs`, which mounts only `/` and `/efi`, so the row covers the new order on an ordinary layout and not the separately mounted `/var` that motivated it |
 | `f8f705dc1733b` | `vm-convert` | the same again in 62.9 minutes |
 | `2a37189a898a0` | `vm-convert` | the same again in 116.1 minutes, and the first at a revision that counts GRUB's modules before the reboot: the count passed, so this machine had them and booted |
 | `d32b9d4aa6fb4` | `vm-convert` | the same again in 125.8 minutes, and the first row where the `/etc` sentinel was measured: a file written there before the swap was gone afterwards, so `/etc` was replaced rather than merged |
@@ -267,8 +268,8 @@ written.
 The cluster runs a conversion by installing a system first and converting what
 that produced, so these rows cover both halves and the reboot between them.
 
-The conversion is not reliable. Seven cluster conversions have reached the
-reboot: six booted, and one stopped at `grub rescue>` for a missing
+The conversion is not reliable. Eight cluster conversions have reached the
+reboot: seven booted, and one stopped at `grub rescue>` for a missing
 `/boot/grub/x86_64-efi/normal.mod` while the conversion itself exited `0`. Two
 earlier ones never reached a login prompt at revisions that did not record the
 console, so what they stopped at is unknown. The open defect is row 238 of
