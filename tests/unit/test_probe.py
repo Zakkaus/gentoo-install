@@ -262,6 +262,51 @@ def test_whole_disk_omits_partition_children(
     ]
 
 
+def test_conversion_probes_parse_account_and_network_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Use captured `ip -o` rows to protect the fields preflight displays."""
+    home = tmp_path / "home"
+    home.mkdir()
+    account_home = home / "zakk"
+    account_home.mkdir()
+    passwd = tmp_path / "passwd"
+    uid = account_home.stat().st_uid
+    passwd.write_text(f"zakk:x:{uid}:1000:Zakk:/home/zakk:/bin/bash\n", encoding="utf-8")
+
+    def source_path(requested: str) -> Path:
+        if requested == "/home":
+            return home
+        if requested == "/etc/passwd":
+            return passwd
+        raise AssertionError(requested)
+
+    class Answering(Runner):
+        def run(self, argv: Sequence[str], **rest: object) -> Result:
+            if "address" in argv:
+                output = (
+                    "2: ens3    inet 192.0.2.10/24 brd 192.0.2.255 scope global dynamic "
+                    "noprefixroute ens3\n"
+                    "2: ens3    inet6 2001:db8::10/64 scope global noprefixroute\n"
+                )
+            elif "route" in argv:
+                output = "default via 192.0.2.1 dev ens3 proto dhcp src 192.0.2.10 metric 100\n\n"
+            else:
+                raise AssertionError(argv)
+            return Result(argv=tuple(argv), returncode=0, stdout=output, stderr="", seconds=0.0)
+
+    monkeypatch.setattr(probe, "Path", source_path)
+    reader = Probe(runner=Answering(log=lambda line: None), work=tmp_path)
+
+    assert reader.home_accounts() == ((str(account_home), uid, "zakk"),)
+    assert reader.current_addresses() == (
+        ("ens3", "192.0.2.10/24", True),
+        ("ens3", "2001:db8::10/64", False),
+    )
+    assert reader.default_routes() == (
+        "default via 192.0.2.1 dev ens3 proto dhcp src 192.0.2.10 metric 100",
+    )
+
 
 def test_the_live_medium_is_read_from_the_kernel_command_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
