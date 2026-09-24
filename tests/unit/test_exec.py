@@ -1459,12 +1459,12 @@ def test_every_request_names_the_installer(monkeypatch: pytest.MonkeyPatch) -> N
 
         headers: dict[str, str] = {}
 
-    def opened(request: object, timeout: float = 0.0) -> Answer:
+    def opened(request: object, proxy: object, timeout: float) -> Answer:
         assert isinstance(request, urllib.request.Request)
         seen.append(request.get_header("User-agent") or "")
         return Answer()
 
-    monkeypatch.setattr(urllib.request, "urlopen", opened)
+    monkeypatch.setattr(fetch, "_urlopen", opened)
     fetch.text("https://paste.gentoozh.org/abcdef")
     fetch.network_time()
     assert seen == [fetch.USER_AGENT, fetch.USER_AGENT]
@@ -2612,7 +2612,6 @@ def test_a_long_download_says_it_is_still_downloading() -> None:
     """
     import io
     import time as clock
-    import urllib.request
     from pathlib import Path
     from unittest import mock
 
@@ -2635,7 +2634,7 @@ def test_a_long_download_says_it_is_still_downloading() -> None:
     ticks = iter([0.0, 0.0, fetch.PROGRESS_INTERVAL + 1, fetch.PROGRESS_INTERVAL + 1] + [1e6] * 8)
     with tempfile.TemporaryDirectory() as where:
         target = Path(where) / "stage3.tar.xz"
-        with mock.patch.object(urllib.request, "urlopen", lambda *a, **k: Slow()), mock.patch.object(
+        with mock.patch.object(fetch, "_urlopen", lambda *args, **kwargs: Slow()), mock.patch.object(
             clock, "monotonic", lambda: next(ticks)
         ):
             fetch._download_once("https://example.invalid/stage3", target, said.append)

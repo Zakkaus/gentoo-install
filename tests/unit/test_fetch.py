@@ -231,6 +231,104 @@ def test_the_diagnostic_says_whether_the_namespace_is_shared() -> None:
     assert said.startswith("namespace ")
 
 
+def test_a_blackholed_address_does_not_hold_back_the_next(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A blackholed address must not spend the read timeout before IPv4 answers."""
+    import socket
+    import threading
+    import time
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from typing import Any
+
+    body = b"the answering address"
+    probe_timeout = 0.25
+    attempted: list[str] = []
+    real_socket = socket.socket
+    monkeypatch.setattr(fetch, "PROBE_TIMEOUT", probe_timeout)
+    for name in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(urllib.request, "_opener", None)
+
+    class Answering(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            time.sleep(probe_timeout * 1.1)
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_: object) -> None:
+            return None
+
+    class BlackholedSocket:
+        def __init__(
+            self,
+            family: int = socket.AF_INET,
+            kind: int = socket.SOCK_STREAM,
+            protocol: int = 0,
+            fileno: int | None = None,
+        ) -> None:
+            self._socket = real_socket(family, kind, protocol, fileno=fileno)
+
+        def connect(self, address: tuple[str, int]) -> None:
+            attempted.append(address[0])
+            if address[0] == "192.0.2.1":
+                timeout = self._socket.gettimeout()
+                delay = (
+                    probe_timeout * 1.1
+                    if timeout is not None and timeout <= probe_timeout
+                    else probe_timeout * 4
+                )
+                time.sleep(delay)
+                raise TimeoutError("blackholed address")
+            self._socket.connect(address)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._socket, name)
+
+    def resolved(*arguments: object, **_keywords: object) -> Any:
+        host, port = arguments[:2]
+        assert host == "two-addresses.test"
+        assert isinstance(port, int)
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("192.0.2.1", port),
+            ),
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("127.0.0.1", port),
+            ),
+        ]
+
+    with HTTPServer(("127.0.0.1", 0), Answering) as server:
+        serving = threading.Thread(target=server.serve_forever, daemon=True)
+        serving.start()
+        monkeypatch.setattr(socket, "getaddrinfo", resolved)
+        monkeypatch.setattr(socket, "socket", BlackholedSocket)
+        elapsed: float | None = None
+        started = time.monotonic()
+        try:
+            assert fetch._read_once(
+                f"http://two-addresses.test:{int(server.server_address[1])}/"
+            ) == body.decode()
+            elapsed = time.monotonic() - started
+        finally:
+            server.shutdown()
+            serving.join()
+    assert elapsed is not None
+    assert attempted == ["192.0.2.1", "127.0.0.1"]
+    assert elapsed < 3 * probe_timeout
+
+
 def test_a_corrupt_archive_moves_to_the_next_mirror(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

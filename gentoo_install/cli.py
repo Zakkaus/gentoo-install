@@ -548,6 +548,11 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
             if _needs_network(arguments):
                 # Before any reachability check: an unset clock makes every HTTPS
                 # request fail, and the message would name the network instead.
+                translate = _closing_catalog(state, arguments)
+                print(
+                    translate("checking the network before the menu opens"),
+                    file=sys.stderr,
+                )
                 _check_the_clock()
                 # The menu reads every version from the package site.
                 _say_what_the_menu_will_not_have()

@@ -6,7 +6,6 @@ import socket
 import urllib.request
 from pathlib import Path
 from typing import Any
-from typing import cast
 
 import pytest
 
@@ -49,22 +48,28 @@ def test_http_proxy_opener_keeps_credentials_out_of_environment_and_bypasses_hos
             return Response()
 
     built: list[tuple[object, ...]] = []
+
     def build(*handlers: Any) -> Opener:
         built.append(handlers)
         return Opener()
 
     monkeypatch.setattr(urllib.request, "build_opener", build)
-    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout: Response())
 
     with fetch._urlopen(fetch._asked("https://public.example/path"), PROXY, 3.0):
         pass
     with fetch._urlopen(fetch._asked("https://internal.example/path"), PROXY, 3.0):
         pass
 
-    assert built
-    handler = cast(Any, built[0][0])
-    assert handler.proxies["https"] == PROXY.url
-    assert len(opened) == 1
+    assert len(built) == 2
+    for handlers in built:
+        assert any(isinstance(handler, fetch._ProbeHTTPHandler) for handler in handlers)
+        assert any(isinstance(handler, fetch._ProbeHTTPSHandler) for handler in handlers)
+    handler = next(
+        handler for handler in built[0] if isinstance(handler, urllib.request.ProxyHandler)
+    )
+    assert vars(handler)["proxies"]["https"] == PROXY.url
+    assert not any(isinstance(handler, urllib.request.ProxyHandler) for handler in built[1])
+    assert len(opened) == 2
     assert "secret" not in str(fetch._CURRENT_PROXY.get())
 
 
@@ -72,8 +77,13 @@ def test_socks_scheme_controls_local_name_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     sent: list[bytes] = []
+    connected: list[float] = []
+    restored: list[float | None] = []
 
     class Socket:
+        def settimeout(self, timeout: float | None) -> None:
+            restored.append(timeout)
+
         def sendall(self, data: bytes) -> None:
             sent.append(data)
 
@@ -85,14 +95,24 @@ def test_socks_scheme_controls_local_name_resolution(
         def close(self) -> None:
             return None
 
-    monkeypatch.setattr(socket, "create_connection", lambda address, timeout: Socket())
-    monkeypatch.setattr(
-        socket,
-        "getaddrinfo",
-        lambda *args, **kwargs: [(2, 1, 6, "", ("127.0.0.1", 80))],
-    )
-    fetch._socks_connect(ProxyConfig(kind=ProxyKind.SOCKS5, host="proxy.example", port=1080), "internal.example", 80, 3.0)
+    def connect(
+        address: tuple[str, int],
+        timeout: float,
+        source_address: tuple[str, int] | None = None,
+    ) -> Socket:
+        connected.append(timeout)
+        return Socket()
 
+    monkeypatch.setattr(socket, "create_connection", connect)
+    fetch._socks_connect(
+        ProxyConfig(kind=ProxyKind.SOCKS5, host="proxy.example", port=1080),
+        "internal.example",
+        80,
+        3.0,
+    )
+
+    assert connected == [fetch.PROBE_TIMEOUT]
+    assert restored == [3.0]
     request = sent[-1]
     assert request[:4] == b"\x05\x01\x00\x03"
     host_end = 5 + request[4]

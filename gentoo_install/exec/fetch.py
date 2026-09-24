@@ -60,7 +60,9 @@ USER_AGENT: Final[str] = "gentoo-install"
 #: answers quickly and then serves a stage3 slowly still wins here.
 PROBE_FILE: Final[str] = "distfiles/timestamp.chk"
 
-#: A mirror that has not answered by now is not the one to install from.
+#: A mirror that has not answered by now is not the one to install from. Every
+#: TCP connect uses it too: a blackholed IPv6 route otherwise spent `TIMEOUT` on
+#: the AAAA record before `socket.create_connection` reached the A record.
 PROBE_TIMEOUT: Final[float] = 5.0
 
 #: Enough that a long mirror list costs a few timeouts rather than one per
@@ -646,6 +648,54 @@ def _bypassed(url: str, proxy: ProxyConfig) -> bool:
     return False
 
 
+def _connect_with_probe_timeout(
+    address: tuple[str, int],
+    timeout: float | None,
+    source_address: tuple[str, int] | None = None,
+) -> socket.socket:
+    sock = socket.create_connection(address, PROBE_TIMEOUT, source_address)
+    sock.settimeout(timeout)
+    return sock
+
+
+class _ProbeHTTPConnection(http.client.HTTPConnection):
+    """A connection whose connect is bounded by `PROBE_TIMEOUT` and whose reads keep `TIMEOUT`."""
+
+    _create_connection: Callable[
+        [tuple[str, int], float | None, tuple[str, int] | None],
+        socket.socket,
+    ]
+
+    def __init__(self, *arguments: Any, **keywords: Any) -> None:
+        super().__init__(*arguments, **keywords)
+        self._create_connection = _connect_with_probe_timeout
+
+
+class _ProbeHTTPSConnection(http.client.HTTPSConnection):
+    """The TLS form of `_ProbeHTTPConnection`."""
+
+    _create_connection: Callable[
+        [tuple[str, int], float | None, tuple[str, int] | None],
+        socket.socket,
+    ]
+
+    def __init__(self, *arguments: Any, **keywords: Any) -> None:
+        super().__init__(*arguments, **keywords)
+        self._create_connection = _connect_with_probe_timeout
+
+
+class _ProbeHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, request: urllib.request.Request) -> Any:
+        return self.do_open(_ProbeHTTPConnection, request)
+
+
+class _ProbeHTTPSHandler(urllib.request.HTTPSHandler):
+    _context: ssl.SSLContext
+
+    def https_open(self, request: urllib.request.Request) -> Any:
+        return self.do_open(_ProbeHTTPSConnection, request, context=self._context)
+
+
 def _urlopen(
     request: urllib.request.Request,
     proxy: ProxyConfig | None,
@@ -653,14 +703,16 @@ def _urlopen(
 ) -> Any:
     """Open a request through the configured proxy without exposing credentials."""
     selected = proxy if proxy is not None else _CURRENT_PROXY.get()
+    opener_handlers: list[Any] = [_ProbeHTTPHandler(), _ProbeHTTPSHandler()]
     if selected is None or not selected.url or _bypassed(request.full_url, selected):
-        return urllib.request.urlopen(request, timeout=timeout)
+        return urllib.request.build_opener(*opener_handlers).open(request, timeout=timeout)
     if selected.url.lower().split(":", 1)[0] in {"socks5", "socks5h"}:
         return _socks_open(request, selected, timeout)
     # ProxyHandler keeps credentials inside the opener and never places them in
     # argv or the process environment.
-    handlers = urllib.request.ProxyHandler({"http": selected.url, "https": selected.url})
-    opener_handlers: list[Any] = [handlers]
+    opener_handlers.append(
+        urllib.request.ProxyHandler({"http": selected.url, "https": selected.url})
+    )
     if selected.username or selected.password:
         passwords = urllib.request.HTTPPasswordMgrWithDefaultRealm()
         passwords.add_password(None, selected.url, selected.username, selected.password)
@@ -684,7 +736,7 @@ def _recv(sock: socket.socket, size: int) -> bytes:
 def _socks_connect(proxy: ProxyConfig, host: str, port: int, timeout: float | None) -> socket.socket:
     if not proxy.host:
         raise OSError("SOCKS5 proxy has no host")
-    sock = socket.create_connection((proxy.host, proxy.port or 1080), timeout)
+    sock = _connect_with_probe_timeout((proxy.host, proxy.port or 1080), timeout)
     username, password = proxy.username.encode(), proxy.password.encode()
     methods = b"\x00\x02" if username or password else b"\x00"
     sock.sendall(b"\x05" + bytes((len(methods),)) + methods)
