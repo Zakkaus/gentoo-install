@@ -1807,7 +1807,7 @@ def test_a_conversion_reads_the_running_layout_even_for_a_dry_run(
 
     assert code == EXIT_OK
     assert read == ["layout"], "the layout is what a conversion plan is derived from"
-    assert "swap" in capsys.readouterr().out
+    assert "rename unmounted directories" in capsys.readouterr().out
 
 
 def _conversion_arguments(no_shell: bool) -> argparse.Namespace:

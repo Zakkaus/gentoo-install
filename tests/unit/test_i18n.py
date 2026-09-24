@@ -700,6 +700,8 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "configure {} of compressed swap in {}",
         "replace the default boot entry with the memory environment ({}) and write {},"
         " which is what lets a disarm take the replacement back",
+        "replace {} from {}; replace the contents of mounted directories, rename "
+        "unmounted directories, then remove old directories",
         "create user {} in {} with a password",
         "create user {} in {} with a locked password",
         "download the newest {} stage3 from {} directly, or {} if it does not answer;"

@@ -1647,13 +1647,13 @@ def _reads_the_constant(
 #: draws those rows untranslated, and `docs/design.md` says why the remaining
 #: ones are not worth a catalog key each. A ratchet, not a deadline: it stops
 #: the number growing without anybody deciding to grow it.
-UNTRANSLATED_OPERATIONS: Final[int] = 73
+UNTRANSLATED_OPERATIONS: Final[int] = 72
 
 
 def test_the_untranslated_operation_count_does_not_grow() -> None:
     """`describe_parts()` is what the overview can translate; `describe()` is not.
 
-    Sixty-two operations return a template and seventy-three return a finished
+    Sixty-three operations return a template and seventy-two return a finished
     English sentence, so a Chinese overview draws those rows in English. The
     split is deliberate — most of the remainder is package atoms and paths —
     and this holds the line: writing a new operation with `describe()` alone

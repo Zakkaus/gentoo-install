@@ -68,6 +68,15 @@ def test_conversion_operation_describes_and_applies() -> None:
     assert recorder.swapped == [(PurePosixPath("/gentoo-install.new"), operation.names)]
 
 
+def test_swap_description_names_mounted_replacement() -> None:
+    operation = SwapDirectories(names=("var",))
+
+    assert operation.describe() == (
+        "replace /var from /gentoo-install.new; replace the contents of mounted "
+        "directories, rename unmounted directories, then remove old directories"
+    )
+
+
 def _layout(
     *,
     root_device: str | None = "/dev/vda2",
