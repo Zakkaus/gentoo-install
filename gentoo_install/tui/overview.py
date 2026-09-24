@@ -10,6 +10,7 @@ from ..model.config import InstallConfig
 from ..i18n import Catalog
 from ..plan import automatic as automatic_values
 from ..plan.build import build as plan_build
+from ..plan.convert import Staged
 from ..plan.operations import Operation
 from ..plan.render import counts
 from .context import Context, answers, footer, say, show_address
@@ -37,6 +38,10 @@ def _counted(operations: Sequence[Operation], translate: Catalog) -> str:
 
 def _operation_label(operation: Operation, translate: Catalog) -> str:
     """Return an operation label, including older descriptions without parts."""
+    if isinstance(operation, Staged):
+        return translate("{}, in {}").format(
+            _operation_label(operation.inner, translate), operation.staging
+        )
     parts = operation.describe_parts()
     if parts is None:
         return operation.describe()

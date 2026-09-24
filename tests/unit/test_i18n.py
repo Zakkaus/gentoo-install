@@ -698,6 +698,7 @@ REVIEWED_TEMPLATES: frozenset[str] = frozenset(
         "write {} for the wired interfaces with DHCP and DNS {}",
         'write {} with config_{}="dhcp"; dhcpcd configures DHCP on every interface',
         "configure {} of compressed swap in {}",
+        "{}, in {}",
         "replace the default boot entry with the memory environment ({}) and write {},"
         " which is what lets a disarm take the replacement back",
         "replace {} from {}; replace the contents of mounted directories, rename "
