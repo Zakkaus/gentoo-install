@@ -3602,8 +3602,12 @@ def test_create_target_refuses_a_path_outside_the_run_directories(tmp_path: Path
 
     # Negative control: a path inside a run directory is the ordinary case and
     # still works, or the guard would have stopped every run.
-    inside = WORKROOT / "unit-test-create-target" / "target.qcow2"
-    inside.parent.mkdir(parents=True, exist_ok=True)
+    # A directory of its own: a fixed name was removed by a suite running in
+    # another worktree, and `qemu-img create` then failed on a missing parent.
+    import tempfile
+
+    WORKROOT.mkdir(parents=True, exist_ok=True)
+    inside = Path(tempfile.mkdtemp(prefix="unit-test-create-target-", dir=WORKROOT)) / "target.qcow2"
     try:
         made = create_target(inside, DEFAULT_TARGET_SIZE)
         assert made.exists() and made.stat().st_size > 0
