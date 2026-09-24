@@ -430,7 +430,7 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     default nobody was offered an alternative to.
     """
     translate = context.translate
-    by_hand = context.choice.layout is Layout.REUSE
+    by_hand = context.manual
     how = Menu[bool](
         title=translate("How is this disk laid out?"),
         preamble=(translate("Automatic layout replaces the partition table; manual layout controls each partition."),),
@@ -452,7 +452,6 @@ def layout_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     if not how.chosen:
         return Answer(how.outcome)
     if how.unwrap():
-        context.manual = False
         return partitions_screen(screen, config, context)
     return _template_screen(screen, config, context)
 

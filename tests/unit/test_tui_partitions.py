@@ -1208,6 +1208,7 @@ def test_a_medium_with_no_zfs_offers_no_zfs_layout() -> None:
     """Alpine and Debian live images carry none, and the installer is meant to
     run from them; the row says why rather than failing at zpool create."""
     at = without_zfs()
+    at.manual = False
     # `automatic` first: the filesystem list is the screen after it.
     screen = FakeScreen(keys=["\n", "q"], lines=24, columns=100)
     screens.layout_screen(screen, config(), at)

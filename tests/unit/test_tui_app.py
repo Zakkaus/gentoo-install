@@ -2055,6 +2055,17 @@ def test_a_layout_editor_that_backs_out_leaves_no_manual_table_behind() -> None:
     )
     assert not at.manual
 
+def test_reopening_a_manual_layout_returns_to_its_partition_table() -> None:
+    """The Layout selector keeps a hand-built table on its manual branch."""
+    at = context()
+    at.manual = True
+    at.layout = manual.suggest(at.choice.disk, at.firmware)
+
+    answer = screens.layout_screen(FakeScreen(keys=["\n", "q"], lines=30), config(), at)
+
+    assert answer.outcome is Outcome.BACK
+    assert at.manual
+
 
 def test_opening_the_partitions_row_directly_marks_the_layout_manual() -> None:
     """It is reachable from the menu as well as from the Layout row, and the
