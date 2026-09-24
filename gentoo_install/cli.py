@@ -535,6 +535,16 @@ def _once(arguments: argparse.Namespace, state: RunState, refused: str) -> int |
                 return EXIT_OK
             if _unattended(arguments):
                 raise errors.PreflightFailed("an unattended run needs --config FILE")
+            if launch is not None and _probe_for(arguments).boot_method() is BootMethod.NONE:
+                # Before the menu: no answer in it can give this machine a boot entry to
+                # arm, and a refusal after the walk sent the operator back to its first screen.
+                _print_machine_state(state)
+                print(
+                    f"preflight: --{launch.mode.value} cannot arm a one-shot boot entry on "
+                    "this machine",
+                    file=sys.stderr,
+                )
+                return EXIT_PREFLIGHT
             if _needs_network(arguments):
                 # Before any reachability check: an unset clock makes every HTTPS
                 # request fail, and the message would name the network instead.
