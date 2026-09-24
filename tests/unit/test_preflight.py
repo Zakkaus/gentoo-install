@@ -381,22 +381,35 @@ def test_a_conversion_names_the_home_directories_it_will_orphan(tmp_path: Path) 
     assert any("/home/olduser" in one and "does not create" in one for one in said), said
 
 
-def test_a_system_account_owning_a_home_directory_is_not_reported(tmp_path: Path) -> None:
-    """A uid below the first one `useradd` hands out is a service account, and
-    naming it would bury the two lines that matter."""
+def test_a_lower_uid_home_directory_is_reported(tmp_path: Path) -> None:
+    """The replaced system may treat uid 500 as a user account."""
     from gentoo_install.exec import preflight as checking
 
-    class WithService(Probe):
+    class LowerUid(Probe):
         def home_accounts(self) -> tuple[tuple[str, int, str], ...]:
-            return (("/home/postgres", 70, "postgres"),)
+            return (("/home/alice", 500, "alice"),)
 
-    started = config()
-    assert (
-        checking._orphaned_home_directories(
-            started, WithService(runner=Runner(log=lambda line: None), work=tmp_path)
-        )
-        == []
+    said = checking._orphaned_home_directories(
+        config(), LowerUid(runner=Runner(log=lambda line: None), work=tmp_path)
     )
+
+    assert len(said) == 1, said
+    assert "/home/alice" in said[0] and "does not create" in said[0], said
+
+
+def test_a_root_owned_home_directory_is_not_reported(tmp_path: Path) -> None:
+    """A separate `/home` filesystem carries a root-owned `lost+found`."""
+    from gentoo_install.exec import preflight as checking
+
+    class SeparateHome(Probe):
+        def home_accounts(self) -> tuple[tuple[str, int, str], ...]:
+            return (("/home/lost+found", 0, "root"), ("/home/alice", 500, "alice"))
+
+    said = checking._orphaned_home_directories(
+        config(), SeparateHome(runner=Runner(log=lambda line: None), work=tmp_path)
+    )
+
+    assert len(said) == 1 and "/home/alice" in said[0], said
 
 
 class _WithNetwork(Probe):
