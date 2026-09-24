@@ -1718,6 +1718,208 @@ def test_zero_cluster_capacity_returns_an_error_after_a_deadline(
     assert now[0] == cluster.CAPACITY_PATIENCE
 
 
+@pytest.mark.lab
+def test_unreadable_empty_capacity_reports_waiting_fixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreadable capacity API is not an empty cluster."""
+    from typing import Any
+
+    from tests.vm import cluster, workdir
+    from tests.vm.proxmox import ProxmoxError, ProxmoxTransientError
+
+    lab = tmp_path / "lab"
+    run_dir = lab / "cluster"
+    lab.mkdir()
+    monkeypatch.setattr(workdir, "LAB_ROOT", lab)
+
+    class Unreadable:
+        def ours(self) -> list[tuple[str, int]]:
+            return []
+
+        def nodes(self) -> list[Any]:
+            raise ProxmoxTransientError("GET /nodes did not answer")
+
+        def call(self, method: str, path: str, **form: Any) -> Any:
+            return []
+
+        def remove_iso(self, node: str, name: str) -> str:
+            return ""
+
+    def build(path: Path, **kwargs: object) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"driver")
+        return path
+
+    monkeypatch.setattr(cluster, "Api", lambda: Unreadable())
+    monkeypatch.setattr(
+        cluster,
+        "rewrite_fixtures",
+        lambda jobs, into, region, sync, public_key="", site="", unlock_addresses=None,
+        distfiles="", binhost="": into,
+    )
+    monkeypatch.setattr(cluster, "build_driver", build)
+    monkeypatch.setattr(
+        cluster,
+        "current_minimal",
+        lambda: ("minimal-deadbeef.iso", ("https://invalid/iso",), "0" * 128),
+    )
+    monkeypatch.setattr(cluster, "POLL_WHILE_QUEUED", 0.001)
+    monkeypatch.setattr(cluster, "CAPACITY_PATIENCE", 0.005)
+    monkeypatch.setattr(cluster, "CAPACITY_FAILURE_PATIENCE", 0.03)
+
+    with pytest.raises(ProxmoxError) as caught:
+        cluster.run(
+            [cluster.Job("vm-lvm", Path("tests/fixtures/vm-lvm.toml"))],
+            run_dir,
+        )
+
+    reported = str(caught.value)
+    assert "never dispatched: vm-lvm" in reported
+    assert "never collected: none" in reported
+
+
+@pytest.mark.parametrize("recovers", (False, True))
+def test_unreadable_capacity_ends_a_running_schedule(
+    recovers: bool, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A failing capacity API cannot leave dispatched work and its queue forever,
+    and one that answers again does not end it: run58 lost seven installing guests
+    to a single `GET /nodes did not answer`."""
+    import threading
+    from types import SimpleNamespace
+    from tests.vm import cluster
+
+    from tests.vm.proxmox import Node, ProxmoxError, ProxmoxTransientError, Traffic
+
+    released = threading.Event()
+    started = threading.Event()
+
+    class Capacity:
+        def __init__(self) -> None:
+            self.reads = 0
+
+        def nodes(self) -> list[Node]:
+            self.reads += 1
+            if self.reads == 1 or (recovers and self.reads > 2):
+                return [Node("node", 64 * 1024**3, 16, free_cores=16.0)]
+            raise ProxmoxTransientError("GET /nodes did not answer")
+
+        def remove_iso(self, node: str, name: str) -> str:
+            return ""
+
+    class Addresses:
+        def reserve(self, preferred: str) -> str:
+            return preferred
+
+        def release(self, address: str) -> None:
+            return None
+
+    class Guest:
+        def __init__(self) -> None:
+            self.vmid = 9300
+            self.spec = SimpleNamespace(nonce="test-nonce")
+            self.stopped = False
+            self.destroyed = False
+
+        def stop(self) -> None:
+            self.stopped = True
+            released.set()
+
+        def destroy(self) -> None:
+            self.destroyed = True
+
+    api = Capacity()
+    addresses = Addresses()
+    guest = Guest()
+
+    def reserve(
+        unused_api: object,
+        node: str,
+        job: cluster.Job,
+        driver: str,
+        workdir: Path,
+        held_vmids: frozenset[int],
+        address: str,
+    ) -> cluster.Job:
+        del unused_api, driver, workdir, held_vmids
+        execution = cluster.Running(
+            guest,
+            cluster.Watchdog(tmp_path / "install.log", lambda: Traffic(0, 0, 1.0)),
+            job.reservation_bytes,
+            address,
+        )
+        return job.dispatch(
+            node, guest.vmid, tmp_path / "lease", tmp_path / "install.log", execution
+        )
+
+    def block(*unused: object) -> None:
+        started.set()
+        released.wait()
+
+    finished: list[list[cluster.Outcome] | Exception] = []
+
+    def schedule() -> None:
+        try:
+            finished.append(
+                cluster.run(
+                    [
+                        cluster.Job("vm-lvm", tmp_path / "vm-lvm.toml"),
+                        cluster.Job("vm-xfs", tmp_path / "vm-xfs.toml"),
+                    ],
+                    tmp_path / "work",
+                    limit=1,
+                )
+            )
+        except Exception as error:
+            finished.append(error)
+
+    monkeypatch.setattr(cluster, "confined", lambda path: path)
+    monkeypatch.setattr(cluster, "Api", lambda: api)
+    monkeypatch.setattr(cluster, "reconcile", lambda unused_api, workdir: None)
+    monkeypatch.setattr(cluster, "AddressPool", lambda root, probe: addresses)
+    monkeypatch.setattr(
+        cluster,
+        "rewrite_fixtures",
+        lambda jobs, into, region, sync, public_key="", site="", unlock_addresses=None,
+        distfiles="", binhost="": into,
+    )
+    monkeypatch.setattr(cluster, "build_driver", lambda path, **kwargs: path)
+    monkeypatch.setattr(cluster, "retain_driver", lambda workdir, built: built)
+    monkeypatch.setattr(cluster, "revision_identity", lambda driver: "revision")
+    monkeypatch.setattr(cluster, "orphan_report", lambda unused_api: [])
+    monkeypatch.setattr(
+        cluster,
+        "current_minimal",
+        lambda: ("minimal.iso", ("https://invalid/iso",), "0" * 128),
+    )
+    monkeypatch.setattr(cluster, "prepare", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cluster, "_reserve_job", reserve)
+    monkeypatch.setattr(cluster, "answer_once", block)
+    monkeypatch.setattr(cluster, "POLL_WHILE_QUEUED", 0.01)
+    monkeypatch.setattr(cluster, "CAPACITY_FAILURE_PATIENCE", 0.03)
+
+    thread = threading.Thread(target=schedule, daemon=True)
+    thread.start()
+    try:
+        assert started.wait(timeout=0.1), f"the first fixture was not dispatched: {finished}"
+        thread.join(timeout=0.5)
+        if recovers:
+            assert thread.is_alive() and not finished, f"one failed read ended it: {finished}"
+            return
+        assert not thread.is_alive(), "the scheduler kept retrying capacity without a bound"
+    finally:
+        released.set()
+        thread.join(timeout=1.0)
+
+    assert len(finished) == 1
+    assert isinstance(finished[0], ProxmoxError)
+    assert "never dispatched: vm-xfs" in str(finished[0])
+    assert "never collected: vm-lvm" in str(finished[0])
+    assert guest.stopped and guest.destroyed
+    assert api.reads >= 3
+
+
 def test_the_record_of_an_uploaded_medium_outlives_the_round_that_uploaded_it() -> None:
     """The ISO stays on the node between rounds, so a per-round work directory
     met its own upload as `already exists without its signed SHA-512 record`
