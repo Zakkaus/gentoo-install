@@ -308,6 +308,34 @@ def test_conversion_probes_parse_account_and_network_rows(
     )
 
 
+def test_home_accounts_ignores_a_non_utf8_passwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-UTF-8 GECOS field must not stop a warning-only probe, nor cost
+    the account its name."""
+    home = tmp_path / "home"
+    home.mkdir()
+    account_home = home / "jarvi"
+    account_home.mkdir()
+    uid = account_home.stat().st_uid
+    passwd = tmp_path / "passwd"
+    passwd.write_bytes(
+        b"jarvi:x:" + str(uid).encode() + b":1000:Jarv\xe4:/home/jarvi:/bin/bash\n"
+    )
+
+    def source_path(requested: str) -> Path:
+        if requested == "/home":
+            return home
+        if requested == "/etc/passwd":
+            return passwd
+        raise AssertionError(requested)
+
+    monkeypatch.setattr(probe, "Path", source_path)
+    reader = Probe(runner=Runner(log=lambda line: None), work=tmp_path)
+
+    assert reader.home_accounts() == ((str(account_home), uid, "jarvi"),)
+
+
 def test_the_live_medium_is_read_from_the_kernel_command_line(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

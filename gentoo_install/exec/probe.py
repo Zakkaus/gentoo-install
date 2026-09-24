@@ -1369,7 +1369,8 @@ class Probe:
             return ()
         names: dict[int, str] = {}
         try:
-            for line in Path("/etc/passwd").read_text(encoding="utf-8").splitlines():
+            # `replace`: a GECOS field in another encoding would otherwise lose every name.
+            for line in Path("/etc/passwd").read_text(encoding="utf-8", errors="replace").splitlines():
                 fields = line.split(":")
                 if len(fields) > 2 and fields[2].isdigit():
                     names.setdefault(int(fields[2]), fields[0])
