@@ -503,6 +503,7 @@ def _edit_gentoozh(
         return replace(config, portage=without_gentoo_zh(config))
     # The overlay is cloned from the chosen site, not from upstream: a mirror
     # picked here and ignored by the sync is the choice doing nothing.
+    forget_derived(context, ValueKind.OVERLAY)
     added = with_gentoo_zh(config)
     overlays = tuple(
         replace(one, sync_uri=mirrors.gentoozh(picked).git) if one.name == "gentoo-zh" else one

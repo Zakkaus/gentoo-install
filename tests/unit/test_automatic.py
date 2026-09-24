@@ -1014,6 +1014,34 @@ def test_a_first_time_gentoo_zh_choice_still_arrives_at_the_stable_channel() -> 
     assert chosen.portage.binhost.community is BinhostChannel.STABLE
 
 
+def test_operator_gentoo_zh_choice_is_not_withdrawn_with_a_kernel() -> None:
+    """The Mirrors row turns a derived overlay into the operator's choice."""
+    from gentoo_install.model.config import KernelSource
+    from gentoo_install.tui.context import GENTOO_ZH, ValueKind, was_derived
+    from tests.unit.fake_screen import FakeScreen
+    from tests.unit.test_tui_app import context
+
+    at = context()
+    selected = screens.kernel_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=30, columns=110),
+        config(ext4_on_gpt()),
+        at,
+    ).unwrap()
+    assert selected.kernel.source is KernelSource.CJK_BIN
+    assert was_derived(at, ValueKind.OVERLAY, GENTOO_ZH)
+
+    chosen = mirror._edit_gentoozh(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=30, columns=110), at, selected
+    )
+    assert chosen is not None
+    assert [one.name for one in chosen.portage.overlays] == [GENTOO_ZH]
+
+    plain = screens.kernel_screen(
+        FakeScreen(keys=["KEY_UP", "\n", "\n"], lines=30, columns=110), chosen, at
+    ).unwrap()
+    assert plain.kernel.source is KernelSource.DIST_SOURCE
+    assert [one.name for one in plain.portage.overlays] == [GENTOO_ZH]
+
 def test_opening_the_mirror_screen_and_changing_nothing_answers_it() -> None:
     """The row is required so nobody installs from a mirror they never looked
     at, and opening the screen is looking at it. Leaving the site unset made
