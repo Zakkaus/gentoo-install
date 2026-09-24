@@ -303,7 +303,7 @@ def _memory_ssh_keys(launch: MemoryLaunch, runner: Runner) -> tuple[str, ...]:
     elif source.kind is authorized.KeySourceKind.PATH:
         text = runner.run(["cat", "--", source.value]).stdout
     else:
-        text = runner.run(["curl", "--fail", "--location", source.value]).stdout
+        text = runner.run([*netboot.CURL, source.value]).stdout
     return authorized.keys_in(text)
 
 def _validate_memory_launch(
