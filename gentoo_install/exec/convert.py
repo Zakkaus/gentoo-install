@@ -20,6 +20,13 @@ from ..errors import ConversionFailed
 Copier = Callable[[Path, Path], None]
 
 
+WarningReporter = Callable[[str], None]
+
+
+def _stderr_warning(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
 #: Where a mounted directory's own entries are moved while it is replaced.
 #: Inside the mount, so every move is a rename on one filesystem.
 KEPT_ASIDE: str = ".gentoo-install.old"
@@ -209,7 +216,12 @@ def _restore_contents(
 
 
 def convert(
-    staging: Path, names: Sequence[str], *, copy: Copier, root: Path = Path("/")
+    staging: Path,
+    names: Sequence[str],
+    *,
+    copy: Copier,
+    root: Path = Path("/"),
+    warn: WarningReporter = _stderr_warning,
 ) -> None:
     """Replace each named directory and remove backups after all swaps finish."""
     try:
@@ -328,7 +340,7 @@ def convert(
             else:
                 shutil.rmtree(kept)
         except OSError as error:
-            print(f"{kept} stayed behind: {error}", file=sys.stderr)
+            warn(f"{kept} stayed behind: {error}")
 
 
 #: What a distribution names a kernel, an initramfs and the two files that go
@@ -344,7 +356,12 @@ KERNEL_FILES: tuple[str, ...] = (
 )
 
 
-def populate_boot(staging: Path, *, root: Path = Path("/")) -> None:
+def populate_boot(
+    staging: Path,
+    *,
+    root: Path = Path("/"),
+    warn: WarningReporter = _stderr_warning,
+) -> None:
     """Put the staged kernel into the machine's own `/boot`.
 
     Copied rather than renamed, and not part of the swap: `/boot` is a separate
@@ -384,4 +401,4 @@ def populate_boot(staging: Path, *, root: Path = Path("/")) -> None:
         except OSError as error:
             # Said rather than raised: the machine is already converted, and a
             # stale image left behind is a menu entry, not a broken system.
-            print(f"{entry} stayed behind: {error}", file=sys.stderr)
+            warn(f"{entry} stayed behind: {error}")
