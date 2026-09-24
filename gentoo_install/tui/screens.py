@@ -1519,16 +1519,19 @@ def _ask_password(screen: Screen, context: Context, title: str) -> Answer[str]:
 
 def swap_screen(screen: Screen, config: InstallConfig, context: Context) -> Answer[InstallConfig]:
     translate = context.translate
+    current = str(context.choice.swap) if context.choice.swap else ""
     items: list[Item[str]] = [
         Item(label=translate("none"), value=""),
         Item(label="4GiB", value="4GiB", detail=translate("a partition")),
         Item(label="8GiB", value="8GiB", detail=translate("a partition")),
     ]
+    if current and current not in {one.value for one in items}:
+        items.append(Item(label=current, value=current, detail=translate("a partition")))
     menu: Menu[str] = Menu(
         title=translate("Swap"),
         preamble=(translate("A swap partition relieves memory pressure and can support hibernation."),),
         items=items,
-        current=str(context.choice.swap) if context.choice.swap else "",
+        current=current,
         footer=footer(translate),
     )
     answer = menu.run(screen)

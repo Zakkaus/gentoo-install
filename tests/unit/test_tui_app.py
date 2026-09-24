@@ -2016,6 +2016,18 @@ def test_a_swap_partition_and_zram_are_two_rows_and_not_alternatives() -> None:
     none = screens.swap_screen(FakeScreen(keys=["KEY_UP", "\n"]), off, at).unwrap()
     assert not none.disk.graph.of_type(Swap)
 
+def test_a_custom_swap_reopens_on_its_hydrated_size() -> None:
+    """A loaded swap size stays selected even when it is not a preset."""
+    from gentoo_install.model.device import Swap
+
+    at = context()
+    at.choice = replace(at.choice, swap=Size.parse("2GiB"))
+
+    reopened = screens.swap_screen(FakeScreen(keys=["\n"], lines=20), config(), at).unwrap()
+
+    assert at.choice.swap == Size.parse("2GiB")
+    assert reopened.disk.graph.of_type(Swap)
+
 
 def test_ram_share_detail_is_a_localized_template() -> None:
     at = context()
