@@ -769,11 +769,9 @@ class Probe:
                 # The status, not `check=False` alone: an absent `mdev` and a
                 # `mdev` that ran and made nothing look the same from here, and
                 # the `--lowram` environment failed on one of the two.
-                # `-f`, not a bare scan: without it mdev leaves the stale
-                # `/dev/disk/*` links a previous table left behind, and a link
-                # pointing at a partition that no longer exists is what the
-                # next `mkfs` opens.
-                scan = self.runner.run(["mdev", "-sf"], check=False)
+                # No `-f`: busybox reads it only in daemon mode (`mdev.c:1288`), and a
+                # build without `FEATURE_MDEV_DAEMON` rejects it, so the scan never ran.
+                scan = self.runner.run(["mdev", "-s"], check=False)
                 tried.append(f"mdev={scan.returncode}")
             time.sleep(0.5)
         raise DeviceNotFound(
