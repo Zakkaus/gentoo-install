@@ -5066,6 +5066,28 @@ def test_changing_the_kernel_source_drops_the_version_pinned_to_the_old_one() ->
     assert kept.kernel.source is pinned.kernel.source
     assert kept.kernel.version == "7.1.12"
 
+def test_changing_kernel_source_discards_an_overriding_package() -> None:
+    """A source selection has to select the package the plan will merge."""
+    from gentoo_install.model.config import KernelSource
+
+    overridden = replace(
+        config(),
+        kernel=replace(
+            config().kernel,
+            source=KernelSource.DIST_SOURCE,
+            package=compat.KERNEL_PACKAGES[KernelSource.DIST_BIN].atom,
+        ),
+    )
+
+    chosen = screens.kernel_screen(
+        FakeScreen(keys=["KEY_DOWN", "\n"], lines=30, columns=100), overridden, context()
+    ).unwrap()
+
+    assert chosen.kernel.source is KernelSource.CJK_BIN
+    assert chosen.kernel.package == ""
+    assert compat.kernel_package_name(chosen) == compat.KERNEL_PACKAGES[KernelSource.CJK_BIN].atom
+    validate(chosen)
+
 def test_turning_console_cjk_on_drops_the_old_kernel_version_pin() -> None:
     from gentoo_install.model.config import KernelSource
 

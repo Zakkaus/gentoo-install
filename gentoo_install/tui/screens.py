@@ -1104,13 +1104,16 @@ def kernel_screen(screen: Screen, config: InstallConfig, context: Context) -> An
     if not answer.chosen:
         return Answer(answer.outcome)
     chosen = answer.unwrap()
-    # The pin goes with the source it was read from: the version list is
-    # `kernel_versions(package)` for that one package, so keeping `7.1.12`
-    # across a change of source composes `=<new atom>-7.1.12`, which the
-    # keyword check accepts as syntax and the merge refuses as a version.
-    version = config.kernel.version if chosen is config.kernel.source else ""
+    # A pin and override name the old package; `plan/kernel.py` prioritizes the
+    # override, so neither may survive a source change.
+    changed_source = chosen is not config.kernel.source
+    version = config.kernel.version if not changed_source else ""
+    package = "" if changed_source else config.kernel.package
     changed = replace(
-        config, kernel=replace(config.kernel, source=chosen, version=version)
+        config,
+        kernel=replace(
+            config.kernel, source=chosen, package=package, version=version
+        ),
     )
     if chosen in compat.CJK_KERNELS:
         # cjk on with it, the mirror of the branch below: `RequestCjkKernel`
