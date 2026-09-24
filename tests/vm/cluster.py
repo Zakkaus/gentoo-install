@@ -286,6 +286,10 @@ CAPACITY_PATIENCE: Final[float] = 120.0
 #: guest nothing ever collects would otherwise hold a round for ever.
 CAPACITY_PATIENCE_SHARED: Final[float] = 60 * 60.0
 
+#: A read failure says neither that the cluster is full nor that a running guest failed.
+#: Half an hour, the longest wait any single Proxmox task gets: rounds 35 to 37 retried for days.
+CAPACITY_FAILURE_PATIENCE: Final[float] = 30 * 60.0
+
 
 def _capacity_patience(api: Api) -> float:
     """How long a round waits for room, by who is holding it."""
@@ -494,6 +498,25 @@ class Job:
         if self.status is not JobStatus.ANSWERED or self.outcome is None:
             raise ProxmoxError(f"{self.name} cannot be collected from {self.status.value}")
         return replace(self, status=JobStatus.COLLECTED, collected_at=position)
+
+
+def _capacity_read_failed(
+    scheduled: Mapping[str, Job], seconds: float, error: ProxmoxTransientError
+) -> ProxmoxError:
+    """Name the fixtures an unreadable capacity leaves unfinished."""
+    never_dispatched = sorted(
+        job.name for job in scheduled.values() if job.status is JobStatus.WAITING
+    )
+    never_collected = sorted(
+        job.name
+        for job in scheduled.values()
+        if job.status in (JobStatus.RUNNING, JobStatus.ANSWERED)
+    )
+    return ProxmoxError(
+        f"the cluster's capacity could not be read for {seconds:.0f}s: {error}; "
+        f"never dispatched: {', '.join(never_dispatched) or 'none'}; "
+        f"never collected: {', '.join(never_collected) or 'none'}"
+    )
 
 
 #: Below this, over a whole ten-minute look, the guest is not working: a
@@ -2752,6 +2775,7 @@ def run(
     collected = 0
     swept = time.monotonic()
     capacity_since: float | None = None
+    capacity_failure_since: float | None = None
 
     try:
         while not all(job.collected for job in scheduled.values()):
@@ -2769,12 +2793,24 @@ def run(
                 # No slots this round, not the end of the schedule: run58 lost
                 # seven fixtures to one `GET /nodes did not answer: Remote end
                 # closed connection without response`, with every guest still
-                # installing. `capacity_since` below is what ends a schedule
-                # that genuinely has nowhere to run.
+                # installing. `CAPACITY_FAILURE_PATIENCE` ends one that never recovers.
+                now = time.monotonic()
+                if capacity_failure_since is None:
+                    capacity_failure_since = now
+                waited = now - capacity_failure_since
                 print(f"the cluster's capacity could not be read: {error}", flush=True)
+                if waited >= CAPACITY_FAILURE_PATIENCE:
+                    raise _capacity_read_failed(scheduled, waited, error)
                 slots = []
+            else:
+                capacity_failure_since = None
             slots = slots_within(limit, slots, running, waiting)
-            if waiting and not running and not slots:
+            if (
+                capacity_failure_since is None
+                and waiting
+                and not running
+                and not slots
+            ):
                 now = time.monotonic()
                 if capacity_since is None:
                     capacity_since = now
