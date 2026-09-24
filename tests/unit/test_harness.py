@@ -6086,6 +6086,10 @@ def test_an_untracked_file_does_not_make_a_run_look_dirty(
 
     from tests.vm import driver
 
+    # `git rebase -x` exports GIT_DIR, which would point `git init` at the real repository.
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+        monkeypatch.delenv(name, raising=False)
+
     def git(*argv: str) -> None:
         subprocess.run(["git", *argv], cwd=tmp_path, check=True, capture_output=True)
 
