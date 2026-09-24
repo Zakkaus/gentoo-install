@@ -2376,6 +2376,43 @@ def test_the_metadata_of_a_real_array_is_read_from_what_mdadm_prints(
     assert missing.mdraid_metadata("/dev/vda") is MdraidMetadataState.UNAVAILABLE
 
 
+def test_storage_metadata_resolves_tag_selectors(tmp_path: Path) -> None:
+    """`mdadm` needs a device path, not a persisted selector."""
+    from gentoo_install.model.config import DiskConfig
+    from gentoo_install.model.device import DeviceGraph, DeviceId, MdraidMetadataState
+
+    class ResolvingProbe(Probe):
+        def __init__(self) -> None:
+            super().__init__(runner=Runner(log=lambda line: None), work=tmp_path)
+            self.metadata_arguments: list[str] = []
+
+        def resolve(self, device: DeviceId, selector: str) -> str:
+            assert device == DeviceId("array")
+            assert selector == "UUID=abc-123"
+            return "/dev/md/esp"
+
+        def mdraid_metadata(self, selector: str) -> MdraidMetadataState:
+            self.metadata_arguments.append(selector)
+            return MdraidMetadataState.ABSENT
+
+        def disk_bytes(self, disk: str) -> int:
+            return 0
+
+    selected = replace(
+        config(),
+        disk=DiskConfig(
+            graph=DeviceGraph.build([Existing(id=DeviceId("array"), selector="UUID=abc-123")]),
+            root=DeviceId("array"),
+        ),
+    )
+    reader = ResolvingProbe()
+
+    facts = probe_storage_facts(selected, reader)
+
+    assert reader.metadata_arguments == ["/dev/md/esp"]
+    assert facts.metadata_for(DeviceId("array")) is MdraidMetadataState.ABSENT
+
+
 def test_a_probed_array_reaches_the_rule_that_refuses_it(tmp_path: Path) -> None:
     """One facts value reaches compatibility without changing configuration."""
     import tomllib
@@ -2394,9 +2431,11 @@ def test_a_probed_array_reaches_the_rule_that_refuses_it(tmp_path: Path) -> None
     )
     from gentoo_install.model.parse import parse
     from gentoo_install.model.serialise import to_toml
+    array = tmp_path / "array"
+    array.touch()
 
     nodes = [
-        Existing(id=DeviceId("array"), selector="/dev/md/esp", wipe=False),
+        Existing(id=DeviceId("array"), selector=str(array), wipe=False),
         Filesystem(
             id=DeviceId("espfs"),
             device=DeviceId("array"),
