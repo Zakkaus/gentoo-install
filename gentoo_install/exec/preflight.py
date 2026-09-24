@@ -322,9 +322,8 @@ def _routing_interfaces(routes: Sequence[str]) -> tuple[str, ...]:
     found: list[str] = []
     for route in routes:
         fields = route.split()
-        if "dev" in fields:
-            name = fields[fields.index("dev") + 1]
-            if name not in found:
+        for field, name in zip(fields, fields[1:]):
+            if field == "dev" and name not in found:
                 found.append(name)
     return tuple(found)
 
