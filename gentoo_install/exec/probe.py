@@ -1703,7 +1703,8 @@ def probe_storage_facts(config: InstallConfig, probe: Probe) -> StorageFacts:
         return StorageFacts()
     graph = config.disk.graph
     metadata = {
-        one.id: probe.mdraid_metadata(one.selector) for one in graph.of_type(Existing)
+        one.id: probe.mdraid_metadata(probe.resolve(one.id, one.selector))
+        for one in graph.of_type(Existing)
     }
     free = _free_extents(graph, probe)
     return StorageFacts(
