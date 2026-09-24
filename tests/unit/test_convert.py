@@ -643,6 +643,40 @@ def test_a_rollback_still_raises_for_anything_but_a_crossing(
         _restore_contents(destination, staged, [("new", Arrival.RENAMED)])
     assert raised.value.errno == errno.EBUSY
 
+def test_a_restore_error_does_not_abandon_later_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed entry restore must not leave the remaining originals aside."""
+    from gentoo_install.exec.convert import KEPT_ASIDE, Arrival, _restore_contents
+
+    destination = tmp_path / "var"
+    staged = tmp_path / "staging" / "var"
+    aside = destination / KEPT_ASIDE
+    for directory in (destination, staged, aside):
+        directory.mkdir(parents=True)
+    for name in ("first", "second"):
+        (destination / name).write_text(f"new {name}")
+        (aside / name).write_text(f"old {name}")
+    real_rename = os.rename
+
+    def fail_second(source: str | Path, target: str | Path) -> None:
+        if Path(source) == destination / "second":
+            raise OSError(errno.EIO, "injected restore failure")
+        real_rename(source, target)
+
+    monkeypatch.setattr(os, "rename", fail_second)
+    with pytest.raises(OSError, match="injected restore failure"):
+        _restore_contents(
+            destination,
+            staged,
+            [("first", Arrival.RENAMED), ("second", Arrival.RENAMED)],
+        )
+
+    assert (staged / "first").read_text() == "new first"
+    assert (destination / "first").read_text() == "old first"
+    assert (destination / "second").read_text() == "old second"
+    assert not aside.exists()
+
 
 def test_the_mount_state_is_read_once_for_each_destination(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

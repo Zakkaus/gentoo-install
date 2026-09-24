@@ -174,14 +174,38 @@ def _restore_contents(
     original in place, so removing the copy is its undo.
     """
     aside = destination / KEPT_ASIDE
+    failure: OSError | None = None
+
+    def remember(error: OSError, detail: str) -> None:
+        nonlocal failure
+        if failure is None:
+            failure = error
+        failure.add_note(detail)
+
     for name, how in reversed(arrived):
-        if how is Arrival.RENAMED:
-            os.rename(destination / name, staged / name)
-        else:
-            _remove(destination / name)
-    for name in sorted(os.listdir(aside)):
-        os.rename(aside / name, destination / name)
-    os.rmdir(aside)
+        try:
+            if how is Arrival.RENAMED:
+                os.rename(destination / name, staged / name)
+            else:
+                _remove(destination / name)
+        except OSError as error:
+            remember(error, f"could not return {name} to the staging root: {error}")
+    try:
+        original_names = sorted(os.listdir(aside))
+    except OSError as error:
+        remember(error, f"could not list {aside}: {error}")
+    else:
+        for name in original_names:
+            try:
+                os.rename(aside / name, destination / name)
+            except OSError as error:
+                remember(error, f"could not restore {destination / name}: {error}")
+    try:
+        os.rmdir(aside)
+    except OSError as error:
+        remember(error, f"could not remove {aside}: {error}")
+    if failure is not None:
+        raise failure
 
 
 def convert(
