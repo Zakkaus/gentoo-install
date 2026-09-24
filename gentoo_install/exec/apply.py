@@ -253,12 +253,12 @@ class Machine:
     ) -> None:
         from . import convert as converting
 
-        converting.convert(Path(str(staging)), names, copy=copy)
+        converting.convert(Path(str(staging)), names, copy=copy, warn=self.runner.warning)
 
     def populate_boot(self, staging: PurePosixPath) -> None:
         from . import convert as converting
 
-        converting.populate_boot(Path(str(staging)))
+        converting.populate_boot(Path(str(staging)), warn=self.runner.warning)
 
     def containing_disk(self, device: DeviceId) -> str:
         """The whole disk a device sits on, which is what a bootloader wants.

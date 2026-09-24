@@ -34,6 +34,17 @@ def test_the_journal_is_one_json_object_per_line(tmp_path: Path) -> None:
     assert written[0]["event"] == "operation" and written[0]["seconds"] == 12.5
     assert written[1]["event"] == "degraded" and "404" in written[1]["reason"]
 
+def test_a_nonfatal_warning_reaches_both_run_logs(tmp_path: Path) -> None:
+    messages: list[str] = []
+    journal = Journal(path=tmp_path / "install.jsonl")
+
+    Runner(log=messages.append, journal=journal).warning("an old directory stayed behind")
+
+    assert messages == ["an old directory stayed behind"]
+    assert journal.entries == [
+        {"event": "warning", "message": "an old directory stayed behind"}
+    ]
+
 
 def test_a_run_can_be_asked_how_much_it_compiled(tmp_path: Path) -> None:
     journal = Journal(path=tmp_path / "install.jsonl")

@@ -123,6 +123,10 @@ class Journal:
         ten minute install and a four hour one."""
         self.write("degraded", what=what, reason=reason)
 
+    def warning(self, message: str) -> None:
+        """A nonfatal problem that still belongs in the run record."""
+        self.write("warning", message=message)
+
     def replay(self) -> Iterator[dict[str, Any]]:
         """Every entry a previous run wrote, in order. A line that does not
         parse is skipped: a run killed mid-write leaves a partial last line."""

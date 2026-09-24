@@ -63,6 +63,12 @@ class Runner:
     proxy: ProxyConfig | None = None
     history: list[Result] = field(default_factory=list)
 
+    def warning(self, message: str) -> None:
+        """Record a nonfatal message in both run logs."""
+        self.log(message)
+        if self.journal is not None:
+            self.journal.warning(message)
+
     def run(
         self,
         argv: Sequence[str],

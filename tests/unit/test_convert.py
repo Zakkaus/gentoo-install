@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import errno
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -232,6 +233,29 @@ def test_a_file_that_is_not_a_kernel_image_is_left_alone(tmp_path: Path) -> None
 
     assert (root / "boot" / "memtest86+.bin").read_text() == "keep"
 
+
+def test_a_stale_kernel_warning_reaches_the_reporter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "root"
+    staging = root / "new"
+    old_kernel = root / "boot" / "vmlinuz-6.1.0-debian"
+    old_kernel.parent.mkdir(parents=True)
+    old_kernel.write_text("old")
+    (staging / "boot").mkdir(parents=True)
+    (staging / "boot" / "vmlinuz-6.18.43-gentoo").write_text("new")
+    real_unlink = Path.unlink
+
+    def refuse_old_kernel(path: Path, missing_ok: bool = False) -> None:
+        if path == old_kernel:
+            raise OSError(errno.EBUSY, "cannot remove")
+        real_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", refuse_old_kernel)
+    warnings: list[str] = []
+    convert.populate_boot(staging, root=root, warn=warnings.append)
+
+    assert warnings == [f"{old_kernel} stayed behind: [Errno {errno.EBUSY}] cannot remove"]
 
 def test_a_separately_mounted_directory_is_replaced_by_its_contents(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -503,6 +527,29 @@ def test_a_merged_usr_symlink_is_removed_rather_than_left_beside_the_new_one(
     assert (root / "bin").is_dir() and not (root / "bin").is_symlink()
     left = [one.name for one in root.iterdir() if one.name.endswith(convert.KEPT_ASIDE)]
     assert left == [], left
+
+def test_a_stale_replaced_tree_warning_reaches_the_reporter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "root"
+    staging = root / "new"
+    old_tree = root / "etc.gentoo-install.old"
+    (root / "etc").mkdir(parents=True)
+    (root / "etc" / "old.conf").write_text("old")
+    (staging / "etc").mkdir(parents=True)
+    (staging / "etc" / "new.conf").write_text("new")
+    real_rmtree = shutil.rmtree
+
+    def refuse_old_tree(path: str | Path) -> None:
+        if Path(path) == old_tree:
+            raise OSError(errno.EBUSY, "cannot remove")
+        real_rmtree(path)
+
+    monkeypatch.setattr(shutil, "rmtree", refuse_old_tree)
+    warnings: list[str] = []
+    convert.convert(staging, ("etc",), copy=_copy, root=root, warn=warnings.append)
+
+    assert warnings == [f"{old_tree} stayed behind: [Errno {errno.EBUSY}] cannot remove"]
 
 
 def test_a_copy_that_writes_part_of_a_tree_then_fails_leaves_none_of_it(
