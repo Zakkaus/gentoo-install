@@ -377,7 +377,7 @@ def test_a_conversion_names_the_home_directories_it_will_orphan(tmp_path: Path) 
     assert len(said) == 2, said
     # Both branches, because a recreated account is the case that reads as
     # fine and is not: `useradd` picks its own uid.
-    assert any("/home/zakk" in one and "same uid" in one for one in said), said
+    assert any("/home/zakk" in one and "without a uid setting" in one for one in said), said
     assert any("/home/olduser" in one and "does not create" in one for one in said), said
 
 

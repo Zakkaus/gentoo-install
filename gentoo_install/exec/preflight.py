@@ -377,7 +377,8 @@ def _orphaned_home_directories(config: InstallConfig, probe: Probe) -> list[str]
         if name and name in wanted:
             problems.append(
                 f"{path} belongs to uid {uid} ({name}), and the conversion recreates that "
-                "account: give it the same uid or its files stay unreadable to it"
+                "account without a uid setting; useradd may choose a different uid, which can "
+                "leave its files unreadable to it"
             )
         elif uid >= UID_MIN:
             problems.append(
